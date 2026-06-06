@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Upload, X } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { APP_FONT_CATALOG } from '../../data/fonts';
-import { type MockBrandSystem } from '../../data/mockData';
+import { type MockBrandSystem } from '../../stores/dashboardStore';
 
 interface Props {
   open: boolean;
@@ -52,125 +52,127 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
       title="Create brand system"
       footer={
         <>
-          <button type="button" className="orra-btn orra-btn--secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" form="brand-form" className="orra-btn orra-btn--primary">Create</button>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" form="brand-form" className="btn btn-primary">Create</button>
         </>
       }
     >
       <form id="brand-form" onSubmit={handleSubmit}>
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Brand name</div>
-          <input
-            className="orra-input"
-            placeholder="Enter brand name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </div>
-
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Description</div>
-          <input
-            className="orra-input"
-            placeholder="Short description of your brand"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Logo</div>
-          <div className="brand-modal__upload">
-            <Upload size={20} />
-            <span>Upload logo image</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Brand name</div>
+            <input
+              className="insp-select"
+              placeholder="Enter brand name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
           </div>
-        </div>
 
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Color palette</div>
-          <div className="brand-modal__color-grid">
-            {palette.map((color, i) => (
-              <div key={i} style={{ position: 'relative' }}>
-                <input
-                  type="color"
-                  value={color}
-                  onChange={(e) => {
-                    const next = [...palette];
-                    next[i] = e.target.value;
-                    setPalette(next);
-                  }}
-                  className="brand-modal__color-swatch"
-                  style={{ padding: 0, border: 'none', cursor: 'pointer' }}
-                />
-                {palette.length > 1 && (
-                  <button
-                    type="button"
-                    className="orra-btn orra-btn--small orra-btn--ghost"
-                    style={{ position: 'absolute', top: '-6px', right: '-6px', padding: '2px', background: 'var(--bg-primary)' }}
-                    onClick={() => setPalette(palette.filter((_, idx) => idx !== i))}
-                  >
-                    <X size={10} />
-                  </button>
-                )}
-              </div>
-            ))}
-            {palette.length < 8 && (
-              <button
-                type="button"
-                className="brand-modal__color-swatch"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)', border: '1px dashed var(--border-color)' }}
-                onClick={() => setPalette([...palette, '#ffffff'])}
-              >
-                +
-              </button>
-            )}
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Description</div>
+            <input
+              className="insp-select"
+              placeholder="Short description of your brand"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </div>
-        </div>
 
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Typography</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-            {APP_FONT_CATALOG.map((font) => (
-              <button
-                key={font}
-                type="button"
-                className={`orra-btn orra-btn--small ${fonts.includes(font) ? 'orra-btn--primary' : 'orra-btn--secondary'}`}
-                onClick={() => toggleFont(font)}
-              >
-                {font}
-              </button>
-            ))}
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Logo</div>
+            <div style={{ width: '100%', height: '120px', border: '2px dashed var(--line-soft)', borderRadius: '9px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--muted)', fontSize: '0.85rem', cursor: 'pointer' }}>
+              <Upload size={20} />
+              <span>Upload logo image</span>
+            </div>
           </div>
-        </div>
 
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Tone of voice</div>
-          <textarea
-            className="orra-textarea"
-            placeholder="How should your brand sound?"
-            value={tone}
-            onChange={(e) => setTone(e.target.value)}
-            rows={3}
-          />
-        </div>
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Color palette</div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {palette.map((color, i) => (
+                <div key={i} style={{ position: 'relative' }}>
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={(e) => {
+                      const next = [...palette];
+                      next[i] = e.target.value;
+                      setPalette(next);
+                    }}
+                    style={{ width: '36px', height: '36px', borderRadius: '7px', border: '1px solid var(--line-soft)', cursor: 'pointer', padding: 0 }}
+                  />
+                  {palette.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', background: 'var(--panel)' }}
+                      onClick={() => setPalette(palette.filter((_, idx) => idx !== i))}
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {palette.length < 8 && (
+                <button
+                  type="button"
+                  style={{ width: '36px', height: '36px', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--inset)', border: '1px dashed var(--line-soft)', cursor: 'pointer' }}
+                  onClick={() => setPalette([...palette, '#ffffff'])}
+                >
+                  +
+                </button>
+              )}
+            </div>
+          </div>
 
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Visual direction</div>
-          <textarea
-            className="orra-textarea"
-            placeholder="Describe the visual style"
-            value={visual}
-            onChange={(e) => setVisual(e.target.value)}
-            rows={3}
-          />
-        </div>
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Typography</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {APP_FONT_CATALOG.map((font) => (
+                <button
+                  key={font}
+                  type="button"
+                  className={`btn btn-sm ${fonts.includes(font) ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => toggleFont(font)}
+                >
+                  {font}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        <div className="brand-modal__section">
-          <div className="brand-modal__section-title">Reference images</div>
-          <div className="brand-modal__upload">
-            <Upload size={20} />
-            <span>Upload reference images</span>
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Tone of voice</div>
+            <textarea
+              className="insp-select"
+              placeholder="How should your brand sound?"
+              value={tone}
+              onChange={(e) => setTone(e.target.value)}
+              rows={3}
+              style={{ resize: 'vertical', minHeight: '60px', padding: '9px 11px', lineHeight: 1.4 }}
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Visual direction</div>
+            <textarea
+              className="insp-select"
+              placeholder="Describe the visual style"
+              value={visual}
+              onChange={(e) => setVisual(e.target.value)}
+              rows={3}
+              style={{ resize: 'vertical', minHeight: '60px', padding: '9px 11px', lineHeight: 1.4 }}
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>Reference images</div>
+            <div style={{ width: '100%', height: '120px', border: '2px dashed var(--line-soft)', borderRadius: '9px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--muted)', fontSize: '0.85rem', cursor: 'pointer' }}>
+              <Upload size={20} />
+              <span>Upload reference images</span>
+            </div>
           </div>
         </div>
       </form>

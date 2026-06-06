@@ -1,327 +1,179 @@
-/* ---------------------------------------------------------------------------
-   Orra Design System
-   --------------------------------------------------------------------------- */
+/* ============================================================
+   ORRA — calm, premium AI creative studio
+   Palette (灰青の夢): deep slate, steel, muted, soft, pale
+   ============================================================ */
 
 :root {
-  /* Palette */
-  --orra-abyss: #1d2a30;
-  --orra-deep: #354e53;
-  --orra-mid: #5e7680;
-  --orra-soft: #a4b7bd;
-  --orra-light: #c8d1d8;
-  --orra-paper: #f5f7f8;
-  --orra-white: #ffffff;
+  /* core palette */
+  --ink:        #1d2a30;
+  --primary:    #354e53;
+  --primary-2:  #2c4146;
+  --muted:      #5e7680;
+  --line:       #a4b7bd;
+  --pale:       #c8d1d8;
 
-  /* Semantic */
-  --bg-primary: var(--orra-white);
-  --bg-secondary: var(--orra-paper);
-  --bg-tertiary: var(--orra-light);
-  --text-primary: var(--orra-abyss);
-  --text-secondary: var(--orra-deep);
-  --text-muted: var(--orra-mid);
-  --border-color: var(--orra-light);
-  --accent-color: var(--orra-deep);
-  --accent-hover: var(--orra-abyss);
-  --danger: #c45c5c;
-  --danger-hover: #a84848;
-  --success: #5c8f6c;
-  --shadow-sm: 0 1px 3px rgba(29, 42, 48, 0.06);
-  --shadow-md: 0 4px 12px rgba(29, 42, 48, 0.08);
-  --shadow-lg: 0 8px 24px rgba(29, 42, 48, 0.10);
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  /* surfaces */
+  --paper:      #eceff0;
+  --paper-2:    #e6eaeb;
+  --panel:      #ffffff;
+  --panel-2:    #f7f9f9;
+  --inset:      #f1f4f4;
 
-  /* Typography */
+  /* derived lines / fills */
+  --line-soft:  rgba(164,183,189,0.32);
+  --line-mid:   rgba(94,118,128,0.22);
+  --line-hard:  rgba(53,78,83,0.30);
+  --ink-08:     rgba(29,42,48,0.08);
+  --ink-04:     rgba(29,42,48,0.04);
+  --primary-10: rgba(53,78,83,0.10);
+  --primary-06: rgba(53,78,83,0.06);
+
+  /* type */
   --font-display: 'Newsreader', Georgia, serif;
-  --font-ui: 'Hanken Grotesk', 'Inter', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, sans-serif;
+  --font-ui: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+
+  /* shadow */
+  --sh-1: 0 1px 2px rgba(29,42,48,0.05);
+  --sh-2: 0 2px 4px rgba(29,42,48,0.04), 0 10px 28px rgba(29,42,48,0.06);
+  --sh-3: 0 4px 8px rgba(29,42,48,0.05), 0 18px 48px rgba(29,42,48,0.10);
+  --sh-pop: 0 8px 20px rgba(29,42,48,0.10), 0 24px 60px rgba(29,42,48,0.14);
+
+  /* radius */
+  --r-xs: 8px;
+  --r-sm: 11px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-2xl: 30px;
 }
 
-[data-theme='dark'] {
-  --bg-primary: #0f1619;
-  --bg-secondary: #1a2429;
-  --bg-tertiary: #253238;
-  --text-primary: var(--orra-light);
-  --text-secondary: var(--orra-soft);
-  --text-muted: var(--orra-mid);
-  --border-color: #253238;
-  --accent-color: var(--orra-soft);
-  --accent-hover: var(--orra-light);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-html, body, #root {
-  height: 100%;
-}
-
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
 body {
   font-family: var(--font-ui);
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  color: var(--ink);
+  background: var(--paper);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  line-height: 1.5;
+  text-rendering: optimizeLegibility;
 }
+#root { height: 100%; }
 
-/* ---------------------------------------------------------------------------
-   Typography
-   --------------------------------------------------------------------------- */
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, textarea, select { font-family: inherit; color: inherit; }
+::selection { background: rgba(53,78,83,0.18); }
 
-h1, h2, h3, h4 {
-  font-family: var(--font-display);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-}
+/* scrollbars */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: rgba(94,118,128,0.28); border-radius: 20px; border: 3px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(94,118,128,0.42); background-clip: padding-box; border: 3px solid transparent; }
+*::-webkit-scrollbar-track { background: transparent; }
 
-h1 { font-size: 2rem; }
-h2 { font-size: 1.5rem; }
-h3 { font-size: 1.25rem; }
-h4 { font-size: 1rem; }
+/* ---------- primitives ---------- */
+.app { height: 100%; display: flex; flex-direction: column; }
 
-p {
-  font-family: var(--font-body);
-  color: var(--text-secondary);
-}
-
-/* ---------------------------------------------------------------------------
-   Buttons
-   --------------------------------------------------------------------------- */
-
-.orra-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1.2rem;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  font-family: var(--font-ui);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 40px; padding: 0 18px; border-radius: var(--r-sm);
+  font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em;
+  transition: transform .12s ease, box-shadow .2s ease, background .18s ease, border-color .18s ease;
   white-space: nowrap;
 }
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--primary); color: #f3f6f6; box-shadow: var(--sh-1); }
+.btn-primary:hover { background: var(--primary-2); box-shadow: var(--sh-2); }
+.btn-primary:disabled { background: var(--line); color: #fff; cursor: not-allowed; box-shadow: none; opacity: .65; }
+.btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--line-mid); }
+.btn-ghost:hover { background: var(--panel-2); border-color: var(--line-hard); }
+.btn-soft { background: var(--inset); color: var(--ink); }
+.btn-soft:hover { background: var(--paper-2); }
+.btn-sm { height: 32px; padding: 0 13px; font-size: 13px; border-radius: var(--r-xs); }
+.btn-icon {
+  width: 36px; height: 36px; padding: 0; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted); transition: background .15s, color .15s, border-color .15s;
+}
+.btn-icon:hover { background: var(--inset); color: var(--ink); }
 
-.orra-btn:hover {
-  transform: translateY(-1px);
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 14px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  background: transparent; border: 1px solid var(--line-soft);
+  transition: all .15s ease;
+}
+.chip:hover { border-color: var(--line-hard); color: var(--ink); }
+.chip.active { background: var(--ink); color: #eef1f1; border-color: var(--ink); }
+
+.eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted);
 }
 
-.orra-btn:active {
-  transform: translateY(0);
-}
-
-.orra-btn--primary {
-  background: var(--accent-color);
-  color: var(--orra-white);
-}
-
-.orra-btn--primary:hover {
-  background: var(--accent-hover);
-}
-
-.orra-btn--secondary {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--border-color);
-}
-
-.orra-btn--secondary:hover {
-  background: var(--bg-tertiary);
-}
-
-.orra-btn--ghost {
+/* wordmark */
+.wordmark { display: flex; align-items: center; gap: 11px; }
+.wordmark .glyph {
+  width: 30px; height: 30px; border-radius: 9px;
   background: transparent;
-  color: var(--text-secondary);
-}
-
-.orra-btn--ghost:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.orra-btn--danger {
-  background: var(--danger);
-  color: var(--orra-white);
-}
-
-.orra-btn--danger:hover {
-  background: var(--danger-hover);
-}
-
-.orra-btn--small {
-  padding: 0.4rem 0.8rem;
-  font-size: 0.8rem;
-  border-radius: var(--radius-sm);
-}
-
-/* ---------------------------------------------------------------------------
-   Inputs
-   --------------------------------------------------------------------------- */
-
-.orra-input {
-  width: 100%;
-  padding: 0.6rem 0.8rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  font-size: 0.875rem;
-  transition: border-color 0.15s;
-}
-
-.orra-input:focus {
-  outline: none;
-  border-color: var(--orra-mid);
-}
-
-.orra-input::placeholder {
-  color: var(--text-muted);
-}
-
-.orra-textarea {
-  width: 100%;
-  padding: 0.6rem 0.8rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  font-size: 0.875rem;
-  resize: vertical;
-  min-height: 80px;
-  transition: border-color 0.15s;
-}
-
-.orra-textarea:focus {
-  outline: none;
-  border-color: var(--orra-mid);
-}
-
-/* ---------------------------------------------------------------------------
-   Cards
-   --------------------------------------------------------------------------- */
-
-.orra-card {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  display: grid; place-items: center; flex: none;
   overflow: hidden;
-  transition: box-shadow 0.15s, transform 0.15s;
 }
-
-.orra-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
+.wordmark .glyph img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.wordmark .name {
+  font-family: var(--font-display); font-size: 23px; font-weight: 500;
+  letter-spacing: -0.01em; line-height: 1; color: var(--ink);
 }
+.wordmark .name em { font-style: italic; }
 
-/* ---------------------------------------------------------------------------
-   Modal
-   --------------------------------------------------------------------------- */
+/* surface card */
+.card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--r-lg); box-shadow: var(--sh-1); }
 
-.orra-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 22, 25, 0.5);
+/* modal overlay */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(29,42,48,0.35);
   backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
   padding: 1rem;
 }
-
-.orra-modal {
-  background: var(--bg-primary);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
-  width: 100%;
-  max-width: 560px;
-  max-height: 90vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+.modal {
+  background: var(--panel); border-radius: var(--r-xl);
+  box-shadow: var(--sh-pop); width: 100%; max-width: 560px;
+  max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column;
 }
+.modal__header { padding: 1.5rem 1.5rem 0.75rem; border-bottom: 1px solid var(--line-soft); }
+.modal__body { padding: 1.5rem; overflow-y: auto; }
+.modal__footer { padding: 1rem 1.5rem; border-top: 1px solid var(--line-soft); display: flex; gap: 0.75rem; justify-content: flex-end; }
 
-.orra-modal__header {
-  padding: 1.5rem 1.5rem 0.75rem;
-  border-bottom: 1px solid var(--border-color);
+/* ---------- dark mode ---------- */
+html[data-theme="dark"] {
+  --ink:        #e3e8ea;
+  --primary:    #8ea3ab;
+  --primary-2:  #7a919a;
+  --muted:      #5e7680;
+  --line:       #4a5c62;
+  --pale:       #354e53;
+
+  --paper:      #111a1d;
+  --paper-2:    #182328;
+  --panel:      #1d2a30;
+  --panel-2:    #24363c;
+  --inset:      #182328;
+
+  --line-soft:  rgba(74,92,98,0.32);
+  --line-mid:   rgba(142,163,171,0.22);
+  --line-hard:  rgba(94,118,128,0.30);
+  --ink-08:     rgba(227,232,234,0.08);
+  --ink-04:     rgba(227,232,234,0.04);
+  --primary-10: rgba(94,118,128,0.10);
+  --primary-06: rgba(94,118,128,0.06);
+
+  --sh-1: 0 1px 2px rgba(0,0,0,0.15);
+  --sh-2: 0 2px 4px rgba(0,0,0,0.12), 0 10px 28px rgba(0,0,0,0.18);
+  --sh-3: 0 4px 8px rgba(0,0,0,0.14), 0 18px 48px rgba(0,0,0,0.24);
+  --sh-pop: 0 8px 20px rgba(0,0,0,0.25), 0 24px 60px rgba(0,0,0,0.35);
 }
-
-.orra-modal__body {
-  padding: 1.5rem;
-  overflow-y: auto;
-}
-
-.orra-modal__footer {
-  padding: 1rem 1.5rem;
-  border-top: 1px solid var(--border-color);
-  display: flex;
-  gap: 0.75rem;
-  justify-content: flex-end;
-}
-
-/* ---------------------------------------------------------------------------
-   Popover
-   --------------------------------------------------------------------------- */
-
-.orra-popover {
-  position: absolute;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  z-index: 500;
-  min-width: 280px;
-  padding: 1rem;
-}
-
-/* ---------------------------------------------------------------------------
-   Scrollbar
-   --------------------------------------------------------------------------- */
-
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--orra-soft);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--orra-mid);
-}
-
-/* ---------------------------------------------------------------------------
-   Utility
-   --------------------------------------------------------------------------- */
-
-.orra-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
+html[data-theme="dark"] body { background: var(--paper); color: var(--ink); }
+html[data-theme="dark"] ::selection { background: rgba(142,163,171,0.22); }
+html[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,0.45); }
+html[data-theme="dark"] .wordmark .glyph { background: transparent; }
+html[data-theme="dark"] .chip.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }

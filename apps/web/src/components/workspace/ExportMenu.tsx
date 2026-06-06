@@ -1,34 +1,29 @@
-import { FileImage, FileArchive } from 'lucide-react';
-import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { Icon } from '../../data/icons';
 
-export default function ExportMenu() {
-  const { project, toggleExportMenu } = useWorkspaceStore();
-  const isCarousel = project?.type === 'carousel';
+interface Props {
+  isCarousel: boolean;
+  cards: { id: string }[];
+  ratio: string;
+  onClose: () => void;
+  onFlash: (msg: string) => void;
+}
 
+export default function ExportMenu({ isCarousel, cards, ratio, onClose, onFlash }: Props) {
   return (
-    <div className="export-menu">
-      <button
-        className="dropdown__item"
-        onClick={() => {
-          toggleExportMenu();
-          alert('PNG export mocked. No file generated.');
-        }}
-      >
-        <FileImage size={14} />
-        Export PNG
+    <div className="menu-pop">
+      <div className="mh">Export</div>
+      <button className={'menu-item'+(isCarousel?' disabled':'')} onClick={()=>{ if(isCarousel) return; onClose(); onFlash('Exporting PNG…'); }}>
+        <span className="ic">{<Icon.image s={17} />}</span>
+        <span className="tx"><b>PNG image</b><span>{isCarousel?'Single posts only':'This post · '+ratio}</span></span>
       </button>
-      {isCarousel && (
-        <button
-          className="dropdown__item"
-          onClick={() => {
-            toggleExportMenu();
-            alert('ZIP export mocked. No file generated.');
-          }}
-        >
-          <FileArchive size={14} />
-          Export ZIP
-        </button>
-      )}
+      <button className={'menu-item'+(!isCarousel?' disabled':'')} onClick={()=>{ if(!isCarousel) return; onClose(); onFlash('Bundling '+cards.length+' cards as ZIP…'); }}>
+        <span className="ic">{<Icon.zip s={17} />}</span>
+        <span className="tx"><b>ZIP archive</b><span>{isCarousel?cards.length+' cards · PNG each':'Carousel only'}</span></span>
+      </button>
+      <button className="menu-item" onClick={()=>{onClose();onFlash('Copied share link');}}>
+        <span className="ic">{<Icon.brand s={17} />}</span>
+        <span className="tx"><b>Copy share link</b><span>View-only preview</span></span>
+      </button>
     </div>
   );
 }

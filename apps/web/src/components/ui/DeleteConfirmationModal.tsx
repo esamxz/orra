@@ -16,13 +16,13 @@ export default function DeleteConfirmationModal({ open, onClose, onConfirm, item
       title={`Delete ${itemType}`}
       footer={
         <>
-          <button className="orra-btn orra-btn--secondary" onClick={onClose}>Cancel</button>
-          <button className="orra-btn orra-btn--danger" onClick={onConfirm}>Delete</button>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-primary" style={{background:'#b4543f'}} onClick={onConfirm}>Delete</button>
         </>
       }
     >
-      <p>
-        Are you sure you want to delete <strong>{itemName}</strong>?
+      <p style={{fontSize:14,lineHeight:1.6,color:'var(--muted)'}}>
+        Are you sure you want to delete <strong style={{color:'var(--ink)'}}>{itemName}</strong>?<br/>
         This action cannot be undone.
       </p>
     </Modal>

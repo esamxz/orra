@@ -1,41 +1,42 @@
-import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { Icon } from '../../data/icons';
 
-export default function ApprovalCard() {
-  const { approvalPlan, approvePlan, rejectPlan } = useWorkspaceStore();
+interface Specs {
+  lead: string;
+  style: string;
+  format: string;
+  brand: string;
+  cta: string;
+}
 
-  if (!approvalPlan) return null;
+interface Props {
+  specs: Specs | null;
+  ctaSet: boolean;
+  onApprove: () => void;
+  onAddCta: () => void;
+  onEdit: () => void;
+}
 
-  const summary = approvalPlan.type === 'carousel'
-    ? `Ready to create a ${approvalPlan.cardCount}-card carousel about ${approvalPlan.topic}.`
-    : `Ready to create a post about ${approvalPlan.topic}.`;
-
+export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, ctaSet }: Props) {
+  if (!specs) return null;
   return (
-    <div className="approval-card">
-      <div className="approval-card__summary">{summary}</div>
-      <div className="approval-card__details">
-        <div className="approval-card__detail">
-          <strong>Style</strong>: {approvalPlan.style}
-        </div>
-        <div className="approval-card__detail">
-          <strong>Format</strong>: {approvalPlan.ratio}
-        </div>
-        <div className="approval-card__detail">
-          <strong>Brand</strong>: {approvalPlan.brand || 'No brand'}
-        </div>
-        <div className="approval-card__detail">
-          <strong>CTA</strong>: Not set
+    <div className="approval">
+      <div className="ap-head">
+        <span className="ic">{<Icon.spark s={15} />}</span>
+        <b>Plan ready</b>
+      </div>
+      <div className="ap-body">
+        <p className="lead">{specs.lead}</p>
+        <div className="ap-specs">
+          <div className="ap-spec"><span className="k">Style</span><span className="v">{specs.style}</span></div>
+          <div className="ap-spec"><span className="k">Format</span><span className="v">{specs.format}</span></div>
+          <div className="ap-spec"><span className="k">Brand</span><span className="v">{specs.brand}</span></div>
+          <div className="ap-spec"><span className="k">CTA</span><span className={'v'+(ctaSet?'':' unset')}>{ctaSet ? specs.cta : 'not set'}</span></div>
         </div>
       </div>
-      <div className="approval-card__actions">
-        <button className="orra-btn orra-btn--primary" onClick={approvePlan}>
-          Approve and create
-        </button>
-        <button className="orra-btn orra-btn--secondary" onClick={rejectPlan}>
-          Edit direction
-        </button>
-        <button className="orra-btn orra-btn--ghost" onClick={rejectPlan}>
-          Cancel
-        </button>
+      <div className="ap-foot">
+        <button className="btn btn-primary" onClick={onApprove}>{<Icon.check s={16} />} Approve & create</button>
+        {!ctaSet && <button className="btn btn-ghost btn-sm" onClick={onAddCta}>Add CTA</button>}
+        <button className="btn btn-ghost btn-sm" onClick={onEdit}>Edit direction</button>
       </div>
     </div>
   );

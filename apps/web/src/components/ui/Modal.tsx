@@ -21,15 +21,15 @@ export default function Modal({ open, onClose, title, children, footer }: ModalP
   if (!open) return null;
 
   return (
-    <div className="orra-modal-overlay" onClick={onClose}>
-      <div className="orra-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         {title && (
-          <div className="orra-modal__header">
+          <div className="modal__header">
             <h3>{title}</h3>
           </div>
         )}
-        <div className="orra-modal__body">{children}</div>
-        {footer && <div className="orra-modal__footer">{footer}</div>}
+        <div className="modal__body">{children}</div>
+        {footer && <div className="modal__footer">{footer}</div>}
       </div>
     </div>
   );
