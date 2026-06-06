@@ -1,0 +1,14 @@
+{
+  "name": "@orra/consumer",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'Not implemented in this phase'",
+    "build": "echo 'Not implemented in this phase'",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'No tests in this phase'"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

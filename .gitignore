@@ -1,0 +1,104 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.cjs
+.pnp.loader.mjs
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.turbo/
+.cache/
+.parcel-cache/
+.vite/
+vite.config.ts.timestamp-*
+vite.config.js.timestamp-*
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.local.example
+!.env.development.example
+!.env.production.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Test and coverage output
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+vitest-report/
+junit.xml
+
+# Runtime and local data
+.tmp/
+temp/
+tmp/
+.local/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Cloudflare
+.wrangler/
+wrangler.toml.local
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Supabase local
+.supabase/
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+supabase/.env.*
+
+# R2 or uploaded/generated local assets
+uploads/
+generated/
+exports/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Package manager
+.pnpm-store/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Claude Code sessions
+.claude/
+
+# Misc
+*.local
