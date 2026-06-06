@@ -112,7 +112,7 @@
 .suggest:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-06); }
 
 /* ----- stage / artifact preview ----- */
-.stage { position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--paper); }
+.stage { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--paper); }
 .stage-grid {
   position: absolute; inset: 0;
   background-image: radial-gradient(circle, rgba(94,118,128,0.10) 1px, transparent 1px);

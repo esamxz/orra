@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Upload, X } from 'lucide-react';
 import Modal from '../ui/Modal';
-import { APP_FONT_CATALOG } from '../../data/fonts';
+import { APP_FONT_CATALOG } from '@orra/shared';
 import { type MockBrandSystem } from '../../stores/dashboardStore';
 
 interface Props {

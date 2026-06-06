@@ -64,17 +64,20 @@ export default function KonvaStage({
     });
     stageRef.current = stage;
 
-    const onResize = () => {
-      if (!containerRef.current || !stageRef.current) return;
-      stageRef.current.width(containerRef.current.clientWidth);
-      stageRef.current.height(containerRef.current.clientHeight);
-      draw(stateRef.current.document, stateRef.current.activeCardIndex, stateRef.current.selectedLayerId);
-    };
-
-    window.addEventListener('resize', onResize);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (stageRef.current && width > 0 && height > 0) {
+          stageRef.current.width(width);
+          stageRef.current.height(height);
+          draw(stateRef.current.document, stateRef.current.activeCardIndex, stateRef.current.selectedLayerId);
+        }
+      }
+    });
+    ro.observe(container);
 
     return () => {
-      window.removeEventListener('resize', onResize);
+      ro.disconnect();
       stage.destroy();
       stageRef.current = null;
     };
@@ -111,7 +114,7 @@ export default function KonvaStage({
       y: 0,
       width: stageW,
       height: stageH,
-      fill: 'transparent',
+      fill: 'rgba(0,0,0,0.001)',
     });
     canvasBg.on('click tap', () => {
       stateRef.current.onBgClick();
