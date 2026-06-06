@@ -31,7 +31,16 @@
 .autosave .live { width: 7px; height: 7px; border-radius: 50%; background: #5b9279; box-shadow: 0 0 0 3px rgba(91,146,121,0.16); }
 
 /* ----- body split ----- */
-.work-body { flex: 1; display: grid; grid-template-columns: 372px 1fr; min-height: 0; }
+.work-body { flex: 1; display: flex; min-height: 0; }
+.resizer {
+  flex: none; width: 8px; margin-left: -4px; margin-right: -4px; cursor: col-resize;
+  display: grid; place-items: center; z-index: 5;
+}
+.resizer-grip {
+  width: 3px; height: 36px; border-radius: 999px; background: var(--line-soft); transition: background .15s;
+}
+.resizer:hover .resizer-grip { background: var(--primary); }
+.resizer:active .resizer-grip { background: var(--primary); }
 
 /* ----- chat director ----- */
 .chat {

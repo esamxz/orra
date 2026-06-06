@@ -84,6 +84,10 @@ export default function WorkspacePage() {
   const [brandOpen, setBrandOpen] = useState(false);
   const [curBrand, setCurBrand] = useState(brand);
   const [toast, setToast] = useState<string | null>(null);
+  const [chatWidth, setChatWidth] = useState(372);
+  const resizing = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(372);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -207,6 +211,32 @@ export default function WorkspacePage() {
 
   const curLayer = card ? card.layers.find(l=>l.id===layerSel) : null;
 
+  /* ----- resizable divider ----- */
+  const onResizeStart = (e: React.MouseEvent) => {
+    resizing.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = chatWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resizing.current) return;
+      const delta = e.clientX - startXRef.current;
+      const next = Math.min(Math.max(startWidthRef.current + delta, 260), 520);
+      setChatWidth(next);
+    };
+    const onUp = () => {
+      if (!resizing.current) return;
+      resizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
+
   return (
     <div className="work">
       {/* TOP BAR */}
@@ -273,7 +303,7 @@ export default function WorkspacePage() {
       {/* BODY */}
       <div className="work-body">
         {/* CHAT */}
-        <section className="chat">
+        <section className="chat" style={{ width: chatWidth, flex: 'none' }}>
           <div className="chat-head">
             <div>
               <div className="ttl">Director</div>
@@ -345,13 +375,15 @@ export default function WorkspacePage() {
           </div>
         </section>
 
+        <div className="resizer" onMouseDown={onResizeStart} title="Resize panel"><div className="resizer-grip" /></div>
+
         {/* STAGE */}
         <section className="stage">
           <div className="stage-grid" />
           <div className="stage-main">
             {phase!=='generated' ? (
               <div className="empty">
-                <div className="orb">{<Icon.spark s={34} />}</div>
+                <div className="orb"><img src="/orra_logo.svg" alt="Orra" style={{width:44,height:44}} /></div>
                 <h2>A quiet canvas, ready</h2>
                 <p>Start with a prompt, upload assets, or choose a trend template. Orra will plan the direction, then lay out editable text over your visuals.</p>
                 <div className="opts">
