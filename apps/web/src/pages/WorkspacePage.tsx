@@ -1,15 +1,26 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
-import { BRANDS, makeCarousel, makeSinglePost, type ProtoCard, type ProtoLayer } from '../data/cards';
-import { SocialCard } from '../data/cards';
+import { BRANDS } from '../data/cards';
+import {
+  makeArtifactSinglePost,
+  makeArtifactCarousel,
+  makeTextLayer,
+  makeBackgroundLayer,
+  normalizeZ,
+  makeCard,
+} from '../data/mockArtifacts';
+import type { ArtifactDocument } from '@orra/shared';
+import KonvaStage from '../components/workspace/KonvaStage';
+import MiniArtifactPreview from '../components/workspace/MiniArtifactPreview';
 import ApprovalCard from '../components/workspace/ApprovalCard';
 import Inspector from '../components/workspace/Inspector';
 import ExportMenu from '../components/workspace/ExportMenu';
 import VersionHistoryPopover from '../components/workspace/VersionHistoryPopover';
 import UsageStatus from '../components/workspace/UsageStatus';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 
 const RATIO_DIM: Record<string, [number, number]> = { '1:1':[1,1], '4:5':[4,5], '9:16':[9,16], '16:9':[16,9] };
 
@@ -32,20 +43,20 @@ function topicFromPrompt(p: string) {
   return t.length > 2 && t.length < 60 ? t : 'self-improvement';
 }
 
-/* lightweight undo/redo history */
-function useHistory(initial: ProtoCard[]) {
-  const [s, setS] = useState({ past: [] as ProtoCard[][], present: initial, future: [] as ProtoCard[][] });
-  const setCards = (next: ProtoCard[] | ((prev: ProtoCard[]) => ProtoCard[]), record=true) => setS(st => {
+/* lightweight undo/redo history for ArtifactDocument */
+function useArtifactHistory(initial: ArtifactDocument | null) {
+  const [s, setS] = useState({ past: [] as (ArtifactDocument | null)[], present: initial, future: [] as (ArtifactDocument | null)[] });
+  const setArtifact = (next: ArtifactDocument | null | ((prev: ArtifactDocument | null) => ArtifactDocument | null), record=true) => setS(st => {
     const val = typeof next === 'function' ? next(st.present) : next;
     if (!record) return { ...st, present: val };
     return { past:[...st.past, st.present], present: val, future:[] };
   });
-  const resetCards = (val: ProtoCard[]) => setS({ past:[], present:val, future:[] });
+  const resetArtifact = (val: ArtifactDocument | null) => setS({ past:[], present:val, future:[] });
   const undo = () => setS(st => st.past.length ? { past:st.past.slice(0,-1), present:st.past[st.past.length-1], future:[st.present, ...st.future] } : st);
   const redo = () => setS(st => st.future.length ? { past:[...st.past, st.present], present:st.future[0], future:st.future.slice(1) } : st);
   const canUndo = s.past.length > 0;
   const canRedo = s.future.length > 0;
-  return { cards:s.present, setCards, resetCards, undo, redo, canUndo, canRedo };
+  return { artifact:s.present, setArtifact, resetArtifact, undo, redo, canUndo, canRedo };
 }
 
 let _mid = 0;
@@ -76,9 +87,16 @@ export default function WorkspacePage() {
   const [ctaSet, setCtaSet] = useState(false);
 
   const { theme, toggle: toggleTheme } = useTheme();
-  const { cards, setCards, resetCards, undo, redo, canUndo, canRedo } = useHistory([]);
-  const [sel, setSel] = useState(0);
-  const [layerSel, setLayerSel] = useState<string | null>(null);
+  const { artifact, setArtifact, resetArtifact, undo, redo, canUndo, canRedo } = useArtifactHistory(null);
+
+  // Selection state from workspace store
+  const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
+  const selectedLayerId = useWorkspaceStore((s) => s.selectedLayerId);
+  const setActiveCard = useWorkspaceStore((s) => s.setActiveCard);
+  const selectLayer = useWorkspaceStore((s) => s.selectLayer);
+  const clearSelection = useWorkspaceStore((s) => s.clearSelection);
+  const syncSelectionWithCard = useWorkspaceStore((s) => s.syncSelectionWithCard);
+
   const [exportOpen, setExportOpen] = useState(false);
   const [versOpen, setVersOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
@@ -93,16 +111,23 @@ export default function WorkspacePage() {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const toastT = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const flash = (txt: string) => {
+  const flash = useCallback((txt: string) => {
     setToast(txt);
     if (toastT.current) clearTimeout(toastT.current);
     toastT.current = setTimeout(()=>setToast(null), 2200);
-  };
+  }, []);
 
   useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
 
-  const card = cards[sel];
+  const card = artifact ? artifact.cards[activeCardIndex] : null;
   const fr = frameSize(ratio, isCarousel?500:548);
+
+  // Sync selection when active card changes
+  useEffect(() => {
+    if (card) {
+      syncSelectionWithCard(card);
+    }
+  }, [card, syncSelectionWithCard]);
 
   /* ----- chat send ----- */
   const send = () => {
@@ -140,12 +165,12 @@ export default function WorkspacePage() {
     setPending(null);
     setMessages(m => [...m, { id:mid(), role:'ai', type:'thinking', text:'Designing the layers…' }]);
     setTimeout(()=>{
-      const made = isCarousel ? makeCarousel(handle) : makeSinglePost(handle);
-      resetCards(made);
-      setSel(0); setLayerSel(null); setPhase('generated');
+      const made = isCarousel ? makeArtifactCarousel(handle) : makeArtifactSinglePost(handle);
+      resetArtifact(made);
+      setActiveCard(0); clearSelection(); setPhase('generated');
       setMessages(m => {
         const copy = m.filter(x => x.type!=='thinking');
-        return [...copy, { id:mid(), role:'ai', type:'done', text:`Created a ${isCarousel?made.length+'-card carousel':'single post'}. Click any text to edit, or tell me what to change.` }];
+        return [...copy, { id:mid(), role:'ai', type:'done', text:`Created a ${isCarousel?made.cards.length+'-card carousel':'single post'}. Click any text to edit, or tell me what to change.` }];
       });
       flash(isCarousel ? 'Carousel generated' : 'Post generated');
     }, 1700);
@@ -153,7 +178,7 @@ export default function WorkspacePage() {
 
   const specs = pending ? {
     lead: isCarousel
-      ? `Ready to create a 5-card carousel about ${pending.topic}.`
+      ? `Ready to create a ${artifact?.cards.length ?? 5}-card carousel about ${pending.topic}.`
       : `Ready to create a single post about ${pending.topic}.`,
     style: 'Calm · premium · focused',
     format: `Instagram ${ratio}`,
@@ -161,55 +186,97 @@ export default function WorkspacePage() {
     cta: 'Visit the link in bio',
   } : null;
 
-  /* ----- layer editing ----- */
-  const patchLayer = (patch: Partial<ProtoLayer>, record=true) => {
-    if (layerSel == null) return;
-    setCards(cs => cs.map((c,i)=> i!==sel ? c : {
-      ...c, layers: c.layers.map(l => l.id===layerSel ? { ...l, ...patch } : l)
-    }), record);
-  };
-  const dupLayer = () => {
-    if (layerSel == null) return;
-    setCards(cs => cs.map((c,i)=>{
-      if (i!==sel) return c;
-      const src = c.layers.find(l=>l.id===layerSel);
-      if (!src) return c;
-      const nl = { ...src, id:'l'+Date.now(), y: Math.min(src.y+8, 88) };
-      return { ...c, layers:[...c.layers, nl] };
-    }));
-    flash('Layer duplicated');
-  };
-  const delLayer = () => {
-    if (layerSel == null) return;
-    setCards(cs => cs.map((c,i)=> i!==sel ? c : { ...c, layers:c.layers.filter(l=>l.id!==layerSel) }));
-    setLayerSel(null);
-  };
-
   /* ----- rail card ops ----- */
   const addCard = () => {
-    setCards(cs => {
-      const variants = ['cover','steel','pale','mist','cta'];
-      const nv = variants[cs.length % variants.length];
-      const nc: ProtoCard = { id:'c'+Date.now(), bg:nv, layers:[
-        { id:'nl1', text:'New card', x:10, y:38, w:80, size:8.5, weight:500, color: nv==='pale'?'#1d2a30':'#f1f4f4', align:'left', font:'Display', opacity:1, lh:1.06 },
-        { id:'nl2', text:'Add your copy here', x:10, y:62, w:74, size:3.6, weight:500, color: nv==='pale'?'#5e7680':'#c8d1d8', align:'left', font:'Sans', opacity:0.95 },
-      ]};
-      return [...cs, nc];
+    if (!artifact) return;
+    setArtifact(prev => {
+      if (!prev) return prev;
+      const doc = structuredClone(prev);
+      const variants = ['#1d2a30','#5e7680','#eef1f1','#c8d1d8','#1d2a30'];
+      const labels = ['cover','steel','pale','mist','cta'];
+      const idx = doc.cards.length % variants.length;
+      const baseColor = variants[idx];
+      const label = labels[idx];
+      const textColor = label === 'pale' ? '#1d2a30' : '#f1f4f4';
+      const subColor = label === 'pale' ? '#5e7680' : '#c8d1d8';
+      const rw = doc.ratio.w;
+      const rh = doc.ratio.h;
+
+      const newCard = makeCard({
+        index: doc.cards.length,
+        baseColor,
+        layers: normalizeZ([
+          makeBackgroundLayer({ z: 0, w: rw, h: rh }),
+          makeTextLayer({
+            z: 1,
+            content: 'New card',
+            x: Math.round(0.10 * rw),
+            y: Math.round(0.38 * rh),
+            w: Math.round(0.80 * rw),
+            fontFamily: 'Newsreader',
+            fontSize: Math.round(8.5 * (rw / 100)),
+            fontWeight: 500,
+            color: textColor,
+            align: 'left',
+            lineHeight: 1.06,
+          }),
+          makeTextLayer({
+            z: 2,
+            content: 'Add your copy here',
+            x: Math.round(0.10 * rw),
+            y: Math.round(0.62 * rh),
+            w: Math.round(0.74 * rw),
+            fontFamily: 'Hanken Grotesk',
+            fontSize: Math.round(3.6 * (rw / 100)),
+            fontWeight: 500,
+            color: subColor,
+            align: 'left',
+            lineHeight: 1.2,
+            opacity: 0.95,
+          }),
+        ]),
+      });
+
+      doc.cards.push(newCard);
+      return doc;
     });
-    setSel(cards.length); setLayerSel(null);
+    setActiveCard(artifact ? artifact.cards.length : 0);
+    clearSelection();
     flash('Card added');
   };
+
   const dupCard = (i: number, e?: React.MouseEvent) => { e?.stopPropagation();
-    setCards(cs => { const c = { ...cs[i], id:'c'+Date.now(), layers: cs[i].layers.map(l=>({...l})) }; const n=[...cs]; n.splice(i+1,0,c); return n; });
+    setArtifact(prev => {
+      if (!prev) return prev;
+      const doc = structuredClone(prev);
+      const source = doc.cards[i];
+      const dup = structuredClone(source);
+      dup.id = crypto.randomUUID();
+      dup.index = doc.cards.length;
+      dup.layers = dup.layers.map(l => ({ ...structuredClone(l), id: crypto.randomUUID() }));
+      doc.cards.splice(i + 1, 0, dup);
+      doc.cards.forEach((c, idx) => c.index = idx);
+      return doc;
+    });
     flash('Card duplicated');
   };
+
   const delCard = (i: number, e?: React.MouseEvent) => { e?.stopPropagation();
-    if (cards.length<=1) { flash('A carousel needs at least one card'); return; }
-    setCards(cs => cs.filter((_,j)=>j!==i));
-    setSel(s => Math.max(0, s>=i ? s-1 : s)); setLayerSel(null);
+    if (!artifact || artifact.cards.length <= 1) { flash('A carousel needs at least one card'); return; }
+    setArtifact(prev => {
+      if (!prev) return prev;
+      const doc = structuredClone(prev);
+      doc.cards.splice(i, 1);
+      doc.cards.forEach((c, idx) => c.index = idx);
+      return doc;
+    });
+    const nextIndex = Math.max(0, activeCardIndex >= i ? activeCardIndex - 1 : activeCardIndex);
+    setActiveCard(nextIndex);
+    clearSelection();
   };
 
-  const curLayer = card ? card.layers.find(l=>l.id===layerSel) : null;
+  // Inspector receives the real selected Layer
+  const selectedLayer = card ? card.layers.find(l => l.id === selectedLayerId) ?? null : null;
 
   /* ----- resizable divider ----- */
   const onResizeStart = (e: React.MouseEvent) => {
@@ -294,7 +361,7 @@ export default function WorkspacePage() {
             <button className="btn btn-primary btn-sm" style={{height:36}} onClick={()=>{setExportOpen(v=>!v);setVersOpen(false);}}>{<Icon.download s={16} />} Export</button>
             {exportOpen && <>
               <div className="backdrop" onClick={()=>setExportOpen(false)} />
-              <ExportMenu isCarousel={isCarousel} cards={cards} ratio={ratio} onClose={()=>setExportOpen(false)} onFlash={flash} />
+              <ExportMenu isCarousel={isCarousel} cardCount={artifact?.cards.length ?? 0} ratio={ratio} onClose={()=>setExportOpen(false)} onFlash={flash} />
             </>}
           </div>
         </div>
@@ -393,45 +460,48 @@ export default function WorkspacePage() {
               </div>
             ) : (
               <div className="canvas-wrap">
-                <div className="canvas-frame" style={{width:fr.w, height:fr.h}}>
-                  {card && <SocialCard card={card} selectedLayer={layerSel}
-                    onSelectLayer={setLayerSel} onBgClick={()=>setLayerSel(null)} />}
+                <div className="canvas-frame" style={{width:fr.w, height:fr.h, position:'relative'}}>
+                  {artifact && (
+                    <KonvaStage
+                      document={artifact}
+                      activeCardIndex={activeCardIndex}
+                      selectedLayerId={selectedLayerId}
+                      onSelectLayer={(id, type) => selectLayer(id, type)}
+                      onBgClick={()=>clearSelection()}
+                    />
+                  )}
                 </div>
                 <div className="canvas-caption">
-                  {isCarousel ? <>Card {sel+1} of {cards.length} · {ratio} · {curBrand.name}</> : <>Single post · {ratio} · {curBrand.name}</>}
+                  {isCarousel ? <>Card {activeCardIndex+1} of {artifact?.cards.length ?? 0} · {ratio} · {curBrand.name}</> : <>Single post · {ratio} · {curBrand.name}</>}
                 </div>
               </div>
             )}
 
-            {curLayer && (
-              <Inspector layer={curLayer}
-                onChange={patchLayer} onClose={()=>setLayerSel(null)}
-                onDup={dupLayer} onDel={delLayer} />
+            {selectedLayer && (
+              <Inspector layer={selectedLayer}
+                onClose={()=>clearSelection()} />
             )}
           </div>
 
           {/* CAROUSEL RAIL */}
-          {phase==='generated' && isCarousel && (
+          {phase==='generated' && isCarousel && artifact && (
             <div className="rail">
               <div className="rail-head">
                 {<Icon.carousel s={16} style={{color:'var(--muted)'}} />}
                 <b>Carousel</b>
-                <span className="count">{cards.length} cards</span>
+                <span className="count">{artifact.cards.length} cards</span>
                 <div className="actions">
-                  <button className="btn-icon" style={{width:30,height:30}} title="Duplicate current" onClick={()=>dupCard(sel)}>{<Icon.copy s={16} />}</button>
-                  <button className="btn-icon" style={{width:30,height:30}} title="Delete current" onClick={()=>delCard(sel)}>{<Icon.trash s={16} />}</button>
+                  <button className="btn-icon" style={{width:30,height:30}} title="Duplicate current" onClick={()=>dupCard(activeCardIndex)}>{<Icon.copy s={16} />}</button>
+                  <button className="btn-icon" style={{width:30,height:30}} title="Delete current" onClick={()=>delCard(activeCardIndex)}>{<Icon.trash s={16} />}</button>
                 </div>
               </div>
               <div className="rail-track">
-                {cards.map((c,i)=>{
+                {artifact.cards.map((c,i)=>{
                   const t = frameSize(ratio, 78, 120);
                   return (
-                    <div key={c.id} className={'rail-item'+(i===sel?' active':'')} onClick={()=>{setSel(i);setLayerSel(null);}}>
-                      <div className="rail-thumb" style={{width:t.w, height:t.h}}>
-                        <div style={{position:'absolute',inset:0,containerType:'inline-size'}}>
-                          <SocialCard card={c} selectedLayer={null} onSelectLayer={()=>setSel(i)} onBgClick={()=>setSel(i)} />
-                          <div style={{position:'absolute',inset:0}} />
-                        </div>
+                    <div key={c.id} className={'rail-item'+(i===activeCardIndex?' active':'')} onClick={()=>{setActiveCard(i, artifact.cards);}}>
+                      <div className="rail-thumb" style={{width:t.w, height:t.h, position:'relative'}}>
+                        <MiniArtifactPreview card={c} />
                         <span className="rail-num">{i+1}</span>
                         <button className="del" title="Delete card" onClick={(e)=>delCard(i,e)}>{<Icon.x s={12} />}</button>
                       </div>
