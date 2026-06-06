@@ -9,24 +9,8 @@ import {
   LayerSchema,
   CardSchema,
 } from './schemas.js';
-
-// ---------------------------------------------------------------------------
-// Font catalog
-// ---------------------------------------------------------------------------
-
-export const APP_FONT_CATALOG = [
-  'Hanken Grotesk',
-  'Newsreader',
-  'Inter',
-  'Geist',
-  'DM Sans',
-] as const;
-
-export type AppFontFamily = (typeof APP_FONT_CATALOG)[number];
-
-export function isValidFontFamily(font: string): font is AppFontFamily {
-  return APP_FONT_CATALOG.includes(font as AppFontFamily);
-}
+import { isSupportedFontFamily } from './fonts.js';
+export { APP_FONT_CATALOG, type AppFontFamily, isSupportedFontFamily } from './fonts.js';
 
 // ---------------------------------------------------------------------------
 // Kernel error taxonomy
@@ -143,7 +127,7 @@ function validateBaseColor(color: string): void {
 
 function validateTextLayer(layer: Layer): void {
   if (layer.type !== 'text') return;
-  if (!isValidFontFamily(layer.fontFamily)) {
+  if (!isSupportedFontFamily(layer.fontFamily)) {
     throw new KernelError('INVALID_FONT', `Font "${layer.fontFamily}" is not in the app catalog`);
   }
 }
@@ -400,7 +384,7 @@ export function applyAction(document: ArtifactDocument, rawAction: unknown): App
         if (key in action.style) {
           oldStyle[key] = layer[key] as never;
           const value = action.style[key];
-          if (key === 'fontFamily' && value !== undefined && !isValidFontFamily(value as string)) {
+          if (key === 'fontFamily' && value !== undefined && !isSupportedFontFamily(value as string)) {
             throw new KernelError('INVALID_FONT', `Font "${value}" is not in the app catalog`);
           }
           (layer as Record<string, unknown>)[key] = value;

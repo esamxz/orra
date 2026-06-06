@@ -1,5 +1,6 @@
 import { Icon } from '../../data/icons';
 import type { Layer } from '@orra/shared';
+import { getFontByFamily } from '@orra/shared';
 
 interface Props {
   layer: Layer;
@@ -39,6 +40,26 @@ function layerTypeLabel(type: string): string {
   }
 }
 
+function FontInfo({ family }: { family: string }) {
+  const meta = getFontByFamily(family);
+  if (!meta) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>{family}</span>
+        <span style={{ fontSize: 11, color: 'var(--warning)', fontWeight: 500 }}>Unknown</span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontFamily: meta.family, fontSize: 15 }}>{meta.family}</span>
+      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+        {meta.category} · {meta.roleSuggestion}
+      </span>
+    </div>
+  );
+}
+
 export default function Inspector({ layer, onClose }: Props) {
   const isLocked = layer.locked;
 
@@ -71,7 +92,12 @@ export default function Inspector({ layer, onClose }: Props) {
         {layer.type === 'text' && (
           <Section title="Typography">
             <Field label="Content" value={layer.content} />
-            <Field label="Font family" value={layer.fontFamily} />
+            <div className="insp-field">
+              <label>Font family</label>
+              <div className="insp-select" style={{ height: 'auto', padding: '8px 11px', background: 'var(--inset)', cursor: 'default' }}>
+                <FontInfo family={layer.fontFamily} />
+              </div>
+            </div>
             <Field label="Font size" value={`${layer.fontSize}px`} />
             <Field label="Font weight" value={String(layer.fontWeight)} />
             <Field label="Line height" value={String(layer.lineHeight)} />
