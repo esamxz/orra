@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
+import { useDocumentHistory } from '../hooks/useDocumentHistory';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
 import { BRANDS } from '../data/cards';
@@ -12,8 +13,7 @@ import {
   normalizeZ,
   makeCard,
 } from '../data/mockArtifacts';
-import { applyAction, KernelError } from '@orra/shared';
-import type { ArtifactDocument, Action, TextLayer } from '@orra/shared';
+import type { Action, TextLayer } from '@orra/shared';
 import KonvaStage from '../components/workspace/KonvaStage';
 import MiniArtifactPreview from '../components/workspace/MiniArtifactPreview';
 import ApprovalCard from '../components/workspace/ApprovalCard';
@@ -47,21 +47,6 @@ function topicFromPrompt(p: string) {
   return t.length > 2 && t.length < 60 ? t : 'self-improvement';
 }
 
-/* lightweight undo/redo history for ArtifactDocument */
-function useArtifactHistory(initial: ArtifactDocument | null) {
-  const [s, setS] = useState({ past: [] as (ArtifactDocument | null)[], present: initial, future: [] as (ArtifactDocument | null)[] });
-  const setArtifact = (next: ArtifactDocument | null | ((prev: ArtifactDocument | null) => ArtifactDocument | null), record=true) => setS(st => {
-    const val = typeof next === 'function' ? next(st.present) : next;
-    if (!record) return { ...st, present: val };
-    return { past:[...st.past, st.present], present: val, future:[] };
-  });
-  const resetArtifact = (val: ArtifactDocument | null) => setS({ past:[], present:val, future:[] });
-  const undo = () => setS(st => st.past.length ? { past:st.past.slice(0,-1), present:st.past[st.past.length-1], future:[st.present, ...st.future] } : st);
-  const redo = () => setS(st => st.future.length ? { past:[...st.past, st.present], present:st.future[0], future:st.future.slice(1) } : st);
-  const canUndo = s.past.length > 0;
-  const canRedo = s.future.length > 0;
-  return { artifact:s.present, setArtifact, resetArtifact, undo, redo, canUndo, canRedo };
-}
 
 let _mid = 0;
 const mid = () => 'm' + (++_mid);
@@ -91,7 +76,16 @@ export default function WorkspacePage() {
   const [ctaSet, setCtaSet] = useState(false);
 
   const { theme, toggle: toggleTheme } = useTheme();
-  const { artifact, setArtifact, resetArtifact, undo, redo, canUndo, canRedo } = useArtifactHistory(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastT = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flash = useCallback((txt: string) => {
+    setToast(txt);
+    if (toastT.current) clearTimeout(toastT.current);
+    toastT.current = setTimeout(()=>setToast(null), 2200);
+  }, []);
+
+  const { artifact, dispatch, undo, redo, reset: resetArtifact, canUndo, canRedo } = useDocumentHistory(null, flash);
 
   // Selection state from workspace store
   const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
@@ -108,7 +102,6 @@ export default function WorkspacePage() {
   const [versOpen, setVersOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
   const [curBrand, setCurBrand] = useState(brand);
-  const [toast, setToast] = useState<string | null>(null);
   const [chatWidth, setChatWidth] = useState(372);
   const resizing = useRef(false);
   const startXRef = useRef(0);
@@ -116,30 +109,9 @@ export default function WorkspacePage() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const toastT = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flash = useCallback((txt: string) => {
-    setToast(txt);
-    if (toastT.current) clearTimeout(toastT.current);
-    toastT.current = setTimeout(()=>setToast(null), 2200);
-  }, []);
 
   /* ----- kernel action dispatch ----- */
-  const dispatchAction = useCallback((action: Action): boolean => {
-    if (!artifact) return false;
-    try {
-      const result = applyAction(artifact, action);
-      setArtifact(() => result.document);
-      return true;
-    } catch (err) {
-      if (err instanceof KernelError) {
-        flash(err.message);
-      } else {
-        flash('Something went wrong');
-      }
-      return false;
-    }
-  }, [artifact, setArtifact, flash]);
+  const dispatchAction = dispatch;
 
   const handleInspectorAction = useCallback((action: Action) => {
     dispatchAction(action);
@@ -156,6 +128,28 @@ export default function WorkspacePage() {
       syncSelectionWithCard(card);
     }
   }, [card, syncSelectionWithCard]);
+
+  // Keyboard undo/redo — blocked inside text inputs
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      const editable = (e.target as HTMLElement).isContentEditable;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || editable) return;
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); }
+      else if (ctrl && e.shiftKey && e.key === 'z') { e.preventDefault(); redo(); }
+      else if (ctrl && e.key === 'y') { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [undo, redo]);
+
+  // Guard activeCardIndex when undo removes a card
+  useEffect(() => {
+    if (artifact && activeCardIndex >= artifact.cards.length) {
+      setActiveCard(Math.max(0, artifact.cards.length - 1));
+    }
+  }, [artifact, activeCardIndex, setActiveCard]);
 
   /* ----- chat send ----- */
   const send = () => {

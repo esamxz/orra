@@ -336,6 +336,12 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
     [cardId, layer.id, onAction],
   );
 
+  // Local state for text content — dispatches once on blur (not per keystroke)
+  const [localContent, setLocalContent] = useState(textLayer?.content ?? '');
+  useEffect(() => {
+    setLocalContent(textLayer?.content ?? '');
+  }, [textLayer?.id, textLayer?.content]);
+
   const dispatchTextStyle = useCallback(
     (style: Parameters<typeof buildSetTextStyleAction>[2]) => { onAction(buildSetTextStyleAction(cardId, layer.id, style)); },
     [cardId, layer.id, onAction],
@@ -410,9 +416,10 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
           <Section>
             <textarea
               className="insp-content"
-              value={textLayer.content}
+              value={localContent}
               disabled={isLocked}
-              onChange={(e) => dispatchTextContent(e.target.value)}
+              onChange={(e) => setLocalContent(e.target.value)}
+              onBlur={(e) => { if (e.target.value !== textLayer.content) dispatchTextContent(e.target.value); }}
               rows={3}
               placeholder="Type something…"
             />
