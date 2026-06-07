@@ -5,11 +5,21 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
   "scripts": {
-    "build": "echo 'Not implemented in this phase'",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests in this phase'"
+    "test": "vitest run"
   },
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.3"
+  }
 }

@@ -104,3 +104,5 @@ desktop.ini
 *.local
 frontend-design/*
 .playwright-mcp/*
+supabase/*
+system-design/*
