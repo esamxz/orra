@@ -1,9 +1,10 @@
 import Konva from 'konva';
+import JSZip from 'jszip';
 import type { ArtifactDocument } from '@orra/shared';
 import { buildCardRenderData, type RenderLayer } from '@orra/renderer';
-import { buildExportFilename } from './exportHelpers.js';
+import { buildExportFilename, buildZipFilename, assertCarouselExportReady } from './exportHelpers.js';
 
-export { buildExportFilename, waitForFonts } from './exportHelpers.js';
+export { buildExportFilename, buildZipFilename, assertCarouselExportReady, waitForFonts } from './exportHelpers.js';
 
 const EXPORT_PIXEL_RATIO = 2;
 
@@ -253,4 +254,28 @@ export async function exportCardAsPng(
   const blob = await renderCardToPng(doc, cardIndex);
   const filename = buildExportFilename(opts.projectName, cardIndex);
   downloadBlob(blob, filename);
+}
+
+export async function exportCarouselAsZip(
+  doc: ArtifactDocument,
+  opts: {
+    projectName?: string;
+    onProgress?: (current: number, total: number) => void;
+  } = {},
+): Promise<void> {
+  assertCarouselExportReady(doc);
+
+  const { projectName, onProgress } = opts;
+  const total = doc.cards.length;
+  const zip = new JSZip();
+
+  for (let i = 0; i < total; i++) {
+    const blob = await renderCardToPng(doc, i);
+    const filename = buildExportFilename(projectName, i);
+    zip.file(filename, blob);
+    onProgress?.(i + 1, total);
+  }
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  downloadBlob(zipBlob, buildZipFilename(projectName));
 }

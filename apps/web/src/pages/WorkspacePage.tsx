@@ -25,7 +25,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { buildUpdateLayerPropsAction, buildSetTextContentAction } from '../components/workspace/inspectorActions';
 import { shouldEnterEditMode } from '../components/workspace/textEditHelpers';
 import TextEditOverlay from '../components/workspace/TextEditOverlay';
-import { exportCardAsPng, waitForFonts } from '../export/exportCard';
+import { exportCardAsPng, exportCarouselAsZip, waitForFonts } from '../export/exportCard';
 
 const RATIO_DIM: Record<string, [number, number]> = { '1:1':[1,1], '4:5':[4,5], '9:16':[9,16], '16:9':[16,9] };
 
@@ -436,6 +436,13 @@ export default function WorkspacePage() {
                 onExportPng={artifact ? async () => {
                   await waitForFonts();
                   await exportCardAsPng(artifact, activeCardIndex, { projectName: config.projectName });
+                } : undefined}
+                onExportZip={artifact && artifact.cards.length > 1 ? async () => {
+                  await waitForFonts();
+                  await exportCarouselAsZip(artifact, {
+                    projectName: config.projectName,
+                    onProgress: (current, total) => flash(`Exporting ${current} of ${total}…`),
+                  });
                 } : undefined}
               />
             </>}

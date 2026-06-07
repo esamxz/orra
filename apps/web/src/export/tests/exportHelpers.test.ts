@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildExportFilename, waitForFonts } from '../exportHelpers.js';
+import { buildExportFilename, waitForFonts, buildZipFilename, assertCarouselExportReady } from '../exportHelpers.js';
 import { buildCardRenderData } from '@orra/renderer';
 import type {
   ArtifactDocument,
@@ -191,5 +191,112 @@ describe('export pipeline — document and card validation', () => {
     expect(buildCardRenderData(doc, 0).baseColor).toBe('#111111');
     expect(buildCardRenderData(doc, 1).baseColor).toBe('#222222');
     expect(buildCardRenderData(doc, 2).baseColor).toBe('#333333');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildZipFilename
+// ---------------------------------------------------------------------------
+
+describe('buildZipFilename', () => {
+  it('returns orra-carousel.zip when no project name', () => {
+    expect(buildZipFilename(undefined)).toBe('orra-carousel.zip');
+  });
+
+  it('returns orra-carousel.zip when project name is empty string', () => {
+    expect(buildZipFilename('')).toBe('orra-carousel.zip');
+  });
+
+  it('returns orra-carousel.zip when project name is only whitespace', () => {
+    expect(buildZipFilename('   ')).toBe('orra-carousel.zip');
+  });
+
+  it('returns orra-carousel.zip when slug collapses to empty after cleaning', () => {
+    expect(buildZipFilename('---!!!---')).toBe('orra-carousel.zip');
+  });
+
+  it('uses project name slug when provided', () => {
+    expect(buildZipFilename('My Project')).toBe('my-project-carousel.zip');
+  });
+
+  it('slugifies special characters in project name', () => {
+    expect(buildZipFilename('Self Improvement! 2025')).toBe('self-improvement-2025-carousel.zip');
+  });
+
+  it('strips leading and trailing hyphens from slug', () => {
+    expect(buildZipFilename('  Test  ')).toBe('test-carousel.zip');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertCarouselExportReady
+// ---------------------------------------------------------------------------
+
+describe('assertCarouselExportReady', () => {
+  it('does not throw for a document with 2 cards', () => {
+    const doc = makeDocument({ type: 'carousel', cards: [makeCard([], { index: 0 }), makeCard([], { index: 1 })] });
+    expect(() => assertCarouselExportReady(doc)).not.toThrow();
+  });
+
+  it('does not throw for a document with 5 cards', () => {
+    const cards = Array.from({ length: 5 }, (_, i) => makeCard([], { index: i }));
+    const doc = makeDocument({ type: 'carousel', cards });
+    expect(() => assertCarouselExportReady(doc)).not.toThrow();
+  });
+
+  it('throws for a single-card document', () => {
+    const doc = makeDocument({ cards: [makeCard([], { index: 0 })] });
+    expect(() => assertCarouselExportReady(doc)).toThrow('at least 2 cards');
+  });
+
+  it('throws for a zero-card document', () => {
+    const doc = makeDocument({ cards: [] });
+    expect(() => assertCarouselExportReady(doc)).toThrow('at least 2 cards');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Carousel card ordering (via buildCardRenderData)
+// ---------------------------------------------------------------------------
+
+describe('carousel card ordering for ZIP export', () => {
+  it('card data is retrieved in document array order', () => {
+    const doc: ArtifactDocument = {
+      schemaVersion: 1,
+      artifactId: crypto.randomUUID(),
+      type: 'carousel',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      cards: [
+        makeCard([], { index: 0, baseColor: '#aaaaaa' }),
+        makeCard([], { index: 1, baseColor: '#bbbbbb' }),
+        makeCard([], { index: 2, baseColor: '#cccccc' }),
+      ],
+      version: 0,
+    };
+    // Simulate the ZIP loop: iterate by array position
+    for (let i = 0; i < doc.cards.length; i++) {
+      const data = buildCardRenderData(doc, i);
+      expect(data.baseColor).toBe(doc.cards[i].baseColor);
+    }
+  });
+
+  it('PNG filenames for carousel cards are zero-padded and in order', () => {
+    const filenames = [0, 1, 2, 3, 4].map((i) => buildExportFilename(undefined, i));
+    expect(filenames).toEqual([
+      'orra-card-01.png',
+      'orra-card-02.png',
+      'orra-card-03.png',
+      'orra-card-04.png',
+      'orra-card-05.png',
+    ]);
+  });
+
+  it('PNG filenames with project name are zero-padded and in order', () => {
+    const filenames = [0, 1, 2].map((i) => buildExportFilename('Growth Tips', i));
+    expect(filenames).toEqual([
+      'growth-tips-01.png',
+      'growth-tips-02.png',
+      'growth-tips-03.png',
+    ]);
   });
 });
