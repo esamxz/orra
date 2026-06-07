@@ -4,6 +4,7 @@ import type { ArtifactDocument } from '@orra/shared';
 import { buildCardRenderData, type RenderLayer } from '@orra/renderer';
 import { shouldLayerBeDraggable } from './dragHelpers';
 import { isLayerResizable, clampResizeBounds, hasResizeChanged, MIN_RESIZE_W, MIN_RESIZE_H } from './resizeHelpers';
+import { fontStyleFromWeight, hexToRgba } from '../../utils/renderUtils';
 
 interface Props {
   document: ArtifactDocument;
@@ -15,17 +16,6 @@ interface Props {
   onDblClick?: (layerId: string) => void;
   editingLayerId?: string | null;
   onResizeEnd?: (layerId: string, x: number, y: number, w: number, h: number) => void;
-}
-
-function fontStyleFromWeight(weight: number): string {
-  return String(weight);
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function buildBackgroundGradient(baseColor: string): [string, string] {

@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { buildExportFilename, waitForFonts, buildZipFilename, assertCarouselExportReady } from '../exportHelpers.js';
-import { buildCardRenderData } from '@orra/renderer';
+import { buildCardRenderData, type RenderTextLayer } from '@orra/renderer';
+import {
+  makeExportFixtureDoc,
+  FIXTURE_HIDDEN_LAYER_ID,
+  FIXTURE_LOCKED_LAYER_ID,
+  FIXTURE_HIDDEN_LAYER_SENTINEL,
+} from './exportFixture.js';
 import type {
   ArtifactDocument,
   Card,
@@ -298,5 +304,92 @@ describe('carousel card ordering for ZIP export', () => {
       'growth-tips-02.png',
       'growth-tips-03.png',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Export fidelity audit
+// ---------------------------------------------------------------------------
+
+describe('export fidelity audit', () => {
+  it('locked visible layer is included in export render data', () => {
+    const doc = makeExportFixtureDoc();
+    const result = buildCardRenderData(doc, 0);
+    const lockedLayer = result.layers.find((l) => l.id === FIXTURE_LOCKED_LAYER_ID);
+    expect(lockedLayer).toBeDefined();
+    expect(lockedLayer?.locked).toBe(true);
+  });
+
+  it('locked hidden layer is excluded from export render data', () => {
+    const hiddenLockedLayer: TextLayer = {
+      id: '00000000-0000-0000-0000-000000000099',
+      type: 'text',
+      z: 20, x: 0, y: 0, w: 100, h: 40,
+      rotation: 0, opacity: 1,
+      locked: true, hidden: true,
+      content: 'should not appear',
+      fontFamily: 'Hanken Grotesk',
+      fontSize: 16,
+      fontWeight: 400,
+      lineHeight: 1.4,
+      letterSpacing: 0,
+      color: '#ffffff',
+      align: 'left',
+    };
+    const doc = makeExportFixtureDoc();
+    doc.cards[0].layers.push(hiddenLockedLayer);
+    const result = buildCardRenderData(doc, 0);
+    expect(result.layers.find((l) => l.id === '00000000-0000-0000-0000-000000000099')).toBeUndefined();
+  });
+
+  it('export fixture validates cleanly', () => {
+    const doc = makeExportFixtureDoc();
+    expect(() => buildCardRenderData(doc, 0)).not.toThrow();
+  });
+
+  it('export fixture render layer count excludes the hidden layer', () => {
+    const doc = makeExportFixtureDoc();
+    // 12 total layers, 1 hidden → 11 in render result
+    const result = buildCardRenderData(doc, 0);
+    expect(result.layers.length).toBe(11);
+  });
+
+  it('export fixture includes the locked visible layer', () => {
+    const doc = makeExportFixtureDoc();
+    const result = buildCardRenderData(doc, 0);
+    expect(result.layers.some((l) => l.locked === true)).toBe(true);
+  });
+
+  it('export fixture excludes the hidden layer by sentinel content', () => {
+    const doc = makeExportFixtureDoc();
+    const result = buildCardRenderData(doc, 0);
+    const hasHiddenSentinel = result.layers.some(
+      (l) => l.kind === 'text' && (l as RenderTextLayer).content === FIXTURE_HIDDEN_LAYER_SENTINEL,
+    );
+    expect(hasHiddenSentinel).toBe(false);
+  });
+
+  it('hidden layer id is absent from render result', () => {
+    const doc = makeExportFixtureDoc();
+    const result = buildCardRenderData(doc, 0);
+    expect(result.layers.find((l) => l.id === FIXTURE_HIDDEN_LAYER_ID)).toBeUndefined();
+  });
+
+  it('export dimensions are independent of viewport — come only from document ratio', () => {
+    const doc45 = makeExportFixtureDoc(); // 4:5 → 1080×1350
+    const doc11: ArtifactDocument = {
+      ...doc45,
+      artifactId: '00000000-0000-0000-0000-000000000003',
+      ratio: { name: '1:1', w: 1080, h: 1080 },
+    };
+    const result45 = buildCardRenderData(doc45, 0);
+    const result11 = buildCardRenderData(doc11, 0);
+    expect(result45.width).toBe(1080);
+    expect(result45.height).toBe(1350);
+    expect(result11.width).toBe(1080);
+    expect(result11.height).toBe(1080);
+    // Calling again produces identical values — no viewport state
+    expect(buildCardRenderData(doc45, 0).width).toBe(result45.width);
+    expect(buildCardRenderData(doc45, 0).height).toBe(result45.height);
   });
 });

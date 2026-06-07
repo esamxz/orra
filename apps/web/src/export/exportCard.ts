@@ -3,25 +3,11 @@ import JSZip from 'jszip';
 import type { ArtifactDocument } from '@orra/shared';
 import { buildCardRenderData, type RenderLayer } from '@orra/renderer';
 import { buildExportFilename, buildZipFilename, assertCarouselExportReady } from './exportHelpers.js';
+import { fontStyleFromWeight, hexToRgba } from '../utils/renderUtils.js';
 
 export { buildExportFilename, buildZipFilename, assertCarouselExportReady, waitForFonts } from './exportHelpers.js';
 
 const EXPORT_PIXEL_RATIO = 2;
-
-// ---------------------------------------------------------------------------
-// Utilities copied from KonvaStage (no external deps)
-// ---------------------------------------------------------------------------
-
-function fontStyleFromWeight(weight: number): string {
-  return String(weight);
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
 
 // ---------------------------------------------------------------------------
 // Per-layer export node — no editor chrome
