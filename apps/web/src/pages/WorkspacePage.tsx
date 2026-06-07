@@ -13,7 +13,7 @@ import {
   makeCard,
 } from '../data/mockArtifacts';
 import { applyAction, KernelError } from '@orra/shared';
-import type { ArtifactDocument, Action } from '@orra/shared';
+import type { ArtifactDocument, Action, TextLayer } from '@orra/shared';
 import KonvaStage from '../components/workspace/KonvaStage';
 import MiniArtifactPreview from '../components/workspace/MiniArtifactPreview';
 import ApprovalCard from '../components/workspace/ApprovalCard';
@@ -22,7 +22,9 @@ import ExportMenu from '../components/workspace/ExportMenu';
 import VersionHistoryPopover from '../components/workspace/VersionHistoryPopover';
 import UsageStatus from '../components/workspace/UsageStatus';
 import { useWorkspaceStore } from '../stores/workspaceStore';
-import { buildUpdateLayerPropsAction } from '../components/workspace/inspectorActions';
+import { buildUpdateLayerPropsAction, buildSetTextContentAction } from '../components/workspace/inspectorActions';
+import { shouldEnterEditMode } from '../components/workspace/textEditHelpers';
+import TextEditOverlay from '../components/workspace/TextEditOverlay';
 
 const RATIO_DIM: Record<string, [number, number]> = { '1:1':[1,1], '4:5':[4,5], '9:16':[9,16], '16:9':[16,9] };
 
@@ -98,6 +100,9 @@ export default function WorkspacePage() {
   const selectLayer = useWorkspaceStore((s) => s.selectLayer);
   const clearSelection = useWorkspaceStore((s) => s.clearSelection);
   const syncSelectionWithCard = useWorkspaceStore((s) => s.syncSelectionWithCard);
+
+  const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
+  const editContextRef = useRef<{ cardId: string; layerId: string; originalContent: string } | null>(null);
 
   const [exportOpen, setExportOpen] = useState(false);
   const [versOpen, setVersOpen] = useState(false);
@@ -289,6 +294,38 @@ export default function WorkspacePage() {
     if (!card) return;
     dispatchAction(buildUpdateLayerPropsAction(card.id, layerId, { x, y }));
   }, [card, dispatchAction]);
+
+  const handleDblClick = useCallback((layerId: string) => {
+    if (!card) return;
+    const layer = card.layers.find((l) => l.id === layerId);
+    if (!layer || !shouldEnterEditMode(layer)) return;
+    editContextRef.current = {
+      cardId: card.id,
+      layerId,
+      originalContent: (layer as TextLayer).content,
+    };
+    setEditingLayerId(layerId);
+  }, [card]);
+
+  const handleEditCommit = useCallback((text: string) => {
+    const ctx = editContextRef.current;
+    editContextRef.current = null;
+    setEditingLayerId(null);
+    if (!ctx) return;
+    if (text !== ctx.originalContent) {
+      dispatchAction(buildSetTextContentAction(ctx.cardId, ctx.layerId, text));
+    }
+  }, [dispatchAction]);
+
+  const handleEditCancel = useCallback(() => {
+    editContextRef.current = null;
+    setEditingLayerId(null);
+  }, []);
+
+  // Cancel edit on card switch; TextEditOverlay cleanup commits pending text first
+  useEffect(() => {
+    setEditingLayerId(null);
+  }, [activeCardIndex]);
 
   // Inspector receives the real selected Layer
   const selectedLayer = card ? card.layers.find(l => l.id === selectedLayerId) ?? null : null;
@@ -496,10 +533,28 @@ export default function WorkspacePage() {
                       activeCardIndex={activeCardIndex}
                       selectedLayerId={selectedLayerId}
                       onSelectLayer={(id, type) => selectLayer(id, type)}
-                      onBgClick={()=>clearSelection()}
+                      onBgClick={() => { handleEditCancel(); clearSelection(); }}
                       onDragEnd={handleDragEnd}
+                      onDblClick={handleDblClick}
+                      editingLayerId={editingLayerId}
                     />
                   )}
+                  {editingLayerId && artifact && card && (() => {
+                    const editLayer = card.layers.find((l) => l.id === editingLayerId);
+                    if (!editLayer || editLayer.type !== 'text') return null;
+                    return (
+                      <TextEditOverlay
+                        key={editingLayerId}
+                        layer={editLayer as TextLayer}
+                        frameW={fr.w}
+                        frameH={fr.h}
+                        docW={artifact.ratio.w}
+                        docH={artifact.ratio.h}
+                        onCommit={handleEditCommit}
+                        onCancel={handleEditCancel}
+                      />
+                    );
+                  })()}
                 </div>
                 <div className="canvas-caption">
                   {isCarousel ? <>Card {activeCardIndex+1} of {artifact?.cards.length ?? 0} · {ratio} · {curBrand.name}</> : <>Single post · {ratio} · {curBrand.name}</>}

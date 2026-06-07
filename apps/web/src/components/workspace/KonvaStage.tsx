@@ -11,6 +11,8 @@ interface Props {
   onSelectLayer: (id: string, type: string) => void;
   onBgClick: () => void;
   onDragEnd?: (layerId: string, x: number, y: number) => void;
+  onDblClick?: (layerId: string) => void;
+  editingLayerId?: string | null;
 }
 
 function fontStyleFromWeight(weight: number): string {
@@ -47,6 +49,8 @@ export default function KonvaStage({
   onSelectLayer,
   onBgClick,
   onDragEnd,
+  onDblClick,
+  editingLayerId,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -57,6 +61,7 @@ export default function KonvaStage({
     onSelectLayer,
     onBgClick,
     onDragEnd,
+    onDblClick,
   });
 
   useEffect(() => {
@@ -67,6 +72,7 @@ export default function KonvaStage({
       onSelectLayer,
       onBgClick,
       onDragEnd,
+      onDblClick,
     };
   });
 
@@ -91,6 +97,7 @@ export default function KonvaStage({
             stateRef.current.document,
             stateRef.current.activeCardIndex,
             stateRef.current.selectedLayerId,
+            editingLayerId ?? null,
           );
         }
       }
@@ -105,10 +112,10 @@ export default function KonvaStage({
   }, []);
 
   useEffect(() => {
-    draw(document, activeCardIndex, selectedLayerId);
-  }, [document, activeCardIndex, selectedLayerId]);
+    draw(document, activeCardIndex, selectedLayerId, editingLayerId ?? null);
+  }, [document, activeCardIndex, selectedLayerId, editingLayerId]);
 
-  function draw(doc: ArtifactDocument, cardIndex: number, selId: string | null) {
+  function draw(doc: ArtifactDocument, cardIndex: number, selId: string | null, editId: string | null) {
     const stage = stageRef.current;
     if (!stage) return;
 
@@ -171,7 +178,7 @@ export default function KonvaStage({
 
     // Draw each render layer
     for (const layer of renderData.layers) {
-      const group = createLayerGroup(layer, selId, scale, offsetX, offsetY, docW, docH);
+      const group = createLayerGroup(layer, selId, scale, offsetX, offsetY, docW, docH, editId);
       if (group) {
         contentLayer.add(group);
       }
@@ -188,6 +195,7 @@ export default function KonvaStage({
     offsetY: number,
     docW: number,
     docH: number,
+    editId: string | null,
   ): Konva.Group | null {
     const group = new Konva.Group({
       x: layer.x,
@@ -388,6 +396,19 @@ export default function KonvaStage({
         });
         group.add(lockIcon, lockText);
       }
+    }
+
+    // Double-click to enter inline edit mode (text layers only)
+    if (layer.kind === 'text') {
+      group.on('dblclick dbltap', () => {
+        stateRef.current.onDblClick?.(layer.id);
+      });
+    }
+
+    // If this layer is currently being edited, hide it and skip drag
+    if (layer.id === editId) {
+      group.opacity(0);
+      return group;
     }
 
     // Drag behavior
