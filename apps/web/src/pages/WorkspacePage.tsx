@@ -295,6 +295,11 @@ export default function WorkspacePage() {
     dispatchAction(buildUpdateLayerPropsAction(card.id, layerId, { x, y }));
   }, [card, dispatchAction]);
 
+  const handleResizeEnd = useCallback((layerId: string, x: number, y: number, w: number, h: number) => {
+    if (!card) return;
+    dispatchAction(buildUpdateLayerPropsAction(card.id, layerId, { x, y, w, h }));
+  }, [card, dispatchAction]);
+
   const handleDblClick = useCallback((layerId: string) => {
     if (!card) return;
     const layer = card.layers.find((l) => l.id === layerId);
@@ -537,6 +542,7 @@ export default function WorkspacePage() {
                       onDragEnd={handleDragEnd}
                       onDblClick={handleDblClick}
                       editingLayerId={editingLayerId}
+                      onResizeEnd={handleResizeEnd}
                     />
                   )}
                   {editingLayerId && artifact && card && (() => {

@@ -3,6 +3,7 @@ import Konva from 'konva';
 import type { ArtifactDocument } from '@orra/shared';
 import { buildCardRenderData, type RenderLayer } from '@orra/renderer';
 import { shouldLayerBeDraggable } from './dragHelpers';
+import { isLayerResizable, clampResizeBounds, hasResizeChanged, MIN_RESIZE_W, MIN_RESIZE_H } from './resizeHelpers';
 
 interface Props {
   document: ArtifactDocument;
@@ -13,6 +14,7 @@ interface Props {
   onDragEnd?: (layerId: string, x: number, y: number) => void;
   onDblClick?: (layerId: string) => void;
   editingLayerId?: string | null;
+  onResizeEnd?: (layerId: string, x: number, y: number, w: number, h: number) => void;
 }
 
 function fontStyleFromWeight(weight: number): string {
@@ -51,6 +53,7 @@ export default function KonvaStage({
   onDragEnd,
   onDblClick,
   editingLayerId,
+  onResizeEnd,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -62,6 +65,8 @@ export default function KonvaStage({
     onBgClick,
     onDragEnd,
     onDblClick,
+    editingLayerId,
+    onResizeEnd,
   });
 
   useEffect(() => {
@@ -73,6 +78,8 @@ export default function KonvaStage({
       onBgClick,
       onDragEnd,
       onDblClick,
+      editingLayerId,
+      onResizeEnd,
     };
   });
 
@@ -97,7 +104,7 @@ export default function KonvaStage({
             stateRef.current.document,
             stateRef.current.activeCardIndex,
             stateRef.current.selectedLayerId,
-            editingLayerId ?? null,
+            stateRef.current.editingLayerId ?? null,
           );
         }
       }
@@ -114,6 +121,59 @@ export default function KonvaStage({
   useEffect(() => {
     draw(document, activeCardIndex, selectedLayerId, editingLayerId ?? null);
   }, [document, activeCardIndex, selectedLayerId, editingLayerId]);
+
+  function createResizeTransformer(
+    group: Konva.Group,
+    layer: RenderLayer,
+    stageScale: number,
+    offsetX: number,
+    offsetY: number,
+    docW: number,
+    docH: number,
+  ): Konva.Transformer {
+    const tr = new Konva.Transformer({
+      nodes: [group],
+      keepRatio: false,
+      rotateEnabled: false,
+      enabledAnchors: [
+        'top-left', 'top-center', 'top-right',
+        'middle-left', 'middle-right',
+        'bottom-left', 'bottom-center', 'bottom-right',
+      ],
+      anchorSize: 8 / stageScale,
+      anchorCornerRadius: 1.5 / stageScale,
+      anchorFill: '#ffffff',
+      anchorStroke: '#354e53',
+      anchorStrokeWidth: 1.5 / stageScale,
+      borderStroke: '#354e53',
+      borderStrokeWidth: 1.5 / stageScale,
+      borderDash: [4 / stageScale, 3 / stageScale],
+      padding: 4 / stageScale,
+      boundBoxFunc: (oldBox, newBox) => {
+        // boundBoxFunc boxes are in absolute stage (screen) coordinates
+        const minW = MIN_RESIZE_W * stageScale;
+        const minH = MIN_RESIZE_H * stageScale;
+        if (Math.abs(newBox.width) < minW || Math.abs(newBox.height) < minH) return oldBox;
+        if (newBox.x < offsetX || newBox.y < offsetY) return oldBox;
+        if (newBox.x + newBox.width > offsetX + docW * stageScale) return oldBox;
+        if (newBox.y + newBox.height > offsetY + docH * stageScale) return oldBox;
+        return newBox;
+      },
+    });
+
+    tr.on('transformend', () => {
+      const rawX = group.x();
+      const rawY = group.y();
+      const rawW = layer.w * group.scaleX();
+      const rawH = layer.h * group.scaleY();
+      const clamped = clampResizeBounds(rawX, rawY, rawW, rawH, docW, docH);
+      if (hasResizeChanged({ x: layer.x, y: layer.y, w: layer.w, h: layer.h }, clamped)) {
+        stateRef.current.onResizeEnd?.(layer.id, clamped.x, clamped.y, clamped.w, clamped.h);
+      }
+    });
+
+    return tr;
+  }
 
   function draw(doc: ArtifactDocument, cardIndex: number, selId: string | null, editId: string | null) {
     const stage = stageRef.current;
@@ -176,11 +236,31 @@ export default function KonvaStage({
     });
     stage.add(contentLayer);
 
-    // Draw each render layer
+    // Draw each render layer, collecting groups for Transformer lookup
+    const groupMap = new Map<string, { group: Konva.Group; layer: RenderLayer }>();
+
     for (const layer of renderData.layers) {
       const group = createLayerGroup(layer, selId, scale, offsetX, offsetY, docW, docH, editId);
       if (group) {
+        groupMap.set(layer.id, { group, layer });
         contentLayer.add(group);
+      }
+    }
+
+    // Attach Transformer to the selected layer if it is resizable and not in edit mode
+    if (selId && selId !== editId) {
+      const entry = groupMap.get(selId);
+      if (entry && isLayerResizable(entry.layer.kind, entry.layer.locked)) {
+        const tr = createResizeTransformer(
+          entry.group,
+          entry.layer,
+          scale,
+          offsetX,
+          offsetY,
+          docW,
+          docH,
+        );
+        contentLayer.add(tr);
       }
     }
 
@@ -206,6 +286,7 @@ export default function KonvaStage({
 
     const isSelected = layer.id === selId;
     const isLocked = layer.locked;
+    const resizable = isLayerResizable(layer.kind, layer.locked);
 
     switch (layer.kind) {
       case 'background': {
@@ -356,8 +437,9 @@ export default function KonvaStage({
       stateRef.current.onSelectLayer(layer.id, layer.kind);
     });
 
-    // Selection highlight inside the group — moves with drag automatically
-    if (isSelected) {
+    // Selection highlight — shown for non-resizable selected layers (locked etc.).
+    // For resizable selected layers the Transformer renders its own border.
+    if (isSelected && !resizable) {
       const padding = 4;
       const strokeWidth = 2 / stageScale;
       const highlight = new Konva.Rect({
