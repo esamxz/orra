@@ -25,6 +25,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { buildUpdateLayerPropsAction, buildSetTextContentAction } from '../components/workspace/inspectorActions';
 import { shouldEnterEditMode } from '../components/workspace/textEditHelpers';
 import TextEditOverlay from '../components/workspace/TextEditOverlay';
+import { exportCardAsPng, waitForFonts } from '../export/exportCard';
 
 const RATIO_DIM: Record<string, [number, number]> = { '1:1':[1,1], '4:5':[4,5], '9:16':[9,16], '16:9':[16,9] };
 
@@ -426,7 +427,17 @@ export default function WorkspacePage() {
             <button className="btn btn-primary btn-sm" style={{height:36}} onClick={()=>{setExportOpen(v=>!v);setVersOpen(false);}}>{<Icon.download s={16} />} Export</button>
             {exportOpen && <>
               <div className="backdrop" onClick={()=>setExportOpen(false)} />
-              <ExportMenu isCarousel={isCarousel} cardCount={artifact?.cards.length ?? 0} ratio={ratio} onClose={()=>setExportOpen(false)} onFlash={flash} />
+              <ExportMenu
+                isCarousel={isCarousel}
+                cardCount={artifact?.cards.length ?? 0}
+                ratio={ratio}
+                onClose={()=>setExportOpen(false)}
+                onFlash={flash}
+                onExportPng={artifact ? async () => {
+                  await waitForFonts();
+                  await exportCardAsPng(artifact, activeCardIndex, { projectName: config.projectName });
+                } : undefined}
+              />
             </>}
           </div>
         </div>

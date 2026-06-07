@@ -1,0 +1,195 @@
+import { describe, it, expect } from 'vitest';
+import { buildExportFilename, waitForFonts } from '../exportHelpers.js';
+import { buildCardRenderData } from '@orra/renderer';
+import type {
+  ArtifactDocument,
+  Card,
+  TextLayer,
+  BackgroundLayer,
+  Layer,
+} from '@orra/shared';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeTextLayer(overrides?: Partial<TextLayer>): TextLayer {
+  return {
+    id: crypto.randomUUID(),
+    type: 'text',
+    z: 1,
+    x: 100,
+    y: 100,
+    w: 400,
+    h: 60,
+    rotation: 0,
+    opacity: 1,
+    locked: false,
+    hidden: false,
+    content: 'Hello',
+    fontFamily: 'Inter',
+    fontSize: 32,
+    fontWeight: 400,
+    lineHeight: 1.2,
+    letterSpacing: 0,
+    color: '#000000',
+    align: 'left',
+    ...overrides,
+  };
+}
+
+function makeBackgroundLayer(overrides?: Partial<BackgroundLayer>): BackgroundLayer {
+  return {
+    id: crypto.randomUUID(),
+    type: 'background',
+    z: 0,
+    x: 0,
+    y: 0,
+    w: 1080,
+    h: 1350,
+    rotation: 0,
+    opacity: 1,
+    locked: false,
+    hidden: false,
+    assetId: crypto.randomUUID(),
+    fit: 'cover',
+    ...overrides,
+  };
+}
+
+function makeCard(layers: Layer[] = [], overrides?: Partial<Card>): Card {
+  return {
+    id: crypto.randomUUID(),
+    index: 0,
+    baseColor: '#ffffff',
+    layers: layers.length ? layers : [makeBackgroundLayer(), makeTextLayer()],
+    ...overrides,
+  };
+}
+
+function makeDocument(overrides?: Partial<ArtifactDocument>): ArtifactDocument {
+  return {
+    schemaVersion: 1,
+    artifactId: crypto.randomUUID(),
+    type: 'post',
+    ratio: { name: '4:5', w: 1080, h: 1350 },
+    cards: [makeCard()],
+    version: 0,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// buildExportFilename
+// ---------------------------------------------------------------------------
+
+describe('buildExportFilename', () => {
+  it('returns orra-card-01.png when no project name and index 0', () => {
+    expect(buildExportFilename(undefined, 0)).toBe('orra-card-01.png');
+  });
+
+  it('pads single-digit card indexes to two digits', () => {
+    expect(buildExportFilename(undefined, 4)).toBe('orra-card-05.png');
+  });
+
+  it('uses project name slug when provided', () => {
+    expect(buildExportFilename('My Project', 0)).toBe('my-project-01.png');
+  });
+
+  it('slugifies special characters in project name', () => {
+    expect(buildExportFilename('Hello World! 2025', 0)).toBe('hello-world-2025-01.png');
+  });
+
+  it('falls back to orra-card when project name is empty string', () => {
+    expect(buildExportFilename('', 0)).toBe('orra-card-01.png');
+  });
+
+  it('falls back to orra-card when project name is only whitespace', () => {
+    expect(buildExportFilename('   ', 0)).toBe('orra-card-01.png');
+  });
+
+  it('falls back to orra-card when slug collapses to empty after cleaning', () => {
+    expect(buildExportFilename('---!!!---', 0)).toBe('orra-card-01.png');
+  });
+
+  it('uses card index in filename with project name', () => {
+    expect(buildExportFilename('Orra Test', 2)).toBe('orra-test-03.png');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// waitForFonts
+// ---------------------------------------------------------------------------
+
+describe('waitForFonts', () => {
+  it('resolves immediately in a node environment (no document)', async () => {
+    // In node env, typeof document === 'undefined', so it resolves with no-op
+    await expect(waitForFonts()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Export pipeline — document validation (via buildCardRenderData)
+// ---------------------------------------------------------------------------
+
+describe('export pipeline — document and card validation', () => {
+  it('export dimensions come from document ratio, not viewport', () => {
+    const doc = makeDocument();
+    const result = buildCardRenderData(doc, 0);
+    expect(result.width).toBe(1080);
+    expect(result.height).toBe(1350);
+  });
+
+  it('dimensions reflect the actual ratio in the document', () => {
+    const doc = makeDocument({ ratio: { name: '1:1', w: 1080, h: 1080 } });
+    const result = buildCardRenderData(doc, 0);
+    expect(result.width).toBe(1080);
+    expect(result.height).toBe(1080);
+  });
+
+  it('hidden layers are excluded from export render data', () => {
+    const visible = makeTextLayer({ z: 1, hidden: false, content: 'Visible' });
+    const hidden = makeTextLayer({ z: 2, hidden: true, content: 'Hidden' });
+    const doc = makeDocument({
+      cards: [makeCard([makeBackgroundLayer({ z: 0 }), visible, hidden])],
+    });
+    const result = buildCardRenderData(doc, 0);
+    expect(result.layers.some((l) => l.kind === 'text' && (l as typeof l & { content: string }).content === 'Hidden')).toBe(false);
+    expect(result.layers.some((l) => l.kind === 'text' && (l as typeof l & { content: string }).content === 'Visible')).toBe(true);
+  });
+
+  it('rejects an invalid document', () => {
+    const badDoc = {
+      schemaVersion: 1,
+      artifactId: 'not-a-uuid',
+      type: 'post',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      cards: [],
+      version: 0,
+    } as unknown as ArtifactDocument;
+    expect(() => buildCardRenderData(badDoc, 0)).toThrow('Invalid document');
+  });
+
+  it('rejects an out-of-range card index', () => {
+    const doc = makeDocument();
+    expect(() => buildCardRenderData(doc, 5)).toThrow('Card index 5 not found');
+  });
+
+  it('active card index selects the correct card', () => {
+    const doc: ArtifactDocument = {
+      schemaVersion: 1,
+      artifactId: crypto.randomUUID(),
+      type: 'carousel',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      cards: [
+        makeCard([], { index: 0, baseColor: '#111111' }),
+        makeCard([], { index: 1, baseColor: '#222222' }),
+        makeCard([], { index: 2, baseColor: '#333333' }),
+      ],
+      version: 0,
+    };
+    expect(buildCardRenderData(doc, 0).baseColor).toBe('#111111');
+    expect(buildCardRenderData(doc, 1).baseColor).toBe('#222222');
+    expect(buildCardRenderData(doc, 2).baseColor).toBe('#333333');
+  });
+});
