@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react';
 import Konva from 'konva';
 import type { ArtifactDocument } from '@orra/shared';
 import { buildCardRenderData, type RenderLayer } from '@orra/renderer';
+import { shouldLayerBeDraggable } from './dragHelpers';
 
 interface Props {
   document: ArtifactDocument;
@@ -9,6 +10,7 @@ interface Props {
   selectedLayerId: string | null;
   onSelectLayer: (id: string, type: string) => void;
   onBgClick: () => void;
+  onDragEnd?: (layerId: string, x: number, y: number) => void;
 }
 
 function fontStyleFromWeight(weight: number): string {
@@ -44,13 +46,28 @@ export default function KonvaStage({
   selectedLayerId,
   onSelectLayer,
   onBgClick,
+  onDragEnd,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
-  const stateRef = useRef({ document, activeCardIndex, selectedLayerId, onSelectLayer, onBgClick });
+  const stateRef = useRef({
+    document,
+    activeCardIndex,
+    selectedLayerId,
+    onSelectLayer,
+    onBgClick,
+    onDragEnd,
+  });
 
   useEffect(() => {
-    stateRef.current = { document, activeCardIndex, selectedLayerId, onSelectLayer, onBgClick };
+    stateRef.current = {
+      document,
+      activeCardIndex,
+      selectedLayerId,
+      onSelectLayer,
+      onBgClick,
+      onDragEnd,
+    };
   });
 
   useEffect(() => {
@@ -70,7 +87,11 @@ export default function KonvaStage({
         if (stageRef.current && width > 0 && height > 0) {
           stageRef.current.width(width);
           stageRef.current.height(height);
-          draw(stateRef.current.document, stateRef.current.activeCardIndex, stateRef.current.selectedLayerId);
+          draw(
+            stateRef.current.document,
+            stateRef.current.activeCardIndex,
+            stateRef.current.selectedLayerId,
+          );
         }
       }
     });
@@ -150,25 +171,24 @@ export default function KonvaStage({
 
     // Draw each render layer
     for (const layer of renderData.layers) {
-      const group = createLayerGroup(layer, selId, scale);
+      const group = createLayerGroup(layer, selId, scale, offsetX, offsetY, docW, docH);
       if (group) {
         contentLayer.add(group);
-      }
-    }
-
-    // Selection highlight on top of everything
-    if (selId) {
-      const selectedLayer = renderData.layers.find((l) => l.id === selId);
-      if (selectedLayer && selectedLayer.kind !== 'background') {
-        const highlight = createSelectionHighlight(selectedLayer, scale);
-        contentLayer.add(highlight);
       }
     }
 
     contentLayer.draw();
   }
 
-  function createLayerGroup(layer: RenderLayer, selId: string | null, _stageScale: number): Konva.Group | null {
+  function createLayerGroup(
+    layer: RenderLayer,
+    selId: string | null,
+    stageScale: number,
+    offsetX: number,
+    offsetY: number,
+    docW: number,
+    docH: number,
+  ): Konva.Group | null {
     const group = new Konva.Group({
       x: layer.x,
       y: layer.y,
@@ -181,7 +201,6 @@ export default function KonvaStage({
 
     switch (layer.kind) {
       case 'background': {
-        // Background is rendered as card base; no interactive shapes needed here
         return null;
       }
 
@@ -276,10 +295,7 @@ export default function KonvaStage({
         if (layer.overlayKind === 'solid') {
           const color = (layer.params.color as string) || '#000000';
           const rect = new Konva.Rect({
-            x: 0,
-            y: 0,
-            width: layer.w,
-            height: layer.h,
+            x: 0, y: 0, width: layer.w, height: layer.h,
             fill: color,
             listening: true,
           });
@@ -287,19 +303,12 @@ export default function KonvaStage({
         } else if (layer.overlayKind === 'linearGradient') {
           const stops = (layer.params.stops as Array<{ offset: number; color: string }>) || [];
           const colorStops: (string | number)[] = [];
-          for (const s of stops) {
-            colorStops.push(s.offset, s.color);
-          }
-          if (colorStops.length === 0) {
-            colorStops.push(0, '#000000', 1, '#000000');
-          }
+          for (const s of stops) { colorStops.push(s.offset, s.color); }
+          if (colorStops.length === 0) { colorStops.push(0, '#000000', 1, '#000000'); }
           const angle = (layer.params.angle as number) || 0;
           const rad = (angle * Math.PI) / 180;
           const rect = new Konva.Rect({
-            x: 0,
-            y: 0,
-            width: layer.w,
-            height: layer.h,
+            x: 0, y: 0, width: layer.w, height: layer.h,
             fillLinearGradientStartPoint: { x: 0, y: 0 },
             fillLinearGradientEndPoint: { x: layer.w * Math.cos(rad), y: layer.h * Math.sin(rad) },
             fillLinearGradientColorStops: colorStops,
@@ -309,17 +318,10 @@ export default function KonvaStage({
         } else if (layer.overlayKind === 'radialGradient') {
           const stops = (layer.params.stops as Array<{ offset: number; color: string }>) || [];
           const colorStops: (string | number)[] = [];
-          for (const s of stops) {
-            colorStops.push(s.offset, s.color);
-          }
-          if (colorStops.length === 0) {
-            colorStops.push(0, '#000000', 1, '#000000');
-          }
+          for (const s of stops) { colorStops.push(s.offset, s.color); }
+          if (colorStops.length === 0) { colorStops.push(0, '#000000', 1, '#000000'); }
           const rect = new Konva.Rect({
-            x: 0,
-            y: 0,
-            width: layer.w,
-            height: layer.h,
+            x: 0, y: 0, width: layer.w, height: layer.h,
             fillRadialGradientStartPoint: { x: layer.w / 2, y: layer.h / 2 },
             fillRadialGradientEndPoint: { x: layer.w / 2, y: layer.h / 2 },
             fillRadialGradientStartRadius: 0,
@@ -330,10 +332,7 @@ export default function KonvaStage({
           group.add(rect);
         } else {
           const rect = new Konva.Rect({
-            x: 0,
-            y: 0,
-            width: layer.w,
-            height: layer.h,
+            x: 0, y: 0, width: layer.w, height: layer.h,
             fill: hexToRgba((layer.params.color as string) || '#000000', 0.2),
             listening: true,
           });
@@ -343,30 +342,44 @@ export default function KonvaStage({
       }
     }
 
-    // Wire click handler on the group
+    // Wire click handler
     group.on('click tap', (e: Konva.KonvaEventObject<MouseEvent>) => {
       e.cancelBubble = true;
       stateRef.current.onSelectLayer(layer.id, layer.kind);
     });
 
-    // Add locked indicator (small padlock icon visual)
+    // Selection highlight inside the group — moves with drag automatically
+    if (isSelected) {
+      const padding = 4;
+      const strokeWidth = 2 / stageScale;
+      const highlight = new Konva.Rect({
+        x: -padding,
+        y: -padding,
+        width: layer.w + padding * 2,
+        height: layer.h + padding * 2,
+        stroke: '#354e53',
+        strokeWidth,
+        opacity: 0.8,
+        listening: false,
+        dash: isLocked ? [6, 4] : undefined,
+      });
+      group.add(highlight);
+    }
+
+    // Locked indicator
     if (isLocked) {
       const lockSize = Math.min(18, layer.w * 0.15, layer.h * 0.15);
       if (lockSize >= 8) {
         const lockIcon = new Konva.Rect({
-          x: layer.w - lockSize - 4,
-          y: 4,
-          width: lockSize,
-          height: lockSize,
+          x: layer.w - lockSize - 4, y: 4,
+          width: lockSize, height: lockSize,
           fill: 'rgba(29,42,48,0.5)',
           cornerRadius: 3,
           listening: false,
         });
         const lockText = new Konva.Text({
-          x: layer.w - lockSize - 4,
-          y: 4,
-          width: lockSize,
-          height: lockSize,
+          x: layer.w - lockSize - 4, y: 4,
+          width: lockSize, height: lockSize,
           text: '🔒',
           fontSize: lockSize * 0.7,
           align: 'center',
@@ -377,24 +390,60 @@ export default function KonvaStage({
       }
     }
 
-    return group;
-  }
+    // Drag behavior
+    const draggable = shouldLayerBeDraggable(layer.kind, layer.locked);
 
-  function createSelectionHighlight(layer: RenderLayer, stageScale: number): Konva.Rect {
-    const padding = 4;
-    const strokeWidth = 2 / stageScale;
-    return new Konva.Rect({
-      x: layer.x - padding,
-      y: layer.y - padding,
-      width: layer.w + padding * 2,
-      height: layer.h + padding * 2,
-      stroke: '#354e53',
-      strokeWidth,
-      rotation: layer.rotation,
-      opacity: 0.8,
-      listening: false,
-      dash: layer.locked ? [6, 4] : undefined,
-    });
+    if (draggable) {
+      group.draggable(true);
+
+      // Clamp drag position in stage (screen) coordinates
+      group.dragBoundFunc((pos) => {
+        const minX = offsetX;
+        const maxX = offsetX + Math.max(0, docW - layer.w) * stageScale;
+        const minY = offsetY;
+        const maxY = offsetY + Math.max(0, docH - layer.h) * stageScale;
+        return {
+          x: Math.max(minX, Math.min(maxX, pos.x)),
+          y: Math.max(minY, Math.min(maxY, pos.y)),
+        };
+      });
+
+      // Track start position to detect no-movement drags
+      let startX = layer.x;
+      let startY = layer.y;
+
+      group.on('dragstart', () => {
+        startX = layer.x;
+        startY = layer.y;
+        if (stageRef.current) stageRef.current.container().style.cursor = 'grabbing';
+      });
+
+      group.on('dragend', () => {
+        const newX = Math.round(group.x());
+        const newY = Math.round(group.y());
+        if (stageRef.current) stageRef.current.container().style.cursor = 'grab';
+        if (newX !== Math.round(startX) || newY !== Math.round(startY)) {
+          stateRef.current.onDragEnd?.(layer.id, newX, newY);
+        }
+      });
+
+      group.on('mouseenter', () => {
+        if (stageRef.current) stageRef.current.container().style.cursor = 'grab';
+      });
+      group.on('mouseleave', () => {
+        if (stageRef.current) stageRef.current.container().style.cursor = '';
+      });
+    } else if (isLocked) {
+      // No drag affordance for locked layers
+      group.on('mouseenter', () => {
+        if (stageRef.current) stageRef.current.container().style.cursor = 'not-allowed';
+      });
+      group.on('mouseleave', () => {
+        if (stageRef.current) stageRef.current.container().style.cursor = '';
+      });
+    }
+
+    return group;
   }
 
   return (

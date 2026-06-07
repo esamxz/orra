@@ -12,7 +12,8 @@ import {
   normalizeZ,
   makeCard,
 } from '../data/mockArtifacts';
-import type { ArtifactDocument } from '@orra/shared';
+import { applyAction, KernelError } from '@orra/shared';
+import type { ArtifactDocument, Action } from '@orra/shared';
 import KonvaStage from '../components/workspace/KonvaStage';
 import MiniArtifactPreview from '../components/workspace/MiniArtifactPreview';
 import ApprovalCard from '../components/workspace/ApprovalCard';
@@ -21,6 +22,7 @@ import ExportMenu from '../components/workspace/ExportMenu';
 import VersionHistoryPopover from '../components/workspace/VersionHistoryPopover';
 import UsageStatus from '../components/workspace/UsageStatus';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { buildUpdateLayerPropsAction } from '../components/workspace/inspectorActions';
 
 const RATIO_DIM: Record<string, [number, number]> = { '1:1':[1,1], '4:5':[4,5], '9:16':[9,16], '16:9':[16,9] };
 
@@ -117,6 +119,27 @@ export default function WorkspacePage() {
     toastT.current = setTimeout(()=>setToast(null), 2200);
   }, []);
 
+  /* ----- kernel action dispatch ----- */
+  const dispatchAction = useCallback((action: Action): boolean => {
+    if (!artifact) return false;
+    try {
+      const result = applyAction(artifact, action);
+      setArtifact(() => result.document);
+      return true;
+    } catch (err) {
+      if (err instanceof KernelError) {
+        flash(err.message);
+      } else {
+        flash('Something went wrong');
+      }
+      return false;
+    }
+  }, [artifact, setArtifact, flash]);
+
+  const handleInspectorAction = useCallback((action: Action) => {
+    dispatchAction(action);
+  }, [dispatchAction]);
+
   useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
 
   const card = artifact ? artifact.cards[activeCardIndex] : null;
@@ -189,91 +212,83 @@ export default function WorkspacePage() {
   /* ----- rail card ops ----- */
   const addCard = () => {
     if (!artifact) return;
-    setArtifact(prev => {
-      if (!prev) return prev;
-      const doc = structuredClone(prev);
-      const variants = ['#1d2a30','#5e7680','#eef1f1','#c8d1d8','#1d2a30'];
-      const labels = ['cover','steel','pale','mist','cta'];
-      const idx = doc.cards.length % variants.length;
-      const baseColor = variants[idx];
-      const label = labels[idx];
-      const textColor = label === 'pale' ? '#1d2a30' : '#f1f4f4';
-      const subColor = label === 'pale' ? '#5e7680' : '#c8d1d8';
-      const rw = doc.ratio.w;
-      const rh = doc.ratio.h;
+    const variants = ['#1d2a30','#5e7680','#eef1f1','#c8d1d8','#1d2a30'];
+    const labels = ['cover','steel','pale','mist','cta'];
+    const idx = artifact.cards.length % variants.length;
+    const baseColor = variants[idx];
+    const label = labels[idx];
+    const textColor = label === 'pale' ? '#1d2a30' : '#f1f4f4';
+    const subColor = label === 'pale' ? '#5e7680' : '#c8d1d8';
+    const rw = artifact.ratio.w;
+    const rh = artifact.ratio.h;
 
-      const newCard = makeCard({
-        index: doc.cards.length,
-        baseColor,
-        layers: normalizeZ([
-          makeBackgroundLayer({ z: 0, w: rw, h: rh }),
-          makeTextLayer({
-            z: 1,
-            content: 'New card',
-            x: Math.round(0.10 * rw),
-            y: Math.round(0.38 * rh),
-            w: Math.round(0.80 * rw),
-            fontFamily: 'Newsreader',
-            fontSize: Math.round(8.5 * (rw / 100)),
-            fontWeight: 500,
-            color: textColor,
-            align: 'left',
-            lineHeight: 1.06,
-          }),
-          makeTextLayer({
-            z: 2,
-            content: 'Add your copy here',
-            x: Math.round(0.10 * rw),
-            y: Math.round(0.62 * rh),
-            w: Math.round(0.74 * rw),
-            fontFamily: 'Hanken Grotesk',
-            fontSize: Math.round(3.6 * (rw / 100)),
-            fontWeight: 500,
-            color: subColor,
-            align: 'left',
-            lineHeight: 1.2,
-            opacity: 0.95,
-          }),
-        ]),
-      });
-
-      doc.cards.push(newCard);
-      return doc;
+    const newCard = makeCard({
+      index: artifact.cards.length,
+      baseColor,
+      layers: normalizeZ([
+        makeBackgroundLayer({ z: 0, w: rw, h: rh }),
+        makeTextLayer({
+          z: 1,
+          content: 'New card',
+          x: Math.round(0.10 * rw),
+          y: Math.round(0.38 * rh),
+          w: Math.round(0.80 * rw),
+          fontFamily: 'Newsreader',
+          fontSize: Math.round(8.5 * (rw / 100)),
+          fontWeight: 500,
+          color: textColor,
+          align: 'left',
+          lineHeight: 1.06,
+        }),
+        makeTextLayer({
+          z: 2,
+          content: 'Add your copy here',
+          x: Math.round(0.10 * rw),
+          y: Math.round(0.62 * rh),
+          w: Math.round(0.74 * rw),
+          fontFamily: 'Hanken Grotesk',
+          fontSize: Math.round(3.6 * (rw / 100)),
+          fontWeight: 500,
+          color: subColor,
+          align: 'left',
+          lineHeight: 1.2,
+          opacity: 0.95,
+        }),
+      ]),
     });
-    setActiveCard(artifact ? artifact.cards.length : 0);
-    clearSelection();
-    flash('Card added');
+
+    if (dispatchAction({ type: 'addCard', card: newCard })) {
+      setActiveCard(artifact.cards.length);
+      clearSelection();
+      flash('Card added');
+    }
   };
 
-  const dupCard = (i: number, e?: React.MouseEvent) => { e?.stopPropagation();
-    setArtifact(prev => {
-      if (!prev) return prev;
-      const doc = structuredClone(prev);
-      const source = doc.cards[i];
-      const dup = structuredClone(source);
-      dup.id = crypto.randomUUID();
-      dup.index = doc.cards.length;
-      dup.layers = dup.layers.map(l => ({ ...structuredClone(l), id: crypto.randomUUID() }));
-      doc.cards.splice(i + 1, 0, dup);
-      doc.cards.forEach((c, idx) => c.index = idx);
-      return doc;
-    });
-    flash('Card duplicated');
+  const dupCard = (i: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!artifact) return;
+    if (dispatchAction({ type: 'duplicateCard', cardId: artifact.cards[i].id })) {
+      flash('Card duplicated');
+    }
   };
 
-  const delCard = (i: number, e?: React.MouseEvent) => { e?.stopPropagation();
-    if (!artifact || artifact.cards.length <= 1) { flash('A carousel needs at least one card'); return; }
-    setArtifact(prev => {
-      if (!prev) return prev;
-      const doc = structuredClone(prev);
-      doc.cards.splice(i, 1);
-      doc.cards.forEach((c, idx) => c.index = idx);
-      return doc;
-    });
-    const nextIndex = Math.max(0, activeCardIndex >= i ? activeCardIndex - 1 : activeCardIndex);
-    setActiveCard(nextIndex);
-    clearSelection();
+  const delCard = (i: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!artifact || artifact.cards.length <= 1) {
+      flash('A carousel needs at least one card');
+      return;
+    }
+    if (dispatchAction({ type: 'removeCard', cardId: artifact.cards[i].id })) {
+      const nextIndex = Math.max(0, activeCardIndex >= i ? activeCardIndex - 1 : activeCardIndex);
+      setActiveCard(nextIndex);
+      clearSelection();
+    }
   };
+
+  const handleDragEnd = useCallback((layerId: string, x: number, y: number) => {
+    if (!card) return;
+    dispatchAction(buildUpdateLayerPropsAction(card.id, layerId, { x, y }));
+  }, [card, dispatchAction]);
 
   // Inspector receives the real selected Layer
   const selectedLayer = card ? card.layers.find(l => l.id === selectedLayerId) ?? null : null;
@@ -339,7 +354,21 @@ export default function WorkspacePage() {
         </div>
 
         <div className="top-sel" style={{cursor:'default'}}>
-          <select value={ratio} onChange={e=>setRatio(e.target.value)} style={{border:'none',background:'none',outline:'none',fontWeight:600,fontSize:13,cursor:'pointer'}}>
+          <select
+            value={artifact?.ratio.name ?? ratio}
+            onChange={e=> {
+              const name = e.target.value;
+              const dim = RATIO_DIM[name];
+              if (!dim || !artifact) return;
+              const [a, b] = dim;
+              const base = 270;
+              const newRatio = { name: name as '1:1' | '4:5' | '9:16' | '16:9', w: a * base, h: b * base };
+              if (dispatchAction({ type: 'setRatio', ratio: newRatio })) {
+                setRatio(name);
+              }
+            }}
+            style={{border:'none',background:'none',outline:'none',fontWeight:600,fontSize:13,cursor:'pointer'}}
+          >
             {Object.keys(RATIO_DIM).map(r=><option key={r} value={r}>{r}</option>)}
           </select>
         </div>
@@ -468,6 +497,7 @@ export default function WorkspacePage() {
                       selectedLayerId={selectedLayerId}
                       onSelectLayer={(id, type) => selectLayer(id, type)}
                       onBgClick={()=>clearSelection()}
+                      onDragEnd={handleDragEnd}
                     />
                   )}
                 </div>
@@ -477,9 +507,18 @@ export default function WorkspacePage() {
               </div>
             )}
 
-            {selectedLayer && (
-              <Inspector layer={selectedLayer}
-                onClose={()=>clearSelection()} />
+            {selectedLayer && card && artifact && (
+              <Inspector
+                layer={selectedLayer}
+                cardId={card.id}
+                cardW={artifact.ratio.w}
+                cardH={artifact.ratio.h}
+                cardLayers={card.layers}
+                onAction={handleInspectorAction}
+                onClose={()=>clearSelection()}
+                brandColors={curBrand.colors}
+                brandFonts={curBrand.fonts}
+              />
             )}
           </div>
 

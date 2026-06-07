@@ -52,7 +52,7 @@ export type LayerGeometryAndStyle = Pick<
 
 export type TextStyleUpdate = Pick<
   TextLayer,
-  'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight' | 'letterSpacing' | 'color' | 'align'
+  'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight' | 'letterSpacing' | 'color' | 'align' | 'role'
 >;
 
 // ---------------------------------------------------------------------------
@@ -166,6 +166,7 @@ const SetTextStyleActionSchema = z.object({
     letterSpacing: z.number().optional(),
     color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
     align: z.enum(['left', 'center', 'right']).optional(),
+    role: z.enum(['title', 'body', 'accent', 'caption', 'custom']).optional(),
   }),
 });
 
@@ -339,6 +340,23 @@ export function applyAction(document: ArtifactDocument, rawAction: unknown): App
         throw new KernelError('VALIDATION', `Missing layer IDs in reorder: ${missing.join(', ')}`);
       }
 
+      // Reject if any protected layer (locked or background) changes position
+      for (const l of card.layers) {
+        const isProtected = l.locked || l.type === 'background';
+        if (isProtected) {
+          const oldIdx = originalOrder.indexOf(l.id);
+          const newIdx = action.order.indexOf(l.id);
+          if (oldIdx !== newIdx) {
+            throw new KernelError(
+              l.type === 'background' ? 'VALIDATION' : 'LAYER_LOCKED',
+              l.type === 'background'
+                ? 'Background layer cannot be moved from its position'
+                : `Layer ${l.id} is locked and cannot be reordered`,
+            );
+          }
+        }
+      }
+
       const newLayers: Layer[] = [];
       for (const id of action.order) {
         const layer = card.layers.find((l) => l.id === id);
@@ -378,7 +396,7 @@ export function applyAction(document: ArtifactDocument, rawAction: unknown): App
       assertLayerNotLocked(layer);
 
       const oldStyle: Partial<TextStyleUpdate> = {};
-      const styleKeys: (keyof TextStyleUpdate)[] = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'color', 'align'];
+      const styleKeys: (keyof TextStyleUpdate)[] = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'color', 'align', 'role'];
 
       for (const key of styleKeys) {
         if (key in action.style) {

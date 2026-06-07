@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Upload, X } from 'lucide-react';
 import Modal from '../ui/Modal';
 import {
-  APP_FONT_CATALOG,
-  getFontsByRole,
-  type FontEntry,
+  FONT_CATALOG,
+  getFontByFamily,
 } from '@orra/shared';
-import { type MockBrandSystem } from '../../stores/dashboardStore';
+import { type MockBrandSystem, type BrandTypography } from '../../stores/dashboardStore';
+import { BRAND_TYPOGRAPHY_PRESETS, type BrandPresetKey } from '../../data/brandPresets';
 
 interface Props {
   open: boolean;
@@ -14,27 +14,42 @@ interface Props {
   onCreate: (brand: MockBrandSystem) => void;
 }
 
+const PRESETS = BRAND_TYPOGRAPHY_PRESETS;
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontSize: '0.8rem',
+        fontWeight: 600,
+        color: 'var(--muted)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+        marginBottom: '0.5rem',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function FontSelect({
   label,
   value,
-  options,
   onChange,
 }: {
   label: string;
   value: string;
-  options: FontEntry[];
   onChange: (family: string) => void;
 }) {
   return (
     <div>
       <div
         style={{
-          fontSize: '0.8rem',
+          fontSize: '0.75rem',
           fontWeight: 600,
           color: 'var(--muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-          marginBottom: '0.5rem',
+          marginBottom: '0.35rem',
         }}
       >
         {label}
@@ -45,12 +60,74 @@ function FontSelect({
         onChange={(e) => onChange(e.target.value)}
         style={{ width: '100%', cursor: 'pointer' }}
       >
-        {options.map((font) => (
-          <option key={font.id} value={font.family}>
+        {FONT_CATALOG.map((font) => (
+          <option key={font.id} value={font.family} style={{ fontFamily: font.family }}>
             {font.family}
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function WeightSelect({
+  label,
+  value,
+  fontFamily,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  fontFamily: string;
+  onChange: (weight: number) => void;
+}) {
+  const meta = getFontByFamily(fontFamily);
+  const weights = meta?.weights ?? [400];
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: '0.75rem',
+          fontWeight: 600,
+          color: 'var(--muted)',
+          marginBottom: '0.35rem',
+        }}
+      >
+        {label}
+      </div>
+      <select
+        className="insp-select"
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value, 10))}
+        style={{ width: '100%', cursor: 'pointer' }}
+      >
+        {weights.map((w) => (
+          <option key={w} value={w}>
+            {w}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function RoleRow({
+  roleLabel,
+  font,
+  weight,
+  onFontChange,
+  onWeightChange,
+}: {
+  roleLabel: string;
+  font: string;
+  weight: number;
+  onFontChange: (f: string) => void;
+  onWeightChange: (w: number) => void;
+}) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '10px' }}>
+      <FontSelect label={roleLabel} value={font} onChange={onFontChange} />
+      <WeightSelect label="Weight" value={weight} fontFamily={font} onChange={onWeightChange} />
     </div>
   );
 }
@@ -61,16 +138,51 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
   const [tone, setTone] = useState('');
   const [visual, setVisual] = useState('');
   const [palette, setPalette] = useState(['#1d2a30', '#5e7680', '#a4b7bd', '#c8d1d8', '#f5f7f8']);
-  const [displayFont, setDisplayFont] = useState('Newsreader');
-  const [bodyFont, setBodyFont] = useState('Inter');
+  const [preset, setPreset] = useState<BrandPresetKey>('editorial-calm');
+  const [titleFont, setTitleFont] = useState(PRESETS['editorial-calm'].titleFont);
+  const [titleWeight, setTitleWeight] = useState(PRESETS['editorial-calm'].titleWeight);
+  const [bodyFont, setBodyFont] = useState(PRESETS['editorial-calm'].bodyFont);
+  const [bodyWeight, setBodyWeight] = useState(PRESETS['editorial-calm'].bodyWeight);
+  const [accentFont, setAccentFont] = useState(PRESETS['editorial-calm'].accentFont);
+  const [accentWeight, setAccentWeight] = useState(PRESETS['editorial-calm'].accentWeight);
+  const [captionFont, setCaptionFont] = useState(PRESETS['editorial-calm'].captionFont);
+  const [captionWeight, setCaptionWeight] = useState(PRESETS['editorial-calm'].captionWeight);
+  const [notes, setNotes] = useState('');
 
-  const displayFonts = getFontsByRole('display');
-  const bodyFonts = getFontsByRole('body');
+  const applyPreset = useCallback((key: BrandPresetKey) => {
+    setPreset(key);
+    if (key === 'custom') return;
+    const p = PRESETS[key];
+    setTitleFont(p.titleFont);
+    setTitleWeight(p.titleWeight);
+    setBodyFont(p.bodyFont);
+    setBodyWeight(p.bodyWeight);
+    setAccentFont(p.accentFont);
+    setAccentWeight(p.accentWeight);
+    setCaptionFont(p.captionFont);
+    setCaptionWeight(p.captionWeight);
+  }, []);
+
+  const typography: BrandTypography = useMemo(
+    () => ({
+      preset,
+      titleFont,
+      titleWeight,
+      bodyFont,
+      bodyWeight,
+      accentFont,
+      accentWeight,
+      captionFont,
+      captionWeight,
+      notes: notes.trim(),
+    }),
+    [preset, titleFont, titleWeight, bodyFont, bodyWeight, accentFont, accentWeight, captionFont, captionWeight, notes],
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const fonts = Array.from(new Set([displayFont, bodyFont]));
+    const fonts = Array.from(new Set([titleFont, bodyFont, accentFont, captionFont]));
     onCreate({
       id: `brand-${Date.now()}`,
       name: name.trim(),
@@ -79,14 +191,25 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
       fonts,
       toneOfVoice: tone.trim(),
       visualDirection: visual.trim(),
+      typography,
     });
+    // Reset
     setName('');
     setDescription('');
     setTone('');
     setVisual('');
     setPalette(['#1d2a30', '#5e7680', '#a4b7bd', '#c8d1d8', '#f5f7f8']);
-    setDisplayFont('Newsreader');
-    setBodyFont('Inter');
+    setPreset('editorial-calm');
+    const p = PRESETS['editorial-calm'];
+    setTitleFont(p.titleFont);
+    setTitleWeight(p.titleWeight);
+    setBodyFont(p.bodyFont);
+    setBodyWeight(p.bodyWeight);
+    setAccentFont(p.accentFont);
+    setAccentWeight(p.accentWeight);
+    setCaptionFont(p.captionFont);
+    setCaptionWeight(p.captionWeight);
+    setNotes('');
     onClose();
   };
 
@@ -109,18 +232,7 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
       <form id="brand-form" onSubmit={handleSubmit}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Brand name
-            </div>
+            <SectionLabel>Brand name</SectionLabel>
             <input
               className="insp-select"
               placeholder="Enter brand name"
@@ -131,18 +243,7 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
           </div>
 
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Description
-            </div>
+            <SectionLabel>Description</SectionLabel>
             <input
               className="insp-select"
               placeholder="Short description of your brand"
@@ -152,18 +253,7 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
           </div>
 
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Logo
-            </div>
+            <SectionLabel>Logo</SectionLabel>
             <div
               style={{
                 width: '100%',
@@ -186,18 +276,7 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
           </div>
 
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Color palette
-            </div>
+            <SectionLabel>Color palette</SectionLabel>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               {palette.map((color, i) => (
                 <div key={i} style={{ position: 'relative' }}>
@@ -259,57 +338,101 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
             </div>
           </div>
 
+          {/* Typography */}
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Typography
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <FontSelect
-                label="Display font"
-                value={displayFont}
-                options={displayFonts}
-                onChange={setDisplayFont}
+            <SectionLabel>Typography</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              {/* Preset */}
+              <div>
+                <div
+                  style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: 'var(--muted)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  Preset
+                </div>
+                <div className="insp-seg">
+                  {Object.entries(PRESETS).map(([key, p]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={preset === key ? 'on' : ''}
+                      onClick={() => applyPreset(key as BrandPresetKey)}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <RoleRow
+                roleLabel="Title style"
+                font={titleFont}
+                weight={titleWeight}
+                onFontChange={setTitleFont}
+                onWeightChange={setTitleWeight}
               />
-              <FontSelect
-                label="Body / UI font"
-                value={bodyFont}
-                options={bodyFonts}
-                onChange={setBodyFont}
+              <RoleRow
+                roleLabel="Body style"
+                font={bodyFont}
+                weight={bodyWeight}
+                onFontChange={setBodyFont}
+                onWeightChange={setBodyWeight}
               />
-            </div>
-            <div
-              style={{
-                fontSize: '0.75rem',
-                color: 'var(--muted)',
-                marginTop: '0.5rem',
-              }}
-            >
-              {APP_FONT_CATALOG.length} curated fonts available
+              <RoleRow
+                roleLabel="Accent style"
+                font={accentFont}
+                weight={accentWeight}
+                onFontChange={setAccentFont}
+                onWeightChange={setAccentWeight}
+              />
+              <RoleRow
+                roleLabel="Caption style"
+                font={captionFont}
+                weight={captionWeight}
+                onFontChange={setCaptionFont}
+                onWeightChange={setCaptionWeight}
+              />
+
+              {/* Notes */}
+              <div>
+                <div
+                  style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: 'var(--muted)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  Typography notes
+                </div>
+                <textarea
+                  className="insp-select"
+                  placeholder="Use title style for strong hooks. Keep body text clean and readable."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  style={{
+                    resize: 'vertical',
+                    minHeight: '60px',
+                    padding: '9px 11px',
+                    lineHeight: 1.4,
+                    width: '100%',
+                  }}
+                />
+              </div>
+
+              <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                {FONT_CATALOG.length} curated fonts available
+              </div>
             </div>
           </div>
 
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Tone of voice
-            </div>
+            <SectionLabel>Tone of voice</SectionLabel>
             <textarea
               className="insp-select"
               placeholder="How should your brand sound?"
@@ -321,18 +444,7 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
           </div>
 
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Visual direction
-            </div>
+            <SectionLabel>Visual direction</SectionLabel>
             <textarea
               className="insp-select"
               placeholder="Describe the visual style"
@@ -344,18 +456,7 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
           </div>
 
           <div>
-            <div
-              style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Reference images
-            </div>
+            <SectionLabel>Reference images</SectionLabel>
             <div
               style={{
                 width: '100%',

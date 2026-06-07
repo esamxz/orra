@@ -68,6 +68,7 @@ export const TextLayerSchema = BaseLayerSchema.extend({
   letterSpacing: z.number(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
   align: z.enum(['left', 'center', 'right']),
+  role: z.enum(['title', 'body', 'accent', 'caption', 'custom']).optional(),
 });
 
 // ---------------------------------------------------------------------------

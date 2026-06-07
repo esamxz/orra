@@ -1,0 +1,40 @@
+/* ============================================================
+   ORRA — Web font loading reference
+   ============================================================
+
+   All curated catalog fonts are loaded centrally via Google Fonts
+   in index.html so they are available for:
+   - UI dropdown previews
+   - Konva canvas text rendering
+   - future PNG/ZIP export
+
+   Do not add arbitrary runtime font injection.
+   All font families must exist in packages/shared/src/fonts.ts.
+   ============================================================ */
+
+/*
+  Font families loaded (see index.html for weights and italics):
+
+  Clean / SaaS:
+    Figtree, Inter, Hanken Grotesk, DM Sans, Manrope, Poppins,
+    Montserrat, Open Sans, Roboto, Lato, Nunito, Raleway,
+    Space Grotesk, Plus Jakarta Sans, Geist
+
+  Editorial / premium:
+    Newsreader, Lora, Playfair Display, Merriweather,
+    Source Serif 4, IM Fell English, Fraunces
+
+  Poster / bold:
+    Bebas Neue, Anton, Oswald, Righteous, Bangers
+
+  Script / handwritten:
+    Caveat, Kalam, Pacifico, Dancing Script, Lobster
+
+  Mono:
+    Source Code Pro, IBM Plex Mono, JetBrains Mono
+
+  Arabic:
+    Cairo, Tajawal, Amiri, Noto Sans Arabic
+*/
+
+/* Wait helper is provided in lib/fonts.ts using document.fonts.ready */

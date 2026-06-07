@@ -370,7 +370,8 @@ describe('Layer actions', () => {
       makeShapeLayer({ z: 2 }),
     ];
     const ids = card.layers.map((l) => l.id);
-    const newOrder = [ids[2], ids[0], ids[1]];
+    // Background (ids[0]) must stay at index 0; swap text and shape only
+    const newOrder = [ids[0], ids[2], ids[1]];
     const result = applyAction(doc, { type: 'reorderLayers', cardId: card.id, order: newOrder });
     expect(result.document.cards[0].layers.map((l) => l.id)).toEqual(newOrder);
     result.document.cards[0].layers.forEach((l, i) => {

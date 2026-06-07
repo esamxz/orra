@@ -192,4 +192,57 @@ export const Icon = {
       <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
     </I>
   ),
+  layerText: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <path d="M5 7V5h14v2M12 5v14M9 19h6" />
+    </I>
+  ),
+  layerImage: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M5 17l4.5-4 3.5 3 3-2.5L19 17" />
+    </I>
+  ),
+  layerShape: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+    </I>
+  ),
+  layerObject: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" />
+      <path d="M12 12l8.66-5M12 12v10" />
+    </I>
+  ),
+  layerLogo: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
+    </I>
+  ),
+  layerOverlay: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <rect x="4" y="6" width="16" height="12" rx="2" opacity="0.4" />
+      <rect x="7" y="9" width="10" height="6" rx="1" />
+    </I>
+  ),
+  layerBackground: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="M3 12h18" opacity="0.3" />
+    </I>
+  ),
+  lock: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </I>
+  ),
+  duplicate: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+    </I>
+  ),
 };
