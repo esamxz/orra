@@ -68,6 +68,10 @@ importers:
   packages/ai: {}
 
   packages/db:
+    dependencies:
+      '@orra/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

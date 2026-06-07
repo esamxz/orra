@@ -3,6 +3,15 @@
 // Do not use Supabase codegen in this phase — add it later when the
 // local Supabase instance is running and types can be generated from the live DB.
 
+// Ratio and RatioName come from packages/shared (the canonical source).
+// They are re-exported here so db consumers have a single import point.
+export type { Ratio, RatioName } from '@orra/shared';
+
+// RatioJson is an alias for Ratio kept for backward compatibility.
+// Prefer importing Ratio directly.
+import type { Ratio } from '@orra/shared';
+export type RatioJson = Ratio;
+
 // ---------------------------------------------------------------------------
 // Shared primitives
 // ---------------------------------------------------------------------------
@@ -55,16 +64,6 @@ export type SubscriptionStatus = 'active' | 'past_due' | 'canceled';
 
 export type PurchasePack = 'pack_5' | 'pack_10' | 'pack_25' | 'pack_50';
 export type PurchaseStatus = 'pending' | 'paid' | 'failed';
-
-// ---------------------------------------------------------------------------
-// Ratio shape (stored as jsonb in projects and exports)
-// ---------------------------------------------------------------------------
-
-export interface RatioJson {
-  name: '1:1' | '4:5' | '9:16' | '16:9' | 'custom';
-  w: number;
-  h: number;
-}
 
 // ---------------------------------------------------------------------------
 // Row types
