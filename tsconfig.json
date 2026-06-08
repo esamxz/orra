@@ -23,6 +23,10 @@
     // apps have their own tsconfig.json with environment-specific types
     // (web = browser + vite/client, api = Worker + @cloudflare/workers-types)
     "apps/web",
-    "apps/api"
+    "apps/api",
+    // external tool directories that may contain TypeScript files
+    ".agents",
+    ".claude",
+    ".playwright-mcp"
   ]
 }

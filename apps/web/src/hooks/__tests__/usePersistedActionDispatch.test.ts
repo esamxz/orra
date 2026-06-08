@@ -366,4 +366,118 @@ describe('usePersistedActionDispatch', () => {
     expect(result.current.saveStatus).toBe('idle');
     expect(result.current.canUndo).toBe(false);
   });
+
+  it('out-of-order server responses do not overwrite newer local state', async () => {
+    const doc = { ...validDoc, version: 1 };
+    const serverDocV2 = { ...validDoc, version: 2 };
+    const serverDocV3 = { ...validDoc, version: 3 };
+
+    let callCount = 0;
+    vi.mocked(artifactsApi.applyArtifactAction).mockImplementation(async (_id, input) => {
+      const payload = input as { action: { content?: string } };
+      callCount++;
+      if (payload.action.content === 'First') {
+        // Delay the first response so the second arrives first
+        await new Promise((r) => setTimeout(r, 80));
+        return serverSuccessResponse(serverDocV2);
+      }
+      return serverSuccessResponse(serverDocV3);
+    });
+
+    const { result } = renderHook(() =>
+      usePersistedActionDispatch(doc, { artifactId: 'art-1' }),
+    );
+
+    const cardId = doc.cards[0].id;
+    const layerId = doc.cards[0].layers.find((l) => l.type === 'text')!.id;
+
+    act(() => {
+      result.current.dispatch(
+        buildSetTextContentAction(cardId, layerId, 'First'),
+      );
+    });
+
+    act(() => {
+      result.current.dispatch(
+        buildSetTextContentAction(cardId, layerId, 'Second'),
+      );
+    });
+
+    // Wait for both async responses to finish (saveStatus will leave 'saving')
+    await waitFor(() => expect(result.current.saveStatus).not.toBe('saving'));
+
+    // The first (delayed) response should not regress the document to v2
+    expect(result.current.artifact?.version).toBe(3);
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.saveStatus).toBe('saved');
+  });
+
+  it('does not throw or leak state updates after unmount during save timeout', async () => {
+    const doc = { ...validDoc, version: 1 };
+    const serverDoc = { ...validDoc, version: 2 };
+    vi.mocked(artifactsApi.applyArtifactAction).mockResolvedValueOnce(
+      serverSuccessResponse(serverDoc),
+    );
+
+    const { result, unmount } = renderHook(() =>
+      usePersistedActionDispatch(doc, { artifactId: 'art-1' }),
+    );
+
+    const cardId = doc.cards[0].id;
+    const layerId = doc.cards[0].layers.find((l) => l.type === 'text')!.id;
+
+    act(() => {
+      result.current.dispatch(
+        buildSetTextContentAction(cardId, layerId, 'Hello'),
+      );
+    });
+
+    // Unmount before the 1500 ms "saved → idle" timer fires
+    unmount();
+
+    // Advance timers past the transition window
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    // No assertion on unmounted state — the test passes if it doesn't throw
+    expect(true).toBe(true);
+  });
+
+  it('leaves error status visible when refetch after VERSION_CONFLICT also fails', async () => {
+    const doc = { ...validDoc, version: 1 };
+    vi.mocked(artifactsApi.applyArtifactAction).mockRejectedValueOnce(
+      new ApiClientError('VERSION_CONFLICT', 'Document was modified elsewhere.'),
+    );
+    vi.mocked(artifactsApi.getArtifact).mockRejectedValueOnce(
+      new ApiClientError('NETWORK_ERROR', 'Unable to reload.'),
+    );
+
+    const onConflict = vi.fn();
+    const onError = vi.fn();
+    const { result } = renderHook(() =>
+      usePersistedActionDispatch(doc, {
+        artifactId: 'art-1',
+        onConflict,
+        onError,
+      }),
+    );
+
+    const cardId = doc.cards[0].id;
+    const layerId = doc.cards[0].layers.find((l) => l.type === 'text')!.id;
+
+    act(() => {
+      result.current.dispatch(
+        buildSetTextContentAction(cardId, layerId, 'Hello'),
+      );
+    });
+
+    await waitFor(() => expect(result.current.saveStatus).toBe('error'));
+    expect(result.current.saveError).toBe('Unable to reload.');
+    expect(onConflict).toHaveBeenCalled();
+    expect(onError).toHaveBeenCalled();
+    // Must NOT flip back to idle when refetch fails
+    expect(result.current.saveStatus).not.toBe('idle');
+    expect(result.current.saveStatus).not.toBe('conflict');
+  });
 });

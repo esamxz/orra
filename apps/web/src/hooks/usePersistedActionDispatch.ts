@@ -63,18 +63,24 @@ export function usePersistedActionDispatch(
 
   const inFlightCountRef = useRef(0);
   const mountedRef = useRef(true);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (savedTimerRef.current) {
+        clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = null;
+      }
     };
   }, []);
 
   const setSavedThenIdle = useCallback(() => {
     if (!mountedRef.current) return;
     setSaveStatus('saved');
-    setTimeout(() => {
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => {
       if (!mountedRef.current) return;
       setSaveStatus((prev) => (prev === 'saved' ? 'idle' : prev));
     }, 1500);
@@ -117,18 +123,18 @@ export function usePersistedActionDispatch(
    * Refetch the artifact from the server and replace local state.
    */
   const refetchAndReset = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<boolean> => {
       try {
         const refreshed = await getArtifact(id);
-        if (!mountedRef.current) return;
+        if (!mountedRef.current) return false;
         setState({ document: refreshed.document, past: [], future: [] });
         setServerMeta({
           currentVersionId: refreshed.currentVersionId,
           artifactVersionNumber: null,
         });
-        // Caller decides final saveStatus
+        return true;
       } catch (fetchErr) {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current) return false;
         const msg =
           fetchErr instanceof ApiClientError
             ? fetchErr.message
@@ -136,6 +142,7 @@ export function usePersistedActionDispatch(
         setSaveStatus('error');
         setSaveError(msg);
         onError?.(msg);
+        return false;
       }
     },
     [onError],
@@ -188,8 +195,8 @@ export function usePersistedActionDispatch(
         if (err instanceof ApiClientError && err.code === 'VERSION_CONFLICT') {
           setSaveStatus('conflict');
           onConflict?.('This project changed. Reloaded the latest version.');
-          await refetchAndReset(artifactId);
-          if (mountedRef.current) setSaveStatus('idle');
+          const refetchOk = await refetchAndReset(artifactId);
+          if (mountedRef.current && refetchOk) setSaveStatus('idle');
           return;
         }
 
@@ -242,6 +249,11 @@ export function usePersistedActionDispatch(
 
   /**
    * Undo the most recent action locally, then persist the inverse action.
+   *
+   * Note: if another action is currently in flight, the undo's baseVersion
+   * includes that optimistic edit. The server may reject it with
+   * VERSION_CONFLICT if it hasn't processed the prior action yet. A proper
+   * action queue is deferred to a later phase.
    */
   const undo = useCallback(() => {
     if (!stateRef.current.document || stateRef.current.past.length === 0) return;
@@ -261,6 +273,8 @@ export function usePersistedActionDispatch(
 
   /**
    * Redo the most recent undone action locally, then persist it.
+   *
+   * Same in-flight race note as undo — a proper action queue is deferred.
    */
   const redo = useCallback(() => {
     if (!stateRef.current.document || stateRef.current.future.length === 0) return;
