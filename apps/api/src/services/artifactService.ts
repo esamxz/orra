@@ -3,7 +3,7 @@ import { requireAuth } from './service-context.js';
 import { ApiError } from '../errors.js';
 import type { ArtifactRepository } from '../repositories/artifactRepository.js';
 import type { ArtifactDocument, Ratio } from '@orra/shared';
-import { ArtifactDocumentSchema } from '@orra/shared';
+import { ArtifactDocumentSchema, applyAction } from '@orra/shared';
 import type { ArtifactRow } from '@orra/db';
 import { buildInitialArtifactDocument } from '../artifact-document/factory.js';
 
@@ -21,6 +21,20 @@ export interface ArtifactResponse {
   document: ArtifactDocument;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ApplyActionInput {
+  baseVersion: number;
+  action: unknown;
+}
+
+export interface ApplyActionResponse {
+  artifactId: string;
+  projectId: string;
+  currentVersionId: string;
+  version: number;
+  document: ArtifactDocument;
+  artifactVersionNumber: number;
 }
 
 function mapArtifactWithVersion(
@@ -150,5 +164,109 @@ export class ArtifactService {
     }
 
     return this.getCurrentArtifact(ctx, artifact.id);
+  }
+
+  /**
+   * Apply a kernel action to the current artifact document.
+   *
+   * Server-side re-apply pattern:
+   * 1. Fetch the current persisted document.
+   * 2. Validate it against the shared schema.
+   * 3. Compare the client's baseVersion to the persisted document.version.
+   * 4. If stale, throw VERSION_CONFLICT (409).
+   * 5. Apply the action through the shared kernel.
+   * 6. Validate the updated document.
+   * 7. Create a new artifact_versions snapshot.
+   * 8. Update artifact.current_version_id.
+   *
+   * Atomicity note: version creation and current_version_id update are two
+   * separate DB operations. A crash between them can orphan a version row.
+   * Future hardening should move version creation + current pointer update
+   * into a Postgres RPC/transaction.
+   */
+  async applyAction(
+    ctx: ServiceContext,
+    artifactId: string,
+    input: ApplyActionInput
+  ): Promise<ApplyActionResponse> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    // 1. Fetch current artifact + version scoped by workspace.
+    const current = await this.artifactRepo.getCurrentVersion({
+      artifactId,
+      workspaceId,
+    });
+
+    if (!current) {
+      throw new ApiError('NOT_FOUND', 'Artifact not found.');
+    }
+
+    // 2. Validate the persisted document before applying.
+    const document = validateDocument(current.version.document);
+
+    // 3. Optimistic concurrency: baseVersion must match persisted document.version.
+    if (input.baseVersion !== document.version) {
+      throw new ApiError(
+        'VERSION_CONFLICT',
+        'The document has changed. Please refetch the current version and try again.'
+      );
+    }
+
+    // 4. Apply the action through the shared kernel.
+    let result: { document: ArtifactDocument; version: number; inverse: unknown };
+    try {
+      result = applyAction(document, input.action);
+    } catch (err) {
+      // Map KernelError validation failures to ApiError VALIDATION.
+      if (err instanceof Error && err.name === 'KernelError') {
+        throw new ApiError(
+          'VALIDATION',
+          err.message,
+          { code: (err as { code?: string }).code }
+        );
+      }
+      throw err;
+    }
+
+    // 5. Validate the updated document before persisting.
+    const updatedDocument = validateDocument(result.document);
+
+    // 6. Create new artifact_versions snapshot.
+    const newArtifactVersionNumber = current.version.version + 1;
+    const newVersion = await this.artifactRepo.createVersion({
+      workspaceId,
+      artifactId,
+      version: newArtifactVersionNumber,
+      document: updatedDocument,
+      reason: 'manual_edit',
+      createdBy: 'user',
+    });
+
+    // 7. Update current_version_id, guarded by the old version id to reduce race risk.
+    const updatedArtifact = await this.artifactRepo.setCurrentVersionGuarded({
+      workspaceId,
+      artifactId,
+      versionId: newVersion.id,
+      expectedCurrentVersionId: current.version.id,
+    });
+
+    if (!updatedArtifact) {
+      // Guard failed: another write slipped in between version creation and pointer update.
+      // In a transactional model this would roll back. Here we report conflict.
+      throw new ApiError(
+        'VERSION_CONFLICT',
+        'The document has changed. Please refetch the current version and try again.'
+      );
+    }
+
+    return {
+      artifactId: updatedArtifact.id,
+      projectId: updatedArtifact.project_id,
+      currentVersionId: newVersion.id,
+      version: updatedDocument.version,
+      document: updatedDocument,
+      artifactVersionNumber: newArtifactVersionNumber,
+    };
   }
 }

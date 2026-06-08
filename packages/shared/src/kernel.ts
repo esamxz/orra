@@ -173,7 +173,7 @@ const SetTextStyleActionSchema = z.object({
 const ReplaceAssetActionSchema = z.object({ type: z.literal('replaceAsset'), cardId: z.string().uuid(), layerId: z.string().uuid(), assetId: z.string().uuid() });
 const SetRatioActionSchema = z.object({ type: z.literal('setRatio'), ratio: z.object({ name: z.enum(['1:1', '4:5', '9:16', '16:9', 'custom']), w: z.number().int().positive(), h: z.number().int().positive() }) });
 
-const ActionSchema = z.discriminatedUnion('type', [
+export const ActionSchema = z.discriminatedUnion('type', [
   AddCardActionSchema,
   RemoveCardActionSchema,
   DuplicateCardActionSchema,

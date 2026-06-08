@@ -109,6 +109,20 @@ function createFakeArtifactRepository(initial: { artifacts?: ArtifactRow[]; vers
       return artifacts[idx];
     },
 
+    async setCurrentVersionGuarded(input) {
+      const idx = artifacts.findIndex(
+        (a) =>
+          a.id === input.artifactId &&
+          a.workspace_id === input.workspaceId &&
+          a.current_version_id === input.expectedCurrentVersionId
+      );
+      if (idx === -1) {
+        return null;
+      }
+      artifacts[idx] = { ...artifacts[idx], current_version_id: input.versionId };
+      return artifacts[idx];
+    },
+
     async getArtifactByIdForWorkspace(input) {
       return (
         artifacts.find(

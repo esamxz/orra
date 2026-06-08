@@ -6,6 +6,16 @@ import type { ArtifactRepository } from '../repositories/artifactRepository.js';
 import type { ArtifactRow, ArtifactVersionRow } from '@orra/db';
 
 // ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+async function assertApiErrorCode(promise: Promise<unknown>, code: string): Promise<void> {
+  const err = await promise.catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ApiError);
+  expect((err as ApiError).code).toBe(code);
+}
+
+// ---------------------------------------------------------------------------
 // Fake artifact repository
 // ---------------------------------------------------------------------------
 
@@ -49,6 +59,20 @@ function createFakeArtifactRepository(initial: { artifacts?: ArtifactRow[]; vers
       );
       if (idx === -1) {
         throw new Error('Artifact not found');
+      }
+      artifacts[idx] = { ...artifacts[idx], current_version_id: input.versionId };
+      return artifacts[idx];
+    },
+
+    async setCurrentVersionGuarded(input) {
+      const idx = artifacts.findIndex(
+        (a) =>
+          a.id === input.artifactId &&
+          a.workspace_id === input.workspaceId &&
+          a.current_version_id === input.expectedCurrentVersionId
+      );
+      if (idx === -1) {
+        return null;
       }
       artifacts[idx] = { ...artifacts[idx], current_version_id: input.versionId };
       return artifacts[idx];
@@ -291,5 +315,557 @@ describe('ArtifactService', () => {
     const ctx = fakeAuthContext('ws-1');
 
     await expect(service.getProjectArtifact(ctx, 'proj-missing')).rejects.toThrow(ApiError);
+  });
+
+  // -------------------------------------------------------------------------
+  // applyAction
+  // -------------------------------------------------------------------------
+
+  function makeDocumentWithTextLayer(artifactId: string, version: number) {
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    return {
+      schemaVersion: 1,
+      artifactId,
+      type: 'post' as const,
+      ratio: { name: '4:5' as const, w: 1080, h: 1350 },
+      cards: [
+        {
+          id: cardId,
+          index: 0,
+          baseColor: '#1d2a30',
+          layers: [
+            {
+              id: layerId,
+              type: 'text',
+              z: 0,
+              x: 100,
+              y: 100,
+              w: 400,
+              h: 200,
+              rotation: 0,
+              opacity: 1,
+              locked: false,
+              hidden: false,
+              content: 'Hello',
+              fontFamily: 'Inter',
+              fontSize: 32,
+              fontWeight: 400,
+              lineHeight: 1.2,
+              letterSpacing: 0,
+              color: '#ffffff',
+              align: 'center',
+            },
+          ],
+        },
+      ],
+      version,
+    };
+  }
+
+  it('applyAction applies a valid setTextContent action', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.applyAction(ctx, artifactId, {
+      baseVersion: 1,
+      action: {
+        type: 'setTextContent',
+        cardId,
+        layerId,
+        content: 'Updated text',
+      },
+    });
+
+    expect((result.document.cards[0].layers[0] as { content: string }).content).toBe('Updated text');
+    expect(result.version).toBe(2);
+    expect(result.artifactVersionNumber).toBe(2);
+  });
+
+  it('applyAction creates a new artifact_version snapshot', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.applyAction(ctx, artifactId, {
+      baseVersion: 1,
+      action: {
+        type: 'setTextContent',
+        cardId,
+        layerId,
+        content: 'New',
+      },
+    });
+
+    // The repo should now have two versions.
+    const current = await repo.getCurrentVersion({ artifactId, workspaceId: 'ws-1' });
+    expect(current).not.toBeNull();
+    expect(current!.version.id).toBe(result.currentVersionId);
+    expect(current!.version.version).toBe(2);
+    expect(current!.version.reason).toBe('manual_edit');
+  });
+
+  it('applyAction updates current_version_id', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.applyAction(ctx, artifactId, {
+      baseVersion: 1,
+      action: {
+        type: 'setTextContent',
+        cardId,
+        layerId,
+        content: 'New',
+      },
+    });
+
+    const artifact = await repo.getArtifactByIdForWorkspace({ id: artifactId, workspaceId: 'ws-1' });
+    expect(artifact!.current_version_id).toBe(result.currentVersionId);
+  });
+
+  it('applyAction increments document.version through kernel', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.applyAction(ctx, artifactId, {
+      baseVersion: 1,
+      action: { type: 'setTextContent', cardId, layerId, content: 'V2' },
+    });
+
+    expect(result.version).toBe(2);
+    expect(result.document.version).toBe(2);
+  });
+
+  it('applyAction increments artifact_versions.version by 1', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 5);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-prev',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-prev',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 5,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.applyAction(ctx, artifactId, {
+      baseVersion: 5,
+      action: { type: 'setTextContent', cardId, layerId, content: 'V6' },
+    });
+
+    expect(result.artifactVersionNumber).toBe(6);
+  });
+
+  it('applyAction throws VERSION_CONFLICT on stale baseVersion', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 3);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    // Client thinks the base version is 2, but server has version 3.
+    await assertApiErrorCode(
+      service.applyAction(ctx, artifactId, {
+        baseVersion: 2,
+        action: { type: 'setTextContent', cardId, layerId, content: 'X' },
+      }),
+      'VERSION_CONFLICT'
+    );
+  });
+
+  it('applyAction throws NOT_FOUND for cross-workspace artifact', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-other');
+
+    await assertApiErrorCode(
+      service.applyAction(ctx, artifactId, {
+        baseVersion: 1,
+        action: { type: 'setTextContent', cardId, layerId, content: 'X' },
+      }),
+      'NOT_FOUND'
+    );
+  });
+
+  it('applyAction throws VALIDATION for invalid kernel action', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    // Missing cardId — should fail kernel validation.
+    await assertApiErrorCode(
+      service.applyAction(ctx, artifactId, {
+        baseVersion: 1,
+        action: { type: 'setTextContent', layerId: '11111111-1111-1111-1111-111111111113', content: 'X' },
+      }),
+      'VALIDATION'
+    );
+  });
+
+  it('applyAction rejects locked layer mutation', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+    (document.cards[0].layers[0] as { locked: boolean }).locked = true;
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await assertApiErrorCode(
+      service.applyAction(ctx, artifactId, {
+        baseVersion: 1,
+        action: { type: 'setTextContent', cardId, layerId, content: 'X' },
+      }),
+      'VALIDATION'
+    );
+  });
+
+  it('applyAction rejects unsupported font mutation', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const cardId = '11111111-1111-1111-1111-111111111112';
+    const layerId = '11111111-1111-1111-1111-111111111113';
+    const document = makeDocumentWithTextLayer(artifactId, 1);
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await assertApiErrorCode(
+      service.applyAction(ctx, artifactId, {
+        baseVersion: 1,
+        action: {
+          type: 'setTextStyle',
+          cardId,
+          layerId,
+          style: { fontFamily: 'NotARealFont' },
+        },
+      }),
+      'VALIDATION'
+    );
+  });
+
+  it('applyAction validates current document from DB before applying', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document: { invalid: true },
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await assertApiErrorCode(
+      service.applyAction(ctx, artifactId, {
+        baseVersion: 0, // mismatched anyway, but validation should happen first
+        action: { type: 'setTextContent', cardId: '11111111-1111-1111-1111-111111111112', layerId: '11111111-1111-1111-1111-111111111113', content: 'X' },
+      }),
+      'INTERNAL'
+    );
   });
 });

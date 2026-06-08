@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import type { Env } from '../env.js';
 import type { Context } from 'hono';
-import { ArtifactIdParamSchema } from '../schemas/artifact.js';
-import { validateParam } from '../middleware/validate.js';
+import { ArtifactIdParamSchema, ApplyActionBodySchema } from '../schemas/artifact.js';
+import { validateParam, validateJson } from '../middleware/validate.js';
 import { ArtifactService } from '../services/artifactService.js';
 import { createServiceContext, getRepositories } from '../services/service-context.js';
 import { getAuth } from '../middleware/auth.js';
@@ -31,5 +31,24 @@ artifactRoutes.get('/:id', validateParam(ArtifactIdParamSchema), async (c) => {
   const artifact = await service.getCurrentArtifact(ctx, id);
   return c.json({ ok: true, data: artifact });
 });
+
+// POST /v1/artifacts/:id/actions — apply a kernel action with optimistic concurrency
+artifactRoutes.post(
+  '/:id/actions',
+  validateParam(ArtifactIdParamSchema),
+  validateJson(ApplyActionBodySchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const ctx = buildServiceContext(c);
+    const repos = getRepositories(ctx);
+    const service = new ArtifactService(repos.artifact);
+    const result = await service.applyAction(ctx, id, {
+      baseVersion: body.baseVersion,
+      action: body.action,
+    });
+    return c.json({ ok: true, data: result });
+  }
+);
 
 export default artifactRoutes;

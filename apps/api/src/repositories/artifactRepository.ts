@@ -34,6 +34,13 @@ export interface SetCurrentVersionInput {
   versionId: string;
 }
 
+export interface SetCurrentVersionGuardedInput {
+  workspaceId: string;
+  artifactId: string;
+  versionId: string;
+  expectedCurrentVersionId: string;
+}
+
 export interface GetArtifactByIdInput {
   id: string;
   workspaceId: string;
@@ -58,6 +65,7 @@ export interface ArtifactRepository {
   createArtifactForProject(input: CreateArtifactInput): Promise<ArtifactRow>;
   createVersion(input: CreateVersionInput): Promise<ArtifactVersionRow>;
   setCurrentVersion(input: SetCurrentVersionInput): Promise<ArtifactRow>;
+  setCurrentVersionGuarded(input: SetCurrentVersionGuardedInput): Promise<ArtifactRow | null>;
   getArtifactByIdForWorkspace(input: GetArtifactByIdInput): Promise<ArtifactRow | null>;
   getArtifactByProjectIdForWorkspace(input: GetArtifactByProjectIdInput): Promise<ArtifactRow | null>;
   getCurrentVersion(input: GetCurrentVersionInput): Promise<ArtifactWithVersion | null>;
@@ -80,6 +88,11 @@ export class StubArtifactRepository implements ArtifactRepository {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async setCurrentVersion(_input: SetCurrentVersionInput): Promise<ArtifactRow> {
     throw new Error('ArtifactRepository.setCurrentVersion is not implemented yet.');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async setCurrentVersionGuarded(_input: SetCurrentVersionGuardedInput): Promise<ArtifactRow | null> {
+    throw new Error('ArtifactRepository.setCurrentVersionGuarded is not implemented yet.');
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -154,6 +167,29 @@ export class SupabaseArtifactRepository implements ArtifactRepository {
 
     if (error) {
       throw mapDbError(error);
+    }
+
+    return expectSingleRow(data, error);
+  }
+
+  async setCurrentVersionGuarded(input: SetCurrentVersionGuardedInput): Promise<ArtifactRow | null> {
+    const { data, error } = await this.db
+      .from('artifacts')
+      .update({ current_version_id: input.versionId })
+      .eq('id', input.artifactId)
+      .eq('workspace_id', input.workspaceId)
+      .eq('current_version_id', input.expectedCurrentVersionId)
+      .select()
+      .single();
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    // If the guard failed (expected current_version_id no longer matches),
+    // Supabase returns data=null without error. Treat this as a conflict.
+    if (!data) {
+      return null;
     }
 
     return expectSingleRow(data, error);
