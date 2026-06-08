@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import type { Env } from '../env.js';
-import healthRoutes from './health.js';
 
 // ---------------------------------------------------------------------------
-// V1 route mount point
+// V1 protected route mount point
 // ---------------------------------------------------------------------------
-// All v1 routes mount here. Future phases add:
+// All v1 routes mount here. Auth middleware is applied at the app level
+// to /v1/* before this router is reached.
+//
+// Future phases add:
 //   - projectRoutes
 //   - artifactRoutes
 //   - brandRoutes
@@ -15,8 +17,6 @@ import healthRoutes from './health.js';
 //   - billingRoutes
 
 const v1 = new Hono<{ Bindings: Env }>();
-
-v1.route('/health', healthRoutes);
 
 // Future route modules (commented placeholders)
 // v1.route('/projects', projectRoutes);

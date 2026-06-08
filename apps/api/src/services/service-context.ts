@@ -1,5 +1,5 @@
 import type { Env } from '../env.js';
-import type { AuthContext } from '../middleware/dev-auth.js';
+import type { AuthContext } from '../auth/types.js';
 
 // ---------------------------------------------------------------------------
 // Service context skeleton
