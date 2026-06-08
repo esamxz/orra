@@ -6,6 +6,7 @@ import type { ArtifactDocument } from '@orra/shared';
 export type ArtifactLoadState = 'idle' | 'loading' | 'error' | 'not_found';
 
 export interface UseArtifactLoaderResult {
+  artifactId: string | null;
   document: ArtifactDocument | null;
   state: ArtifactLoadState;
   error: string | null;
@@ -20,27 +21,29 @@ export interface UseArtifactLoaderResult {
 export function useArtifactLoader(
   onLoaded?: (doc: ArtifactDocument) => void,
 ): UseArtifactLoaderResult {
+  const [artifactId, setArtifactId] = useState<string | null>(null);
   const [document, setDocument] = useState<ArtifactDocument | null>(null);
   const [state, setState] = useState<ArtifactLoadState>('idle');
   const [error, setError] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
 
   const load = useCallback(
-    async (artifactId: string) => {
-      if (!artifactId) return;
-      activeIdRef.current = artifactId;
+    async (id: string) => {
+      if (!id) return;
+      activeIdRef.current = id;
+      setArtifactId(id);
       setState('loading');
       setError(null);
 
       try {
-        const result = await getArtifact(artifactId);
+        const result = await getArtifact(id);
         // Guard against a stale load if the caller switched artifacts quickly.
-        if (activeIdRef.current !== artifactId) return;
+        if (activeIdRef.current !== id) return;
         setDocument(result.document);
         setState('idle');
         onLoaded?.(result.document);
       } catch (err) {
-        if (activeIdRef.current !== artifactId) return;
+        if (activeIdRef.current !== id) return;
         if (err instanceof ApiClientError && err.code === 'NOT_FOUND') {
           setState('not_found');
           setError('This artifact no longer exists.');
@@ -63,10 +66,11 @@ export function useArtifactLoader(
 
   const clear = useCallback(() => {
     activeIdRef.current = null;
+    setArtifactId(null);
     setDocument(null);
     setState('idle');
     setError(null);
   }, []);
 
-  return { document, state, error, load, clear };
+  return { artifactId, document, state, error, load, clear };
 }

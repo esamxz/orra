@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
-import { useDocumentHistory } from '../hooks/useDocumentHistory';
+import { usePersistedActionDispatch } from '../hooks/usePersistedActionDispatch';
 import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
@@ -90,7 +90,24 @@ export default function WorkspacePage() {
     toastT.current = setTimeout(()=>setToast(null), 2200);
   }, []);
 
-  const { artifact, dispatch, undo, redo, reset: resetArtifact, canUndo, canRedo } = useDocumentHistory(null, flash);
+  const [serverArtifactId, setServerArtifactId] = useState<string | null>(
+    (config.currentArtifactId as string | undefined) || null,
+  );
+
+  const {
+    artifact,
+    dispatch,
+    undo,
+    redo,
+    reset: resetArtifact,
+    canUndo,
+    canRedo,
+    saveStatus,
+  } = usePersistedActionDispatch(null, {
+    artifactId: serverArtifactId,
+    onError: flash,
+    onConflict: flash,
+  });
 
   // ---------------------------------------------------------------------------
   // Artifact loading from API (Phase 8D.1)
@@ -177,12 +194,22 @@ export default function WorkspacePage() {
   // Hydrate editor when API artifact finishes loading
   useEffect(() => {
     if (artifactLoader.state === 'idle' && artifactLoader.document) {
+      if (artifactLoader.artifactId) {
+        setServerArtifactId(artifactLoader.artifactId);
+      }
       resetArtifact(artifactLoader.document);
       setActiveCard(0);
       clearSelection();
       setPhase('generated');
     }
-  }, [artifactLoader.state, artifactLoader.document, resetArtifact, setActiveCard, clearSelection]);
+  }, [
+    artifactLoader.state,
+    artifactLoader.document,
+    artifactLoader.artifactId,
+    resetArtifact,
+    setActiveCard,
+    clearSelection,
+  ]);
 
   /* ----- chat send ----- */
   const send = () => {
@@ -221,6 +248,7 @@ export default function WorkspacePage() {
     setMessages(m => [...m, { id:mid(), role:'ai', type:'thinking', text:'Designing the layers…' }]);
     setTimeout(()=>{
       const made = isCarousel ? makeArtifactCarousel(brandHandle) : makeArtifactSinglePost(brandHandle);
+      setServerArtifactId(null); // mock artifacts are local-only
       resetArtifact(made);
       setActiveCard(0); clearSelection(); setPhase('generated');
       setMessages(m => {
@@ -453,7 +481,34 @@ export default function WorkspacePage() {
             </>}
           </div>
           <button className="btn-icon" onClick={toggleTheme} title="Toggle theme">{theme==='dark'? <Icon.sun s={18} /> : <Icon.moon s={18} />}</button>
-          <div className="autosave"><span className="live" />Autosaved</div>
+          <div className="autosave">
+            <span
+              className="live"
+              style={{
+                background:
+                  saveStatus === 'error'
+                    ? '#c44'
+                    : saveStatus === 'saving'
+                      ? '#a4b7bd'
+                      : '#5b9279',
+                boxShadow:
+                  saveStatus === 'error'
+                    ? '0 0 0 3px rgba(204,68,68,0.16)'
+                    : saveStatus === 'saving'
+                      ? '0 0 0 3px rgba(164,183,189,0.16)'
+                      : '0 0 0 3px rgba(91,146,121,0.16)',
+              }}
+            />
+            {saveStatus === 'saving'
+              ? 'Saving'
+              : saveStatus === 'saved'
+                ? 'Saved'
+                : saveStatus === 'error'
+                  ? 'Save failed'
+                  : saveStatus === 'conflict'
+                    ? 'Reloaded latest'
+                    : 'Saved'}
+          </div>
           <UsageStatus compact />
           <div style={{position:'relative'}}>
             <button className="btn btn-primary btn-sm" style={{height:36}} onClick={()=>{setExportOpen(v=>!v);setVersOpen(false);}}>{<Icon.download s={16} />} Export</button>

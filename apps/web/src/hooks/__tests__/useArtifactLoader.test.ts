@@ -55,6 +55,7 @@ describe('useArtifactLoader', () => {
   it('initial state is idle with no document', () => {
     const { result } = renderHook(() => useArtifactLoader());
     expect(result.current.state).toBe('idle');
+    expect(result.current.artifactId).toBeNull();
     expect(result.current.document).toBeNull();
     expect(result.current.error).toBeNull();
   });
@@ -77,6 +78,7 @@ describe('useArtifactLoader', () => {
 
     await waitFor(() => expect(result.current.document).toEqual(validDocument));
     expect(result.current.state).toBe('idle');
+    expect(result.current.artifactId).toBe('art-1');
     expect(onLoaded).toHaveBeenCalledWith(validDocument);
   });
 
@@ -128,6 +130,7 @@ describe('useArtifactLoader', () => {
     await waitFor(() => expect(result.current.document).toBeNull());
 
     expect(result.current.state).toBe('idle');
+    expect(result.current.artifactId).toBeNull();
     expect(result.current.error).toBeNull();
   });
 

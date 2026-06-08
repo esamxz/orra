@@ -57,6 +57,22 @@ describe('artifacts API', () => {
       body: JSON.stringify(input),
     });
   });
+
+  it('VERSION_CONFLICT maps to ApiClientError code VERSION_CONFLICT', async () => {
+    vi.spyOn(clientModule.apiClient, 'request').mockRejectedValueOnce(
+      new ApiClientError('VERSION_CONFLICT', 'Document was modified elsewhere.'),
+    );
+
+    await expect(
+      applyArtifactAction('art-1', { baseVersion: 2, action: { type: 'setTextContent', cardId: 'c1', layerId: 'l1', content: 'Hello' } }),
+    ).rejects.toBeInstanceOf(ApiClientError);
+
+    try {
+      await applyArtifactAction('art-1', { baseVersion: 2, action: { type: 'setTextContent', cardId: 'c1', layerId: 'l1', content: 'Hello' } });
+    } catch (err) {
+      expect((err as ApiClientError).code).toBe('VERSION_CONFLICT');
+    }
+  });
 });
 
 function makeValidDocument() {
