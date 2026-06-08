@@ -6,7 +6,7 @@ import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import { useProjectMessages } from '../hooks/useProjectMessages';
 import { appendProjectMessage } from '../api/chat';
 import { ApiClientError } from '../api/errors';
-import type { ChatMessageDto } from '../api/types';
+import type { ChatMessageDto, DirectorIntentResult } from '../api/types';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
 import { BRANDS } from '../data/cards';
@@ -104,6 +104,7 @@ export default function WorkspacePage() {
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [sendError, setSendError] = useState<string | null>(null);
   const [realMessages, setRealMessages] = useState<UiMessage[]>([]);
+  const lastIntentRef = useRef<DirectorIntentResult | null>(null);
 
   const { theme, toggle: toggleTheme } = useTheme();
   const [toast, setToast] = useState<string | null>(null);
@@ -272,9 +273,10 @@ export default function WorkspacePage() {
         const saved = await appendProjectMessage(projectId, { content: text });
         setRealMessages((prev) =>
           prev.map((m) =>
-            m.id === tempId ? mapApiMessageToUi(saved) : m,
+            m.id === tempId ? mapApiMessageToUi(saved.message) : m,
           ),
         );
+        lastIntentRef.current = saved.intent;
         setSendState('idle');
       } catch (err) {
         setRealMessages((prev) => prev.filter((m) => m.id !== tempId));

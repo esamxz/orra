@@ -46,7 +46,7 @@ describe('chat API', () => {
   });
 
   it('appendProjectMessage calls POST /v1/projects/:id/messages with content', async () => {
-    vi.mocked(clientModule.apiClient.request).mockResolvedValueOnce(mockMessage);
+    vi.mocked(clientModule.apiClient.request).mockResolvedValueOnce({ message: mockMessage, intent: { mode: 'conversation', confidence: 'high', reason: 'Test' } });
 
     await appendProjectMessage('proj-1', { content: 'Hello' });
     expect(clientModule.apiClient.request).toHaveBeenCalledWith('/projects/proj-1/messages', {
@@ -55,11 +55,15 @@ describe('chat API', () => {
     });
   });
 
-  it('appendProjectMessage returns the created message', async () => {
-    vi.mocked(clientModule.apiClient.request).mockResolvedValueOnce(mockMessage);
+  it('appendProjectMessage returns message and intent', async () => {
+    vi.mocked(clientModule.apiClient.request).mockResolvedValueOnce({
+      message: mockMessage,
+      intent: { mode: 'conversation', confidence: 'high', reason: 'Test' },
+    });
 
     const result = await appendProjectMessage('proj-1', { content: 'Hello' });
-    expect(result).toEqual(mockMessage);
+    expect(result.message).toEqual(mockMessage);
+    expect(result.intent.mode).toBe('conversation');
   });
 
   it('listProjectMessages maps ApiClientError on failure', async () => {

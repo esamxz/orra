@@ -14,8 +14,17 @@ import type { Repositories } from '../repositories/types.js';
 // Chat routes — protected
 // ---------------------------------------------------------------------------
 // Mounted under /v1/projects so the full paths are:
-//   GET  /v1/projects/:id/messages
-//   POST /v1/projects/:id/messages
+//   GET  /v1/projects/:id/messages  -> { ok: true, data: ChatMessageDto[] }
+//   POST /v1/projects/:id/messages  -> { ok: true, data: { message, intent } }
+//
+// POST response includes a deterministic Director intent classification:
+//   - mode: 'conversation' | 'generation'
+//   - confidence: 'low' | 'medium' | 'high'
+//   - reason: human-readable explanation
+//   - generationHint: { artifactType, requestedCardCount, rawTopic } (optional)
+//
+// This is a rule-based skeleton. No AI provider calls. No approval cards.
+// No generation jobs. No credit reservation. Those come in later phases.
 //
 // All routes require authentication. Workspace scoping is enforced by the
 // service layer; routes are thin and never touch Supabase directly.
@@ -56,8 +65,8 @@ chatRoutes.post(
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
     const service = new ChatService(repos.chat, repos.project);
-    const message = await service.appendUserMessage(ctx, id, { content: body.content });
-    return c.json({ ok: true, data: message }, 201);
+    const result = await service.appendUserMessage(ctx, id, { content: body.content });
+    return c.json({ ok: true, data: result }, 201);
   }
 );
 

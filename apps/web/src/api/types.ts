@@ -84,3 +84,30 @@ export interface AppendProjectMessageInput {
 export interface ListProjectMessagesParams {
   limit?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Director intent types
+// ---------------------------------------------------------------------------
+// These mirror the backend intent DTOs.
+
+export type DirectorMode = 'conversation' | 'generation';
+
+export type ConfidenceLevel = 'low' | 'medium' | 'high';
+
+export interface GenerationHint {
+  artifactType?: 'post' | 'carousel';
+  requestedCardCount?: number;
+  rawTopic?: string;
+}
+
+export interface DirectorIntentResult {
+  mode: DirectorMode;
+  confidence: ConfidenceLevel;
+  reason: string;
+  generationHint?: GenerationHint;
+}
+
+export interface AppendProjectMessageResponse {
+  message: ChatMessageDto;
+  intent: DirectorIntentResult;
+}

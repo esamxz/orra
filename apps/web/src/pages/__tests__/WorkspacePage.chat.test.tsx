@@ -200,15 +200,18 @@ describe('WorkspacePage chat persistence', () => {
     });
 
     vi.mocked(chatApi.appendProjectMessage).mockResolvedValueOnce({
-      id: 'msg-real',
-      projectId: 'proj-1',
-      threadId: 'thread-1',
-      role: 'user',
-      kind: 'text',
-      content: 'Hello real project',
-      metadata: {},
-      seq: 1,
-      createdAt: '2026-01-01T00:00:00Z',
+      message: {
+        id: 'msg-real',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Hello real project',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      intent: { mode: 'conversation', confidence: 'high', reason: 'Test' },
     });
 
     renderPage('proj-1');
@@ -312,15 +315,18 @@ describe('WorkspacePage chat persistence', () => {
     });
 
     vi.mocked(chatApi.appendProjectMessage).mockResolvedValueOnce({
-      id: 'msg-1',
-      projectId: 'proj-1',
-      threadId: 'thread-1',
-      role: 'user',
-      kind: 'text',
-      content: 'create a post',
-      metadata: {},
-      seq: 1,
-      createdAt: '2026-01-01T00:00:00Z',
+      message: {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'create a post',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      intent: { mode: 'generation', confidence: 'high', reason: 'Test' },
     });
 
     renderPage('proj-1');
@@ -349,15 +355,18 @@ describe('WorkspacePage chat persistence', () => {
     // Delay the API resolution so we can observe the sending state
     vi.mocked(chatApi.appendProjectMessage).mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve({
-        id: 'msg-1',
-        projectId: 'proj-1',
-        threadId: 'thread-1',
-        role: 'user',
-        kind: 'text',
-        content: 'Hello',
-        metadata: {},
-        seq: 1,
-        createdAt: '2026-01-01T00:00:00Z',
+        message: {
+          id: 'msg-1',
+          projectId: 'proj-1',
+          threadId: 'thread-1',
+          role: 'user',
+          kind: 'text',
+          content: 'Hello',
+          metadata: {},
+          seq: 1,
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+        intent: { mode: 'conversation', confidence: 'high', reason: 'Test' },
       }), 50)),
     );
 

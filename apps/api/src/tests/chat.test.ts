@@ -339,9 +339,11 @@ describe('POST /v1/projects/:id/messages', () => {
     expect(res.status).toBe(201);
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(true);
-    expect((json.data as { content: string }).content).toBe('Hello world');
-    expect((json.data as { role: string }).role).toBe('user');
-    expect((json.data as { kind: string }).kind).toBe('text');
+    const data = json.data as { message: { content: string; role: string; kind: string }; intent: { mode: string } };
+    expect(data.message.content).toBe('Hello world');
+    expect(data.message.role).toBe('user');
+    expect(data.message.kind).toBe('text');
+    expect(data.intent.mode).toBe('conversation');
   });
 
   it('rejects empty content', async () => {
@@ -523,16 +525,98 @@ describe('POST /v1/projects/:id/messages', () => {
       { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
     );
 
-    // The route is pure persistence: it returns the created message
-    // without any approval card, assistant reply, or job enqueue.
+    // The route persists the user message and returns intent classification,
+    // but does not create an approval card, assistant reply, or enqueue a job.
     expect(res.status).toBe(201);
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(true);
-    expect(json.data).toHaveProperty('id');
-    expect(json.data).toHaveProperty('content', 'Create a post');
-    expect(json.data).toHaveProperty('role', 'user');
-    expect(json.data).not.toHaveProperty('approvalCard');
-    expect(json.data).not.toHaveProperty('reply');
+    const data = json.data as { message: { id: string; content: string; role: string }; intent: unknown };
+    expect(data.message).toHaveProperty('id');
+    expect(data.message).toHaveProperty('content', 'Create a post');
+    expect(data.message).toHaveProperty('role', 'user');
+    expect(data.intent).toBeDefined();
+    expect(data).not.toHaveProperty('approvalCard');
+    expect(data).not.toHaveProperty('reply');
+  });
+
+  it('returns generation intent for creation prompt', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Make a carousel about slow mornings' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as {
+      message: { content: string; role: string };
+      intent: { mode: string; generationHint?: { artifactType?: string } };
+    };
+    expect(data.intent.mode).toBe('generation');
+    expect(data.intent.generationHint?.artifactType).toBe('carousel');
+  });
+
+  it('returns conversation intent for discussion prompt', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Help me brainstorm hooks' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as {
+      message: { content: string };
+      intent: { mode: string; generationHint?: unknown };
+    };
+    expect(data.intent.mode).toBe('conversation');
+    expect(data.intent.generationHint).toBeUndefined();
   });
 });
 

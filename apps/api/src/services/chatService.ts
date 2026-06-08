@@ -4,6 +4,10 @@ import { ApiError } from '../errors.js';
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { ChatMessageRow } from '@orra/db';
+import {
+  classifyDirectorIntent,
+  type DirectorIntentResult,
+} from './directorIntentService.js';
 
 // ---------------------------------------------------------------------------
 // Chat service
@@ -25,6 +29,11 @@ export interface MessageResponse {
 
 export interface AppendUserMessageRequest {
   content: string;
+}
+
+export interface AppendUserMessageResult {
+  message: MessageResponse;
+  intent: DirectorIntentResult;
 }
 
 export interface AppendAssistantMessageRequest {
@@ -99,14 +108,15 @@ export class ChatService {
 
   /**
    * Append a user message to a project thread.
-   * Verifies project ownership, ensures the thread exists, and inserts the message.
-   * Does NOT trigger Director, intent classification, or generation.
+   * Verifies project ownership, ensures the thread exists, inserts the message,
+   * and classifies Director intent (deterministic rule-based skeleton).
+   * Does NOT trigger generation jobs, approval cards, or AI replies.
    */
   async appendUserMessage(
     ctx: ServiceContext,
     projectId: string,
     input: AppendUserMessageRequest
-  ): Promise<MessageResponse> {
+  ): Promise<AppendUserMessageResult> {
     const auth = requireAuth(ctx);
     const workspaceId = auth.workspaceId;
 
@@ -134,7 +144,10 @@ export class ChatService {
       content: input.content,
     });
 
-    return mapMessageRow(row, projectId);
+    const message = mapMessageRow(row, projectId);
+    const intent = classifyDirectorIntent(input.content);
+
+    return { message, intent };
   }
 
   /**

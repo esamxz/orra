@@ -1,5 +1,10 @@
 import { apiClient } from './client.js';
-import type { ChatMessageDto, AppendProjectMessageInput, ListProjectMessagesParams } from './types.js';
+import type {
+  ChatMessageDto,
+  AppendProjectMessageInput,
+  ListProjectMessagesParams,
+  AppendProjectMessageResponse,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Chat API functions
@@ -19,8 +24,8 @@ export async function listProjectMessages(
 export async function appendProjectMessage(
   projectId: string,
   input: AppendProjectMessageInput,
-): Promise<ChatMessageDto> {
-  return apiClient.request<ChatMessageDto>(`/projects/${projectId}/messages`, {
+): Promise<AppendProjectMessageResponse> {
+  return apiClient.request<AppendProjectMessageResponse>(`/projects/${projectId}/messages`, {
     method: 'POST',
     body: JSON.stringify(input),
   });

@@ -198,13 +198,15 @@ describe('ChatService', () => {
     const service = new ChatService(chatRepo, projectRepo);
     const ctx = fakeAuthContext('ws-1');
 
-    const message = await service.appendUserMessage(ctx, 'proj-1', { content: 'Hello' });
+    const result = await service.appendUserMessage(ctx, 'proj-1', { content: 'Hello' });
 
-    expect(message.projectId).toBe('proj-1');
-    expect(message.role).toBe('user');
-    expect(message.kind).toBe('text');
-    expect(message.content).toBe('Hello');
-    expect(message.threadId).toBeTruthy();
+    expect(result.message.projectId).toBe('proj-1');
+    expect(result.message.role).toBe('user');
+    expect(result.message.kind).toBe('text');
+    expect(result.message.content).toBe('Hello');
+    expect(result.message.threadId).toBeTruthy();
+    expect(result.intent).toBeDefined();
+    expect(result.intent.mode).toBe('conversation');
   });
 
   it('appendUserMessage returns frontend-safe DTO', async () => {
@@ -226,18 +228,22 @@ describe('ChatService', () => {
     const service = new ChatService(createFakeChatRepository(), projectRepo);
     const ctx = fakeAuthContext('ws-1');
 
-    const message = await service.appendUserMessage(ctx, 'proj-1', { content: 'Test' });
+    const result = await service.appendUserMessage(ctx, 'proj-1', { content: 'Test' });
 
-    expect(message).toHaveProperty('id');
-    expect(message).toHaveProperty('projectId');
-    expect(message).toHaveProperty('threadId');
-    expect(message).toHaveProperty('role');
-    expect(message).toHaveProperty('kind');
-    expect(message).toHaveProperty('content');
-    expect(message).toHaveProperty('metadata');
-    expect(message).toHaveProperty('seq');
-    expect(message).toHaveProperty('createdAt');
-    expect(message).not.toHaveProperty('workspace_id');
+    expect(result.message).toHaveProperty('id');
+    expect(result.message).toHaveProperty('projectId');
+    expect(result.message).toHaveProperty('threadId');
+    expect(result.message).toHaveProperty('role');
+    expect(result.message).toHaveProperty('kind');
+    expect(result.message).toHaveProperty('content');
+    expect(result.message).toHaveProperty('metadata');
+    expect(result.message).toHaveProperty('seq');
+    expect(result.message).toHaveProperty('createdAt');
+    expect(result.message).not.toHaveProperty('workspace_id');
+    expect(result.intent).toBeDefined();
+    expect(result.intent).toHaveProperty('mode');
+    expect(result.intent).toHaveProperty('confidence');
+    expect(result.intent).toHaveProperty('reason');
   });
 
   it('listMessages returns ordered messages', async () => {
@@ -356,5 +362,148 @@ describe('ChatService', () => {
     expect(message.kind).toBe('approval_summary');
     expect(message.content).toBe('Plan ready');
     expect(message.metadata).toEqual({ planId: 'plan-1' });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Director intent classification
+  // ---------------------------------------------------------------------------
+
+  it('appendUserMessage returns generation intent for creation prompt', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ChatService(createFakeChatRepository(), projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a 5-card carousel about self-improvement',
+    });
+
+    expect(result.intent.mode).toBe('generation');
+    expect(result.intent.confidence).toBe('high');
+    expect(result.intent.generationHint?.artifactType).toBe('carousel');
+    expect(result.intent.generationHint?.requestedCardCount).toBe(5);
+    expect(result.intent.generationHint?.rawTopic).toBeTruthy();
+  });
+
+  it('appendUserMessage returns conversation intent for discussion prompt', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ChatService(createFakeChatRepository(), projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'What do you think about this idea?',
+    });
+
+    expect(result.intent.mode).toBe('conversation');
+    expect(result.intent.confidence).toBe('high');
+    expect(result.intent.generationHint).toBeUndefined();
+  });
+
+  it('appendUserMessage returns generation intent with post hint', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ChatService(createFakeChatRepository(), projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Make a post about focus',
+    });
+
+    expect(result.intent.mode).toBe('generation');
+    expect(result.intent.generationHint?.artifactType).toBe('post');
+  });
+
+  it('appendUserMessage does not create assistant message', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await service.appendUserMessage(ctx, 'proj-1', { content: 'Create a post' });
+
+    const messages = await service.listMessages(ctx, 'proj-1', { limit: 50 });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe('user');
+  });
+
+  it('appendUserMessage does not create approval_summary message', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await service.appendUserMessage(ctx, 'proj-1', { content: 'Create a post' });
+
+    const messages = await service.listMessages(ctx, 'proj-1', { limit: 50 });
+    const approvalMessages = messages.filter((m) => m.kind === 'approval_summary');
+    expect(approvalMessages).toHaveLength(0);
   });
 });
