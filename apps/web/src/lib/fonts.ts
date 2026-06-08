@@ -9,10 +9,15 @@
 export function waitForFonts(timeoutMs = 5000): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(), timeoutMs);
-    document.fonts.ready.then(() => {
-      clearTimeout(timer);
-      resolve();
-    });
+    document.fonts.ready
+      .then(() => {
+        clearTimeout(timer);
+        resolve();
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve();
+      });
   });
 }
 
@@ -26,7 +31,7 @@ export async function waitForFontFamilies(
 ): Promise<void> {
   const timer = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
   const loads = families.map(({ family, weight = '400' }) =>
-    document.fonts.load(`${weight} 1em "${family}"`),
+    document.fonts.load(`${weight} 1em "${family}"`).catch(() => undefined),
   );
   await Promise.race([Promise.all(loads).then(() => {}), timer]);
 }

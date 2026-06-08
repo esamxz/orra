@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useDashboardStore } from '../../stores/dashboardStore';
+import type { DashboardState } from '../../stores/dashboardStore';
 
 interface Props {
   compact?: boolean;
@@ -8,7 +9,7 @@ interface Props {
 
 export default function UsageStatus({ compact = false, className = '' }: Props) {
   const [open, setOpen] = useState(false);
-  const usage = useDashboardStore((s: { usage: { monthlyTotal: number; monthlyUsed: number; plan: string; topupCredits: number; resetDate: string; recentUsage: { action: string; credits: number; date: string }[] } }) => s.usage);
+  const usage = useDashboardStore((s: DashboardState) => s.usage);
 
   const remaining = usage.monthlyTotal - usage.monthlyUsed;
   const pct = Math.max(0, Math.min(100, (usage.monthlyUsed / usage.monthlyTotal) * 100));
@@ -116,7 +117,7 @@ export default function UsageStatus({ compact = false, className = '' }: Props) 
 }
 
 function UsagePopover({ onClose }: { onClose: () => void }) {
-  const usage = useDashboardStore((s: { usage: { monthlyTotal: number; monthlyUsed: number; plan: string; topupCredits: number; resetDate: string; recentUsage: { action: string; credits: number; date: string }[] } }) => s.usage);
+  const usage = useDashboardStore((s: DashboardState) => s.usage);
   const remaining = usage.monthlyTotal - usage.monthlyUsed;
   const pct = Math.max(0, Math.min(100, (usage.monthlyUsed / usage.monthlyTotal) * 100));
 

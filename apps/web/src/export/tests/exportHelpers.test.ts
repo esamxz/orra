@@ -19,9 +19,16 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function mockId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `00000000-0000-0000-0000-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function makeTextLayer(overrides?: Partial<TextLayer>): TextLayer {
   return {
-    id: crypto.randomUUID(),
+    id: mockId(),
     type: 'text',
     z: 1,
     x: 100,
@@ -46,7 +53,7 @@ function makeTextLayer(overrides?: Partial<TextLayer>): TextLayer {
 
 function makeBackgroundLayer(overrides?: Partial<BackgroundLayer>): BackgroundLayer {
   return {
-    id: crypto.randomUUID(),
+    id: mockId(),
     type: 'background',
     z: 0,
     x: 0,
@@ -57,7 +64,7 @@ function makeBackgroundLayer(overrides?: Partial<BackgroundLayer>): BackgroundLa
     opacity: 1,
     locked: false,
     hidden: false,
-    assetId: crypto.randomUUID(),
+    assetId: mockId(),
     fit: 'cover',
     ...overrides,
   };
@@ -65,7 +72,7 @@ function makeBackgroundLayer(overrides?: Partial<BackgroundLayer>): BackgroundLa
 
 function makeCard(layers: Layer[] = [], overrides?: Partial<Card>): Card {
   return {
-    id: crypto.randomUUID(),
+    id: mockId(),
     index: 0,
     baseColor: '#ffffff',
     layers: layers.length ? layers : [makeBackgroundLayer(), makeTextLayer()],
@@ -76,7 +83,7 @@ function makeCard(layers: Layer[] = [], overrides?: Partial<Card>): Card {
 function makeDocument(overrides?: Partial<ArtifactDocument>): ArtifactDocument {
   return {
     schemaVersion: 1,
-    artifactId: crypto.randomUUID(),
+    artifactId: mockId(),
     type: 'post',
     ratio: { name: '4:5', w: 1080, h: 1350 },
     cards: [makeCard()],

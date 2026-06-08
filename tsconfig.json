@@ -16,5 +16,13 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "exclude": ["node_modules", "dist", "build", "apps/web", "apps/api"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    // apps have their own tsconfig.json with environment-specific types
+    // (web = browser + vite/client, api = Worker + @cloudflare/workers-types)
+    "apps/web",
+    "apps/api"
+  ]
 }

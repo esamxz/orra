@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import type { Context, Next } from 'hono';
+import type { Context, Next, MiddlewareHandler } from 'hono';
 import type { Env } from '../env.js';
 import { ApiError } from '../errors.js';
 import type { AuthContext } from '../auth/types.js';
@@ -25,10 +25,10 @@ function isDevAuthEnabled(env: Env): boolean {
   return env.DEV_AUTH_ENABLED === 'true' && (env.ENVIRONMENT === 'development' || !env.ENVIRONMENT);
 }
 
-export function createAuthMiddleware(verifier: ClerkVerifier) {
+export function createAuthMiddleware(verifier: ClerkVerifier): MiddlewareHandler {
   return createMiddleware(
     async (c: Context, next: Next): Promise<void | Response> => {
-      const env = c.env as Env;
+      const env = c.env;
 
       // Allow CORS preflight without authentication.
       if (c.req.method === 'OPTIONS') {

@@ -22,17 +22,17 @@ export interface AuthContext {
 // Dev auth fallback — only used when DEV_AUTH_ENABLED is true.
 // ---------------------------------------------------------------------------
 
-export const DEV_AUTH: AuthContext = {
+export const DEV_AUTH: Readonly<AuthContext> = Object.freeze({
   isAuthenticated: true,
   clerkUserId: 'usr_dev_stub',
   userId: '00000000-0000-0000-0000-000000000000',
   workspaceId: '00000000-0000-0000-0000-000000000000',
   role: 'owner',
   authSource: 'dev',
-};
+});
 
-export const UNAUTHENTICATED_AUTH: AuthContext = {
+export const UNAUTHENTICATED_AUTH: Readonly<AuthContext> = Object.freeze({
   isAuthenticated: false,
   clerkUserId: '',
   authSource: 'none',
-};
+});

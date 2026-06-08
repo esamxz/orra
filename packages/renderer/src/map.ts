@@ -8,7 +8,6 @@ import {
   type LogoLayer,
   type ShapeLayer,
   type OverlayLayer,
-  type Layer,
 } from '@orra/shared';
 import type {
   RenderCardData,
@@ -20,6 +19,10 @@ import type {
   RenderShapeLayer,
   RenderOverlayLayer,
 } from './types.js';
+
+function assertNever(x: never): never {
+  throw new Error(`Unsupported layer type: ${(x as Record<string, unknown>).type as string}`);
+}
 
 // ---------------------------------------------------------------------------
 // Build render data for a single card from an ArtifactDocument
@@ -60,8 +63,7 @@ export function buildCardRenderData(
       case 'overlay':
         return mapOverlayLayer(layer);
       default:
-        // Exhaustive check — this branch should never hit because of Zod union
-        throw new Error(`Unsupported layer type: ${(layer as Layer).type}`);
+        return assertNever(layer);
     }
   });
 

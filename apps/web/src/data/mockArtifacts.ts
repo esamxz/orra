@@ -581,11 +581,13 @@ export function mockCarousel(): ArtifactDocument {
 export function makeArtifactSinglePost(brandHandle?: string): ArtifactDocument {
   const doc = mockSinglePost();
   if (brandHandle) {
-    const textLayers = doc.cards[0].layers.filter((l): l is TextLayer => l.type === 'text');
-    const handleLayer = textLayers.find((l) => l.content.includes('@'));
-    if (handleLayer) {
-      handleLayer.content = brandHandle;
-    }
+    const card = doc.cards[0];
+    card.layers = card.layers.map((l) => {
+      if (l.type === 'text' && l.content.includes('@')) {
+        return { ...l, content: brandHandle };
+      }
+      return l;
+    });
   }
   return doc;
 }
@@ -594,11 +596,12 @@ export function makeArtifactCarousel(brandHandle?: string): ArtifactDocument {
   const doc = mockCarousel();
   if (brandHandle) {
     for (const card of doc.cards) {
-      const textLayers = card.layers.filter((l): l is TextLayer => l.type === 'text');
-      const handleLayer = textLayers.find((l) => l.content.includes('@still.studio'));
-      if (handleLayer) {
-        handleLayer.content = brandHandle;
-      }
+      card.layers = card.layers.map((l) => {
+        if (l.type === 'text' && l.content.includes('@still.studio')) {
+          return { ...l, content: brandHandle };
+        }
+        return l;
+      });
     }
   }
   return doc;

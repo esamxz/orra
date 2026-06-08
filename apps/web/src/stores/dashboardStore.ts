@@ -126,7 +126,7 @@ const initialBrandSystems: MockBrandSystem[] = [
 // ---------------------------------------------------------------------------
 export type DashboardTab = 'recent' | 'projects' | 'trends' | 'brands';
 
-interface DashboardState {
+export interface DashboardState {
   activeTab: DashboardTab;
   brandSystems: MockBrandSystem[];
   usage: MockUsage;

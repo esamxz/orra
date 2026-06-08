@@ -31,14 +31,14 @@ function createValidator<T extends ZodSchema>(target: 'json' | 'query' | 'param'
   });
 }
 
-export function validateJson<T extends ZodSchema>(schema: T) {
+export function validateJson<T extends ZodSchema>(schema: T): ReturnType<typeof createValidator<T>> {
   return createValidator('json', schema);
 }
 
-export function validateQuery<T extends ZodSchema>(schema: T) {
+export function validateQuery<T extends ZodSchema>(schema: T): ReturnType<typeof createValidator<T>> {
   return createValidator('query', schema);
 }
 
-export function validateParam<T extends ZodSchema>(schema: T) {
+export function validateParam<T extends ZodSchema>(schema: T): ReturnType<typeof createValidator<T>> {
   return createValidator('param', schema);
 }

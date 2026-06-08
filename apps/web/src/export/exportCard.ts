@@ -175,9 +175,10 @@ export async function renderCardToPng(
   container.style.cssText = 'position:fixed;left:-99999px;top:-99999px;pointer-events:none;';
   document.body.appendChild(container);
 
-  const stage = new Konva.Stage({ container, width: docW, height: docH });
+  let stage: Konva.Stage | undefined;
 
   try {
+    stage = new Konva.Stage({ container, width: docW, height: docH });
     const konvaLayer = new Konva.Layer();
     stage.add(konvaLayer);
 
@@ -199,7 +200,7 @@ export async function renderCardToPng(
     konvaLayer.draw();
 
     return await new Promise<Blob>((resolve, reject) => {
-      stage.toBlob({
+      stage!.toBlob({
         pixelRatio: EXPORT_PIXEL_RATIO,
         callback: (blob) => {
           if (blob) resolve(blob);
@@ -208,7 +209,7 @@ export async function renderCardToPng(
       });
     });
   } finally {
-    stage.destroy();
+    stage?.destroy();
     document.body.removeChild(container);
   }
 }

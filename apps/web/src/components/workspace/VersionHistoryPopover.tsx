@@ -1,5 +1,4 @@
 interface Props {
-  onClose: () => void;
   onRestore: (desc: string) => void;
 }
 

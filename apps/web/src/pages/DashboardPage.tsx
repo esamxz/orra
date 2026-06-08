@@ -35,7 +35,7 @@ function MiniThumb({ variant, label }: { variant: string; label?: string }) {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { addBrandSystem } = useDashboardStore();
+  const addBrandSystem = useDashboardStore((s) => s.addBrandSystem);
   const { theme, toggle: toggleTheme } = useTheme();
 
   const [tab, setTab] = useState('Recent');

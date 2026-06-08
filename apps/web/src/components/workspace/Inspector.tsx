@@ -384,7 +384,10 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
   }, [cardId, cardLayers, layer.id, onAction]);
 
   const handleDuplicate = useCallback(() => {
-    const dup: Layer = { ...structuredClone(layer), id: crypto.randomUUID(), z: layer.z + 1 };
+    const dupId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `l-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const dup: Layer = { ...structuredClone(layer), id: dupId, z: layer.z + 1 };
     onAction(buildAddLayerAction(cardId, dup));
   }, [cardId, layer, onAction]);
 

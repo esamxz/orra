@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createApp } from '../app.js';
 import { Hono } from 'hono';
 import type { Env } from '../env.js';
@@ -6,6 +6,9 @@ import { ApiError } from '../errors.js';
 import { requestIdMiddleware } from '../middleware/request-id.js';
 
 const env = { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>;
+
+// Prevent error-handler console.error from polluting test output
+vi.spyOn(console, 'error').mockImplementation(() => {});
 
 type ApiErrorResponse = {
   ok: false;

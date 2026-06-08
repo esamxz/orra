@@ -49,6 +49,7 @@ function topicFromPrompt(p: string) {
 }
 
 
+// Mock ID generator for chat messages — not persisted, replaced by server IDs later.
 let _mid = 0;
 const mid = () => 'm' + (++_mid);
 
@@ -67,7 +68,7 @@ export default function WorkspacePage() {
 
   const isCarousel = config.mode === 'carousel' || config.mode === 'assets';
   const brand = config.brand || BRANDS[0];
-  const handle = '@' + brand.name.toLowerCase().replace(/[^a-z]+/g,'.').replace(/^\.|\.$/g,'');
+  const brandHandle = '@' + brand.name.toLowerCase().replace(/[^a-z]+/g,'.').replace(/^\.|\.$/g,'');
 
   const [ratio, setRatio] = useState(config.ratio || '4:5');
   const [phase, setPhase] = useState('empty');
@@ -112,11 +113,9 @@ export default function WorkspacePage() {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   /* ----- kernel action dispatch ----- */
-  const dispatchAction = dispatch;
-
   const handleInspectorAction = useCallback((action: Action) => {
-    dispatchAction(action);
-  }, [dispatchAction]);
+    dispatch(action);
+  }, [dispatch]);
 
   useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
 
@@ -188,7 +187,7 @@ export default function WorkspacePage() {
     setPending(null);
     setMessages(m => [...m, { id:mid(), role:'ai', type:'thinking', text:'Designing the layers…' }]);
     setTimeout(()=>{
-      const made = isCarousel ? makeArtifactCarousel(handle) : makeArtifactSinglePost(handle);
+      const made = isCarousel ? makeArtifactCarousel(brandHandle) : makeArtifactSinglePost(brandHandle);
       resetArtifact(made);
       setActiveCard(0); clearSelection(); setPhase('generated');
       setMessages(m => {
@@ -257,7 +256,7 @@ export default function WorkspacePage() {
       ]),
     });
 
-    if (dispatchAction({ type: 'addCard', card: newCard })) {
+    if (dispatch({ type: 'addCard', card: newCard })) {
       setActiveCard(artifact.cards.length);
       clearSelection();
       flash('Card added');
@@ -267,7 +266,7 @@ export default function WorkspacePage() {
   const dupCard = (i: number, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!artifact) return;
-    if (dispatchAction({ type: 'duplicateCard', cardId: artifact.cards[i].id })) {
+    if (dispatch({ type: 'duplicateCard', cardId: artifact.cards[i].id })) {
       flash('Card duplicated');
     }
   };
@@ -278,7 +277,7 @@ export default function WorkspacePage() {
       flash('A carousel needs at least one card');
       return;
     }
-    if (dispatchAction({ type: 'removeCard', cardId: artifact.cards[i].id })) {
+    if (dispatch({ type: 'removeCard', cardId: artifact.cards[i].id })) {
       const nextIndex = Math.max(0, activeCardIndex >= i ? activeCardIndex - 1 : activeCardIndex);
       setActiveCard(nextIndex);
       clearSelection();
@@ -287,13 +286,13 @@ export default function WorkspacePage() {
 
   const handleDragEnd = useCallback((layerId: string, x: number, y: number) => {
     if (!card) return;
-    dispatchAction(buildUpdateLayerPropsAction(card.id, layerId, { x, y }));
-  }, [card, dispatchAction]);
+    dispatch(buildUpdateLayerPropsAction(card.id, layerId, { x, y }));
+  }, [card, dispatch]);
 
   const handleResizeEnd = useCallback((layerId: string, x: number, y: number, w: number, h: number) => {
     if (!card) return;
-    dispatchAction(buildUpdateLayerPropsAction(card.id, layerId, { x, y, w, h }));
-  }, [card, dispatchAction]);
+    dispatch(buildUpdateLayerPropsAction(card.id, layerId, { x, y, w, h }));
+  }, [card, dispatch]);
 
   const handleDblClick = useCallback((layerId: string) => {
     if (!card) return;
@@ -313,9 +312,9 @@ export default function WorkspacePage() {
     setEditingLayerId(null);
     if (!ctx) return;
     if (text !== ctx.originalContent) {
-      dispatchAction(buildSetTextContentAction(ctx.cardId, ctx.layerId, text));
+      dispatch(buildSetTextContentAction(ctx.cardId, ctx.layerId, text));
     }
-  }, [dispatchAction]);
+  }, [dispatch]);
 
   const handleEditCancel = useCallback(() => {
     editContextRef.current = null;
@@ -400,7 +399,7 @@ export default function WorkspacePage() {
               const [a, b] = dim;
               const base = 270;
               const newRatio = { name: name as '1:1' | '4:5' | '9:16' | '16:9', w: a * base, h: b * base };
-              if (dispatchAction({ type: 'setRatio', ratio: newRatio })) {
+              if (dispatch({ type: 'setRatio', ratio: newRatio })) {
                 setRatio(name);
               }
             }}
@@ -417,7 +416,7 @@ export default function WorkspacePage() {
             <button className="btn-icon" onClick={()=>{setVersOpen(v=>!v);setExportOpen(false);}} title="Version history">{<Icon.history s={18} />}</button>
             {versOpen && <>
               <div className="backdrop" onClick={()=>setVersOpen(false)} />
-              <VersionHistoryPopover onClose={()=>setVersOpen(false)} onRestore={(d)=>flash('Restored '+d.toLowerCase())} />
+              <VersionHistoryPopover onRestore={(d)=>flash('Restored '+d.toLowerCase())} />
             </>}
           </div>
           <button className="btn-icon" onClick={toggleTheme} title="Toggle theme">{theme==='dark'? <Icon.sun s={18} /> : <Icon.moon s={18} />}</button>
