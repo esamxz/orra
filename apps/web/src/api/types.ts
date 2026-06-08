@@ -60,3 +60,27 @@ export interface ApplyActionApiResponse {
   document: ArtifactDocument;
   artifactVersionNumber: number;
 }
+
+// ---------------------------------------------------------------------------
+// Chat types
+// ---------------------------------------------------------------------------
+
+export interface ChatMessageDto {
+  id: string;
+  projectId: string;
+  threadId: string;
+  role: 'user' | 'assistant' | 'system';
+  kind: 'text' | 'approval_summary' | 'job_ref';
+  content: string | null;
+  metadata: Record<string, unknown>;
+  seq: number | null;
+  createdAt: string;
+}
+
+export interface AppendProjectMessageInput {
+  content: string;
+}
+
+export interface ListProjectMessagesParams {
+  limit?: number;
+}

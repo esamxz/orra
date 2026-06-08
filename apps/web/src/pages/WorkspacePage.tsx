@@ -1,8 +1,12 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import { usePersistedActionDispatch } from '../hooks/usePersistedActionDispatch';
 import { useArtifactLoader } from '../hooks/useArtifactLoader';
+import { useProjectMessages } from '../hooks/useProjectMessages';
+import { appendProjectMessage } from '../api/chat';
+import { ApiClientError } from '../api/errors';
+import type { ChatMessageDto } from '../api/types';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
 import { BRANDS } from '../data/cards';
@@ -63,6 +67,23 @@ interface LocationState {
   currentArtifactId?: string;
 }
 
+interface UiMessage {
+  id: string;
+  role: 'user' | 'ai';
+  type: string;
+  text?: string;
+  topic?: string;
+}
+
+function mapApiMessageToUi(m: ChatMessageDto): UiMessage {
+  return {
+    id: m.id,
+    role: m.role === 'user' ? 'user' : 'ai',
+    type: m.kind === 'approval_summary' ? 'approval' : m.kind === 'job_ref' ? 'done' : 'text',
+    text: m.content ?? '',
+  };
+}
+
 export default function WorkspacePage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -75,10 +96,14 @@ export default function WorkspacePage() {
 
   const [ratio, setRatio] = useState(config.ratio || '4:5');
   const [phase, setPhase] = useState('empty');
-  const [messages, setMessages] = useState<{ id: string; role: 'user' | 'ai'; type: string; text?: string; topic?: string }[]>([]);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState(config.prefill || '');
   const [pending, setPending] = useState<{ topic: string } | null>(null);
   const [ctaSet, setCtaSet] = useState(false);
+
+  const [sendState, setSendState] = useState<'idle' | 'sending' | 'error'>('idle');
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [realMessages, setRealMessages] = useState<UiMessage[]>([]);
 
   const { theme, toggle: toggleTheme } = useTheme();
   const [toast, setToast] = useState<string | null>(null);
@@ -114,6 +139,13 @@ export default function WorkspacePage() {
   // ---------------------------------------------------------------------------
   const artifactLoader = useArtifactLoader();
 
+  const {
+    messages: apiMessages,
+    state: messagesState,
+    error: messagesError,
+    reload: reloadMessages,
+  } = useProjectMessages(projectId ?? undefined);
+
   // Selection state from workspace store
   const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
   const selectedLayerId = useWorkspaceStore((s) => s.selectedLayerId);
@@ -142,10 +174,21 @@ export default function WorkspacePage() {
     dispatch(action);
   }, [dispatch]);
 
-  useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
-
   const card = artifact ? artifact.cards[activeCardIndex] : null;
   const fr = frameSize(ratio, isCarousel?500:548);
+
+  // Sync real messages from API when projectId or apiMessages change
+  useEffect(() => {
+    if (projectId) {
+      setRealMessages(apiMessages.map(mapApiMessageToUi));
+    }
+  }, [apiMessages, projectId]);
+
+  const displayMessages = useMemo(() => {
+    return projectId ? realMessages : messages;
+  }, [projectId, realMessages, messages]);
+
+  useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [displayMessages]);
 
   // Sync selection when active card changes
   useEffect(() => {
@@ -212,9 +255,42 @@ export default function WorkspacePage() {
   ]);
 
   /* ----- chat send ----- */
-  const send = () => {
+  const send = async () => {
     const text = input.trim();
     if (!text) return;
+
+    if (projectId) {
+      // Real project mode: persist to backend
+      setSendState('sending');
+      setSendError(null);
+      const tempId = `temp-${Date.now()}`;
+      setRealMessages((prev) => [...prev, { id: tempId, role: 'user', type: 'text', text }]);
+      setInput('');
+      if (taRef.current) taRef.current.style.height = 'auto';
+
+      try {
+        const saved = await appendProjectMessage(projectId, { content: text });
+        setRealMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? mapApiMessageToUi(saved) : m,
+          ),
+        );
+        setSendState('idle');
+      } catch (err) {
+        setRealMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setSendState('error');
+        const msg = err instanceof ApiClientError ? err.message : 'Failed to send message. Please try again.';
+        setSendError(msg);
+        setInput(text);
+        if (taRef.current) {
+          taRef.current.style.height = 'auto';
+          taRef.current.style.height = Math.min(taRef.current.scrollHeight, 120) + 'px';
+        }
+      }
+      return;
+    }
+
+    // Demo/local mode: existing mock behavior
     setInput('');
     if (taRef.current) taRef.current.style.height = 'auto';
     setMessages(m => [...m, { id:mid(), role:'user', type:'text', text }]);
@@ -550,13 +626,32 @@ export default function WorkspacePage() {
           </div>
 
           <div className="chat-scroll" ref={scrollRef}>
-            {messages.length===0 && (
+            {/* Loading state for real project */}
+            {projectId && messagesState === 'loading' && displayMessages.length === 0 && (
+              <div style={{textAlign:'center',color:'var(--muted)',padding:'28px 10px'}}>
+                <div style={{width:46,height:46,borderRadius:14,background:'var(--primary-06)',color:'var(--primary)',display:'grid',placeItems:'center',margin:'0 auto 14px'}}>
+                  <span className="thinking"><span className="dots"><i/><i/><i/></span></span>
+                </div>
+                <p style={{fontSize:14,lineHeight:1.55,margin:0}}>Loading conversation…</p>
+              </div>
+            )}
+
+            {/* Error state for real project */}
+            {projectId && messagesState === 'error' && (
+              <div style={{textAlign:'center',color:'var(--danger,#c44)',padding:'28px 10px'}}>
+                <p style={{fontSize:13.5,lineHeight:1.55,margin:'0 0 10px'}}>{messagesError ?? 'Failed to load messages'}</p>
+                <button className="btn btn-ghost btn-sm" onClick={reloadMessages}>Try again</button>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {displayMessages.length === 0 && !(projectId && messagesState === 'loading') && (
               <div style={{textAlign:'center',color:'var(--muted)',padding:'28px 10px'}}>
                 <div style={{width:46,height:46,borderRadius:14,background:'var(--primary-06)',color:'var(--primary)',display:'grid',placeItems:'center',margin:'0 auto 14px'}}>{<Icon.message s={22} />}</div>
                 <p style={{fontSize:14,lineHeight:1.55,margin:0}}>Describe the post or carousel you want.<br/>Orra plans first, then builds the layers.</p>
               </div>
             )}
-            {messages.map(m => {
+            {displayMessages.map(m => {
               if (m.type==='thinking') return (
                 <div key={m.id} className="msg ai">
                   <div className="av">{<Icon.sparkFill s={12} />}</div>
@@ -590,23 +685,31 @@ export default function WorkspacePage() {
           </div>
 
           <div className="composer">
-            {messages.length===0 && (
+            {displayMessages.length===0 && (
               <div className="suggest-row">
                 {['5-card carousel on slow mornings','A quote post about focus','Carousel: 3 quiet productivity tips'].map(s=>(
                   <button key={s} className="suggest" onClick={()=>setInput(s)}>{s}</button>
                 ))}
               </div>
             )}
+            {sendError && (
+              <div style={{padding:'6px 12px',fontSize:12.5,color:'var(--danger,#c44)',background:'rgba(204,68,68,0.06)',borderRadius:8,marginBottom:6}}>
+                {sendError}
+              </div>
+            )}
             <div className="composer-box">
               <textarea ref={taRef} rows={1} placeholder="Direct Orra — describe or refine…"
                 value={input}
+                disabled={sendState === 'sending'}
                 onChange={e=>{ setInput(e.target.value); e.target.style.height='auto'; e.target.style.height=Math.min(e.target.scrollHeight,120)+'px'; }}
                 onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } }} />
               <div className="composer-bar">
                 <button className="attach" onClick={()=>flash('Asset upload — drop images or files')}>{<Icon.attach s={15} />} Add assets</button>
                 <span className="grow" />
                 <span style={{fontSize:11.5,color:'var(--muted)',marginRight:4}}>{curBrand.name}</span>
-                <button className="send-btn" disabled={!input.trim()} onClick={send}>{<Icon.send s={17} />}</button>
+                <button className="send-btn" aria-label="Send" disabled={!input.trim() || sendState === 'sending'} onClick={send}>
+                  {sendState === 'sending' ? <span className="thinking"><span className="dots"><i/><i/><i/></span></span> : <Icon.send s={17} />}
+                </button>
               </div>
             </div>
           </div>
