@@ -37,13 +37,16 @@ const __dirname = dirname(__filename);
 const MIGRATIONS_DIR = join(__dirname, '../../../../supabase/migrations');
 const FOUNDATION = join(MIGRATIONS_DIR, '20260607000001_orra_foundation.sql');
 const HARDENING = join(MIGRATIONS_DIR, '20260607000002_orra_hardening.sql');
+const ATOMIC = join(MIGRATIONS_DIR, '20260608000002_orra_atomic_artifact_version.sql');
 
 let foundation: string;
 let hardening: string;
+let atomic: string;
 
 beforeAll(() => {
   foundation = readFileSync(FOUNDATION, 'utf-8').toLowerCase();
   hardening = readFileSync(HARDENING, 'utf-8').toLowerCase();
+  atomic = readFileSync(ATOMIC, 'utf-8').toLowerCase();
 });
 
 // ---------------------------------------------------------------------------
@@ -463,6 +466,69 @@ describe('hardening migration: artifact_versions.version > 0', () => {
 
   it('ALTER TABLE targets artifact_versions', () => {
     expect(has(hardening, 'alter table artifact_versions')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Atomic artifact version migration
+// ---------------------------------------------------------------------------
+
+describe('atomic migration: commit_artifact_version rpc', () => {
+  it('migration file is readable', () => {
+    expect(atomic.length).toBeGreaterThan(0);
+  });
+
+  it('defines commit_artifact_version function', () => {
+    expect(has(atomic, 'create or replace function commit_artifact_version')).toBe(true);
+  });
+
+  it('function accepts p_workspace_id parameter', () => {
+    expect(has(atomic, 'p_workspace_id')).toBe(true);
+  });
+
+  it('function accepts p_artifact_id parameter', () => {
+    expect(has(atomic, 'p_artifact_id')).toBe(true);
+  });
+
+  it('function accepts p_expected_current_version_id parameter', () => {
+    expect(has(atomic, 'p_expected_current_version_id')).toBe(true);
+  });
+
+  it('function accepts p_version parameter', () => {
+    expect(has(atomic, 'p_version')).toBe(true);
+  });
+
+  it('function accepts p_document parameter', () => {
+    expect(has(atomic, 'p_document')).toBe(true);
+  });
+
+  it('function accepts p_reason parameter', () => {
+    expect(has(atomic, 'p_reason')).toBe(true);
+  });
+
+  it('function accepts p_created_by parameter', () => {
+    expect(has(atomic, 'p_created_by')).toBe(true);
+  });
+
+  it('uses for update row lock on artifacts', () => {
+    expect(has(atomic, 'for update')).toBe(true);
+  });
+
+  it('checks artifact is distinct from expected current version', () => {
+    expect(has(atomic, 'is distinct from')).toBe(true);
+  });
+
+  it('inserts into artifact_versions', () => {
+    expect(has(atomic, 'insert into artifact_versions')).toBe(true);
+  });
+
+  it('updates artifacts.current_version_id', () => {
+    expect(has(atomic, 'update artifacts')).toBe(true);
+    expect(has(atomic, 'current_version_id')).toBe(true);
+  });
+
+  it('returns the new artifact_versions row', () => {
+    expect(has(atomic, 'returning')).toBe(true);
   });
 });
 

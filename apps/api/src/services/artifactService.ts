@@ -176,13 +176,11 @@ export class ArtifactService {
    * 4. If stale, throw VERSION_CONFLICT (409).
    * 5. Apply the action through the shared kernel.
    * 6. Validate the updated document.
-   * 7. Create a new artifact_versions snapshot.
-   * 8. Update artifact.current_version_id.
+   * 7. Commit the new version atomically (version insert + current pointer update).
    *
-   * Atomicity note: version creation and current_version_id update are two
-   * separate DB operations. A crash between them can orphan a version row.
-   * Future hardening should move version creation + current pointer update
-   * into a Postgres RPC/transaction.
+   * Atomicity is handled by the commit_artifact_version Postgres RPC, which
+   * locks the artifact row, verifies workspace + version guard, inserts the
+   * snapshot, and updates the pointer in a single transaction.
    */
   async applyAction(
     ctx: ServiceContext,
@@ -232,28 +230,21 @@ export class ArtifactService {
     // 5. Validate the updated document before persisting.
     const updatedDocument = validateDocument(result.document);
 
-    // 6. Create new artifact_versions snapshot.
+    // 6. Commit atomically: insert version + update current_version_id in one RPC.
     const newArtifactVersionNumber = current.version.version + 1;
-    const newVersion = await this.artifactRepo.createVersion({
+    const committedVersion = await this.artifactRepo.commitVersion({
       workspaceId,
       artifactId,
+      expectedCurrentVersionId: current.version.id,
       version: newArtifactVersionNumber,
       document: updatedDocument,
       reason: 'manual_edit',
       createdBy: 'user',
     });
 
-    // 7. Update current_version_id, guarded by the old version id to reduce race risk.
-    const updatedArtifact = await this.artifactRepo.setCurrentVersionGuarded({
-      workspaceId,
-      artifactId,
-      versionId: newVersion.id,
-      expectedCurrentVersionId: current.version.id,
-    });
-
-    if (!updatedArtifact) {
-      // Guard failed: another write slipped in between version creation and pointer update.
-      // In a transactional model this would roll back. Here we report conflict.
+    if (!committedVersion) {
+      // Atomic commit failed because another write changed current_version_id
+      // underneath us (workspace mismatch is already handled by getCurrentVersion).
       throw new ApiError(
         'VERSION_CONFLICT',
         'The document has changed. Please refetch the current version and try again.'
@@ -261,9 +252,9 @@ export class ArtifactService {
     }
 
     return {
-      artifactId: updatedArtifact.id,
-      projectId: updatedArtifact.project_id,
-      currentVersionId: newVersion.id,
+      artifactId,
+      projectId: current.artifact.project_id,
+      currentVersionId: committedVersion.id,
       version: updatedDocument.version,
       document: updatedDocument,
       artifactVersionNumber: newArtifactVersionNumber,

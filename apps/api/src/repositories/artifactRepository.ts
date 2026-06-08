@@ -41,6 +41,16 @@ export interface SetCurrentVersionGuardedInput {
   expectedCurrentVersionId: string;
 }
 
+export interface CommitVersionInput {
+  workspaceId: string;
+  artifactId: string;
+  expectedCurrentVersionId: string;
+  version: number;
+  document: Json;
+  reason: ArtifactVersionRow['reason'];
+  createdBy: ArtifactVersionRow['created_by'];
+}
+
 export interface GetArtifactByIdInput {
   id: string;
   workspaceId: string;
@@ -66,6 +76,12 @@ export interface ArtifactRepository {
   createVersion(input: CreateVersionInput): Promise<ArtifactVersionRow>;
   setCurrentVersion(input: SetCurrentVersionInput): Promise<ArtifactRow>;
   setCurrentVersionGuarded(input: SetCurrentVersionGuardedInput): Promise<ArtifactRow | null>;
+  /**
+   * Atomically insert a new artifact_versions snapshot and update
+   * artifacts.current_version_id. Returns the new version row on success,
+   * or null when the optimistic-concurrency guard fails.
+   */
+  commitVersion(input: CommitVersionInput): Promise<ArtifactVersionRow | null>;
   getArtifactByIdForWorkspace(input: GetArtifactByIdInput): Promise<ArtifactRow | null>;
   getArtifactByProjectIdForWorkspace(input: GetArtifactByProjectIdInput): Promise<ArtifactRow | null>;
   getCurrentVersion(input: GetCurrentVersionInput): Promise<ArtifactWithVersion | null>;
@@ -93,6 +109,11 @@ export class StubArtifactRepository implements ArtifactRepository {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async setCurrentVersionGuarded(_input: SetCurrentVersionGuardedInput): Promise<ArtifactRow | null> {
     throw new Error('ArtifactRepository.setCurrentVersionGuarded is not implemented yet.');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async commitVersion(_input: CommitVersionInput): Promise<ArtifactVersionRow | null> {
+    throw new Error('ArtifactRepository.commitVersion is not implemented yet.');
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -193,6 +214,31 @@ export class SupabaseArtifactRepository implements ArtifactRepository {
     }
 
     return expectSingleRow(data, error);
+  }
+
+  async commitVersion(input: CommitVersionInput): Promise<ArtifactVersionRow | null> {
+    const { data, error } = await this.db.rpc('commit_artifact_version', {
+      p_workspace_id: input.workspaceId,
+      p_artifact_id: input.artifactId,
+      p_expected_current_version_id: input.expectedCurrentVersionId,
+      p_version: input.version,
+      p_document: input.document,
+      p_reason: input.reason,
+      p_created_by: input.createdBy,
+    });
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    // RPC returns [] on conflict (workspace mismatch or version mismatch).
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+      return null;
+    }
+
+    // RPC returns an array with one row on success.
+    const row = Array.isArray(data) ? data[0] : data;
+    return row as ArtifactVersionRow;
   }
 
   async getArtifactByIdForWorkspace(input: GetArtifactByIdInput): Promise<ArtifactRow | null> {

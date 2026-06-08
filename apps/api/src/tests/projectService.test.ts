@@ -148,6 +148,32 @@ function createFakeArtifactRepository(initial: { artifacts?: ArtifactRow[]; vers
       if (!version) return null;
       return { artifact, version };
     },
+
+    async commitVersion(input) {
+      const idx = artifacts.findIndex(
+        (a) =>
+          a.id === input.artifactId &&
+          a.workspace_id === input.workspaceId &&
+          a.current_version_id === input.expectedCurrentVersionId
+      );
+      if (idx === -1) {
+        return null;
+      }
+      const version: ArtifactVersionRow = {
+        id: randomUUID(),
+        workspace_id: input.workspaceId,
+        artifact_id: input.artifactId,
+        version: input.version,
+        document: input.document,
+        reason: input.reason,
+        created_by: input.createdBy,
+        brand_context_snapshot: null,
+        created_at: new Date().toISOString(),
+      };
+      versions.push(version);
+      artifacts[idx] = { ...artifacts[idx], current_version_id: version.id, updated_at: version.created_at };
+      return version;
+    },
   };
 }
 

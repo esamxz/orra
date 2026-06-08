@@ -257,6 +257,97 @@ describe('SupabaseArtifactRepository', () => {
     expect(updated).toBeNull();
   });
 
+  it('commitVersion atomically inserts version and updates current_version_id', async () => {
+    const fakeDb = createFakeDbClient({
+      artifacts: [
+        {
+          id: 'art-1',
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-old',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      artifact_versions: [],
+    });
+    const repo = new SupabaseArtifactRepository(fakeDb);
+
+    const version = await repo.commitVersion({
+      workspaceId: 'ws-1',
+      artifactId: 'art-1',
+      expectedCurrentVersionId: 'ver-old',
+      version: 2,
+      document: { schemaVersion: 1, version: 2 },
+      reason: 'manual_edit',
+      createdBy: 'user',
+    });
+
+    expect(version).not.toBeNull();
+    expect(version!.artifact_id).toBe('art-1');
+    expect(version!.version).toBe(2);
+
+    const current = await repo.getCurrentVersion({ artifactId: 'art-1', workspaceId: 'ws-1' });
+    expect(current).not.toBeNull();
+    expect(current!.version.id).toBe(version!.id);
+  });
+
+  it('commitVersion returns null when expected current_version_id mismatches', async () => {
+    const fakeDb = createFakeDbClient({
+      artifacts: [
+        {
+          id: 'art-1',
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-old',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+    });
+    const repo = new SupabaseArtifactRepository(fakeDb);
+
+    const version = await repo.commitVersion({
+      workspaceId: 'ws-1',
+      artifactId: 'art-1',
+      expectedCurrentVersionId: 'ver-wrong',
+      version: 2,
+      document: { schemaVersion: 1, version: 2 },
+      reason: 'manual_edit',
+      createdBy: 'user',
+    });
+
+    expect(version).toBeNull();
+  });
+
+  it('commitVersion returns null for wrong workspace', async () => {
+    const fakeDb = createFakeDbClient({
+      artifacts: [
+        {
+          id: 'art-1',
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-old',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+    });
+    const repo = new SupabaseArtifactRepository(fakeDb);
+
+    const version = await repo.commitVersion({
+      workspaceId: 'ws-2',
+      artifactId: 'art-1',
+      expectedCurrentVersionId: 'ver-old',
+      version: 2,
+      document: { schemaVersion: 1, version: 2 },
+      reason: 'manual_edit',
+      createdBy: 'user',
+    });
+
+    expect(version).toBeNull();
+  });
+
   it('creates manual_edit version', async () => {
     const fakeDb = createFakeDbClient({ artifacts: [], artifact_versions: [] });
     const repo = new SupabaseArtifactRepository(fakeDb);

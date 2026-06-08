@@ -116,6 +116,37 @@ function createFakeRepositories(
         artifacts[idx] = { ...artifacts[idx], current_version_id: input.versionId };
         return artifacts[idx];
       },
+      async commitVersion(input: {
+        workspaceId: string;
+        artifactId: string;
+        expectedCurrentVersionId: string;
+        version: number;
+        document: unknown;
+        reason: string;
+        createdBy: string;
+      }) {
+        const idx = artifacts.findIndex(
+          (a) =>
+            a.id === input.artifactId &&
+            a.workspace_id === input.workspaceId &&
+            a.current_version_id === input.expectedCurrentVersionId
+        );
+        if (idx === -1) return null;
+        const version: ArtifactVersionRow = {
+          id: `ver-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          workspace_id: input.workspaceId,
+          artifact_id: input.artifactId,
+          version: input.version,
+          document: input.document as import('@orra/db').Json,
+          reason: input.reason as ArtifactVersionRow['reason'],
+          created_by: input.createdBy as ArtifactVersionRow['created_by'],
+          brand_context_snapshot: null,
+          created_at: new Date().toISOString(),
+        };
+        versions.push(version);
+        artifacts[idx] = { ...artifacts[idx], current_version_id: version.id, updated_at: version.created_at };
+        return version;
+      },
       async getArtifactByIdForWorkspace(input: { id: string; workspaceId: string }) {
         return (
           artifacts.find(

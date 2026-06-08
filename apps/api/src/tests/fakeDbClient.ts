@@ -15,7 +15,60 @@ export interface FakeDbState {
 export function createFakeDbClient(initial: FakeDbState = {}): DbClient {
   const tables: FakeDbState = JSON.parse(JSON.stringify(initial)) as FakeDbState;
 
+  // ---------------------------------------------------------------------------
+  // RPC simulation for atomic artifact version commit
+  // ---------------------------------------------------------------------------
+  async function rpcCommitArtifactVersion(params: Record<string, unknown>) {
+    const artifacts = tables['artifacts'] ?? [];
+    const artifact = artifacts.find(
+      (a) =>
+        a.id === params.p_artifact_id &&
+        a.workspace_id === params.p_workspace_id
+    );
+
+    if (!artifact) {
+      return { data: [], error: null };
+    }
+
+    if (artifact.current_version_id !== params.p_expected_current_version_id) {
+      return { data: [], error: null };
+    }
+
+    const newVersionId = `ver-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const newVersion: FakeRow = {
+      id: newVersionId,
+      workspace_id: params.p_workspace_id,
+      artifact_id: params.p_artifact_id,
+      version: params.p_version,
+      document: params.p_document,
+      reason: params.p_reason,
+      created_by: params.p_created_by,
+      brand_context_snapshot: params.p_brand_context_snapshot ?? null,
+      created_at: new Date().toISOString(),
+    };
+
+    tables['artifact_versions'] = [...(tables['artifact_versions'] ?? []), newVersion];
+
+    const artIdx = artifacts.findIndex((a) => a.id === params.p_artifact_id);
+    if (artIdx !== -1) {
+      artifacts[artIdx] = { ...artifacts[artIdx], current_version_id: newVersionId };
+      tables['artifacts'] = [...artifacts];
+    }
+
+    return {
+      data: [newVersion],
+      error: null,
+    };
+  }
+
   return {
+    rpc: (fn: string, params?: Record<string, unknown>) => {
+      if (fn === 'commit_artifact_version') {
+        return rpcCommitArtifactVersion(params ?? {});
+      }
+      return Promise.resolve({ data: null, error: { message: `Unknown RPC: ${fn}` } });
+    },
+
     from: (table: string) => {
       const rows = tables[table] ?? [];
 
