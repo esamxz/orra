@@ -34,7 +34,7 @@ projectRoutes.post('/', validateJson(CreateProjectSchema), async (c) => {
   const body = c.req.valid('json');
   const ctx = buildServiceContext(c);
   const repos = getRepositories(ctx);
-  const service = new ProjectService(repos.project);
+  const service = new ProjectService(repos.project, repos.artifact);
   const project = await service.createProject(ctx, body);
   return c.json({ ok: true, data: project }, 201);
 });
@@ -44,7 +44,7 @@ projectRoutes.get('/', validateQuery(ListProjectsQuerySchema), async (c) => {
   const query = c.req.valid('query');
   const ctx = buildServiceContext(c);
   const repos = getRepositories(ctx);
-  const service = new ProjectService(repos.project);
+  const service = new ProjectService(repos.project, repos.artifact);
   const projects = await service.listProjects(ctx, {
     tab: query.tab,
     limit: query.limit,
@@ -57,7 +57,7 @@ projectRoutes.get('/:id', validateParam(ProjectIdParamSchema), async (c) => {
   const { id } = c.req.valid('param');
   const ctx = buildServiceContext(c);
   const repos = getRepositories(ctx);
-  const service = new ProjectService(repos.project);
+  const service = new ProjectService(repos.project, repos.artifact);
   const project = await service.getProject(ctx, id);
   return c.json({ ok: true, data: project });
 });
@@ -68,7 +68,7 @@ projectRoutes.patch('/:id', validateParam(ProjectIdParamSchema), validateJson(Up
   const body = c.req.valid('json');
   const ctx = buildServiceContext(c);
   const repos = getRepositories(ctx);
-  const service = new ProjectService(repos.project);
+  const service = new ProjectService(repos.project, repos.artifact);
   const project = await service.updateProject(ctx, id, body);
   return c.json({ ok: true, data: project });
 });
@@ -78,7 +78,7 @@ projectRoutes.delete('/:id', validateParam(ProjectIdParamSchema), async (c) => {
   const { id } = c.req.valid('param');
   const ctx = buildServiceContext(c);
   const repos = getRepositories(ctx);
-  const service = new ProjectService(repos.project);
+  const service = new ProjectService(repos.project, repos.artifact);
   await service.deleteProject(ctx, id);
   return c.json({ ok: true, data: { deleted: true } });
 });

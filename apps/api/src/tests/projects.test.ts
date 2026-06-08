@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { randomUUID } from 'crypto';
 import { Hono } from 'hono';
 import type { Env } from '../env.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
@@ -7,7 +8,7 @@ import { errorHandler } from '../middleware/error-handler.js';
 import { createFakeVerifier } from '../auth/verifier.js';
 import projectRoutes from '../routes/projects.js';
 import type { Repositories } from '../repositories/types.js';
-import type { ProjectRow } from '@orra/db';
+import type { ProjectRow, ArtifactRow, ArtifactVersionRow } from '@orra/db';
 import type {
   CreateProjectInput,
   ListProjectsInput,
@@ -31,6 +32,8 @@ interface ApiResponse<T = unknown> {
 
 function createFakeRepositories(projects: ProjectRow[] = []): Repositories {
   const projectList = [...projects];
+  const artifacts: ArtifactRow[] = [];
+  const versions: ArtifactVersionRow[] = [];
   let nextId = 1;
 
   return {
@@ -103,6 +106,75 @@ function createFakeRepositories(projects: ProjectRow[] = []): Repositories {
           (p) => p.id === input.id && p.workspace_id === input.workspaceId
         );
         if (idx !== -1) projectList.splice(idx, 1);
+      },
+    },
+    artifact: {
+      async createArtifactForProject(input: { workspaceId: string; projectId: string }) {
+        const artifact: ArtifactRow = {
+          id: randomUUID(),
+          workspace_id: input.workspaceId,
+          project_id: input.projectId,
+          current_version_id: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        };
+        artifacts.push(artifact);
+        return artifact;
+      },
+      async createVersion(input: {
+        workspaceId: string;
+        artifactId: string;
+        version: number;
+        document: unknown;
+        reason: ArtifactVersionRow['reason'];
+        createdBy: ArtifactVersionRow['created_by'];
+      }) {
+        const version: ArtifactVersionRow = {
+          id: randomUUID(),
+          workspace_id: input.workspaceId,
+          artifact_id: input.artifactId,
+          version: input.version,
+          document: input.document as import('@orra/db').Json,
+          reason: input.reason,
+          created_by: input.createdBy,
+          brand_context_snapshot: null,
+          created_at: '2026-01-01T00:00:00Z',
+        };
+        versions.push(version);
+        return version;
+      },
+      async setCurrentVersion(input: { workspaceId: string; artifactId: string; versionId: string }) {
+        const idx = artifacts.findIndex(
+          (a) => a.id === input.artifactId && a.workspace_id === input.workspaceId
+        );
+        if (idx === -1) {
+          throw new Error('Artifact not found');
+        }
+        artifacts[idx] = { ...artifacts[idx], current_version_id: input.versionId };
+        return artifacts[idx];
+      },
+      async getArtifactByIdForWorkspace(input: { id: string; workspaceId: string }) {
+        return (
+          artifacts.find(
+            (a) => a.id === input.id && a.workspace_id === input.workspaceId
+          ) ?? null
+        );
+      },
+      async getArtifactByProjectIdForWorkspace(input: { projectId: string; workspaceId: string }) {
+        return (
+          artifacts.find(
+            (a) => a.project_id === input.projectId && a.workspace_id === input.workspaceId
+          ) ?? null
+        );
+      },
+      async getCurrentVersion(input: { artifactId: string; workspaceId: string }) {
+        const artifact = artifacts.find(
+          (a) => a.id === input.artifactId && a.workspace_id === input.workspaceId
+        );
+        if (!artifact || !artifact.current_version_id) return null;
+        const version = versions.find((v) => v.id === artifact.current_version_id);
+        if (!version) return null;
+        return { artifact, version };
       },
     },
   } as unknown as Repositories;

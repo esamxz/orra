@@ -1,6 +1,7 @@
 import type { UserRepository } from './userRepository.js';
 import type { WorkspaceRepository } from './workspaceRepository.js';
 import type { ProjectRepository } from './projectRepository.js';
+import type { ArtifactRepository } from './artifactRepository.js';
 
 // ---------------------------------------------------------------------------
 // Repository context
@@ -12,4 +13,5 @@ export interface Repositories {
   user: UserRepository;
   workspace: WorkspaceRepository;
   project: ProjectRepository;
+  artifact: ArtifactRepository;
 }

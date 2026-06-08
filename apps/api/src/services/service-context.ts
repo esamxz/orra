@@ -5,6 +5,7 @@ import type { Repositories } from '../repositories/types.js';
 import { SupabaseUserRepository } from '../repositories/userRepository.js';
 import { SupabaseWorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { SupabaseProjectRepository } from '../repositories/projectRepository.js';
+import { SupabaseArtifactRepository } from '../repositories/artifactRepository.js';
 
 // ---------------------------------------------------------------------------
 // Service context
@@ -122,6 +123,7 @@ export function getRepositories(ctx: ServiceContext): Repositories {
     user: new SupabaseUserRepository(db),
     workspace: new SupabaseWorkspaceRepository(db),
     project: new SupabaseProjectRepository(db),
+    artifact: new SupabaseArtifactRepository(db),
   };
 
   ctx.repositories = repos;

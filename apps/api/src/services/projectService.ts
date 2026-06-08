@@ -2,6 +2,8 @@ import type { ServiceContext } from './service-context.js';
 import { requireAuth } from './service-context.js';
 import { ApiError } from '../errors.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
+import type { ArtifactRepository } from '../repositories/artifactRepository.js';
+import { ArtifactService } from './artifactService.js';
 import type { ProjectRow } from '@orra/db';
 
 // ---------------------------------------------------------------------------
@@ -41,7 +43,10 @@ export interface ProjectResponse {
   updatedAt: string;
 }
 
-function mapProjectRow(row: ProjectRow): ProjectResponse {
+function mapProjectRow(
+  row: ProjectRow,
+  currentArtifactId?: string | null
+): ProjectResponse {
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -50,14 +55,21 @@ function mapProjectRow(row: ProjectRow): ProjectResponse {
     ratio: row.ratio as { name: string; w: number; h: number },
     brandSystemId: row.brand_system_id,
     sourceTemplateId: row.source_template_id,
-    currentArtifactId: null, // Phase 8A: artifacts not implemented yet
+    currentArtifactId: currentArtifactId ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 export class ProjectService {
-  constructor(private projectRepo: ProjectRepository) {}
+  private artifactService: ArtifactService;
+
+  constructor(
+    private projectRepo: ProjectRepository,
+    artifactRepo: ArtifactRepository
+  ) {
+    this.artifactService = new ArtifactService(artifactRepo);
+  }
 
   async createProject(
     ctx: ServiceContext,
@@ -79,7 +91,18 @@ export class ProjectService {
       brandSystemId: input.brandSystemId,
     });
 
-    return mapProjectRow(row);
+    // Phase 8B: create the artifact spine (artifact row + initial version).
+    // Note: these are three separate DB calls without a wrapping transaction.
+    // In v1, a partial failure can leave a project without an artifact.
+    // A future phase should wrap this in a server-side RPC or transaction.
+    const artifact = await this.artifactService.createInitialArtifactForProject(
+      workspaceId,
+      row.id,
+      input.type,
+      input.ratio
+    );
+
+    return mapProjectRow(row, artifact.id);
   }
 
   async listProjects(
@@ -95,7 +118,9 @@ export class ProjectService {
       limit: input.limit,
     });
 
-    return rows.map(mapProjectRow);
+    // Phase 8B: listing does not eagerly resolve currentArtifactId to avoid N+1.
+    // Consumers that need the artifact ID per project can fetch individually.
+    return rows.map((row) => mapProjectRow(row));
   }
 
   async getProject(ctx: ServiceContext, projectId: string): Promise<ProjectResponse> {
@@ -111,7 +136,20 @@ export class ProjectService {
       throw new ApiError('NOT_FOUND', 'Project not found.');
     }
 
-    return mapProjectRow(row);
+    // Phase 8B: resolve currentArtifactId for the single-project view.
+    // Projects created before Phase 8B may not have an artifact yet.
+    let currentArtifactId: string | null = null;
+    try {
+      const artifact = await this.artifactService.getProjectArtifact(ctx, projectId);
+      currentArtifactId = artifact.artifactId;
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'NOT_FOUND') {
+        currentArtifactId = null;
+      } else {
+        throw err;
+      }
+    }
+    return mapProjectRow(row, currentArtifactId);
   }
 
   async updateProject(
@@ -147,7 +185,20 @@ export class ProjectService {
       throw new ApiError('NOT_FOUND', 'Project not found.');
     }
 
-    return mapProjectRow(row);
+    // Resolve currentArtifactId so the response is consistent with getProject.
+    // Projects created before Phase 8B may not have an artifact yet.
+    let currentArtifactId: string | null = null;
+    try {
+      const artifact = await this.artifactService.getProjectArtifact(ctx, projectId);
+      currentArtifactId = artifact.artifactId;
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'NOT_FOUND') {
+        currentArtifactId = null;
+      } else {
+        throw err;
+      }
+    }
+    return mapProjectRow(row, currentArtifactId);
   }
 
   async deleteProject(ctx: ServiceContext, projectId: string): Promise<void> {
