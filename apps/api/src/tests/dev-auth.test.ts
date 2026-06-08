@@ -63,4 +63,17 @@ describe('dev auth fallback', () => {
     const json = await res.json() as { ok: false; error: { code: string } };
     expect(json.error.code).toBe('UNAUTHENTICATED');
   });
+
+  it('dev auth works even when Clerk JWKS is missing in development', async () => {
+    const app = buildApp({ ENVIRONMENT: 'development', DEV_AUTH_ENABLED: 'true' });
+    const res = await app.request(
+      '/protected',
+      { method: 'GET' },
+      { ENVIRONMENT: 'development', DEV_AUTH_ENABLED: 'true' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json() as AuthResponse;
+    expect(json.auth!.authSource).toBe('dev');
+  });
 });

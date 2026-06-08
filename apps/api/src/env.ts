@@ -6,8 +6,11 @@ import { z } from 'zod';
 // Placeholders for later phases. Not required at runtime for health tests.
 
 export const EnvSchema = z.object({
+  // Database — optional at schema level so health routes work without them;
+  // validated at DB client creation time when a service actually needs DB.
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+
   CLERK_SECRET_KEY: z.string().optional(),
   CLERK_JWKS_URL: z.string().url().optional(),
   CLERK_JWT_ISSUER: z.string().optional(),

@@ -1,28 +1,109 @@
 import type { Env } from '../env.js';
 import type { AuthContext } from '../auth/types.js';
+import type { DbClient } from '../db/client.js';
+import type { Repositories } from '../repositories/types.js';
+import { StubUserRepository } from '../repositories/userRepository.js';
+import { StubWorkspaceRepository } from '../repositories/workspaceRepository.js';
+import { StubProjectRepository } from '../repositories/projectRepository.js';
 
 // ---------------------------------------------------------------------------
-// Service context skeleton
+// Service context
 // ---------------------------------------------------------------------------
 // Carries cross-cutting concerns into service methods.
-// Future phases add: logger, real db client, rate limiter, etc.
+//
+// - env: Cloudflare Worker env bindings
+// - requestId: stable per-request identifier for tracing
+// - auth: resolved identity (may be partial until workspace bootstrap)
+// - db: optional Supabase client; created lazily or injected for tests
+// - repositories: optional repository set; injected for tests or built from db
+//
+// Health routes should not require DB env, so db and repositories are
+// optional and created only when a service asks for them.
 
 export interface ServiceContext {
   env: Env;
   requestId: string;
   auth?: AuthContext;
-  // db: DbClient;   // TODO: add when Supabase phase arrives
-  // logger: Logger; // TODO: add when logging phase arrives
+  db?: DbClient;
+  repositories?: Repositories;
 }
 
+export interface ServiceContextOverrides {
+  db?: DbClient;
+  repositories?: Repositories;
+}
+
+/**
+ * Build a service context for the current request.
+ *
+ * If overrides are provided (e.g. in tests), they take precedence over
+ * lazy creation. The env is always required.
+ *
+ * DB is NOT created eagerly. Callers that need a database client should
+ * use getDbClient(context) which will lazily create one from env.
+ */
 export function createServiceContext(
   env: Env,
   requestId: string,
-  auth?: AuthContext
+  auth?: AuthContext,
+  overrides?: ServiceContextOverrides
 ): ServiceContext {
   return {
     env,
     requestId,
     auth,
+    db: overrides?.db,
+    repositories: overrides?.repositories,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Lazy DB access
+// ---------------------------------------------------------------------------
+// These helpers ensure DB creation is deferred until a service actually
+// needs it, and that health routes never pay the Supabase creation cost.
+
+import { createServiceDbClient } from '../db/client.js';
+import { ApiError } from '../errors.js';
+
+/**
+ * Return the DB client from the context, creating it lazily from env if
+ * not already present. Throws INTERNAL if env is missing required DB config.
+ */
+export function getDbClient(ctx: ServiceContext): DbClient {
+  if (ctx.db) {
+    return ctx.db;
+  }
+
+  try {
+    const client = createServiceDbClient(ctx.env);
+    ctx.db = client;
+    return client;
+  } catch (err) {
+    throw new ApiError(
+      'INTERNAL',
+      'Database client is not configured.',
+      { reason: err instanceof Error ? err.message : String(err) }
+    );
+  }
+}
+
+/**
+ * Return the repository set from the context, building it lazily from
+ * the DB client if not already injected.
+ */
+export function getRepositories(ctx: ServiceContext): Repositories {
+  if (ctx.repositories) {
+    return ctx.repositories;
+  }
+
+  const db = getDbClient(ctx);
+  const repos: Repositories = {
+    user: new StubUserRepository(db),
+    workspace: new StubWorkspaceRepository(db),
+    project: new StubProjectRepository(db),
+  };
+
+  ctx.repositories = repos;
+  return repos;
 }
