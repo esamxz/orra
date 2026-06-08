@@ -229,6 +229,31 @@ function createFakeRepositories(
       async listByProject() {
         return [];
       },
+      async findById(id: string) {
+        return jobs.find((j) => j.id === id) ?? null;
+      },
+      async markRunningGuarded(id: string) {
+        const job = jobs.find((j) => j.id === id && j.status === 'queued');
+        if (!job) return null;
+        job.status = 'running';
+        job.updated_at = new Date().toISOString();
+        return job;
+      },
+      async markSucceededGuarded(id: string) {
+        const job = jobs.find((j) => j.id === id && j.status === 'running');
+        if (!job) return null;
+        job.status = 'succeeded';
+        job.updated_at = new Date().toISOString();
+        return job;
+      },
+      async markFailedGuarded(id: string, errorPayload: import('@orra/db').Json) {
+        const job = jobs.find((j) => j.id === id && (j.status === 'queued' || j.status === 'running'));
+        if (!job) return null;
+        job.status = 'failed';
+        job.error = errorPayload as GenerationJobRow['error'];
+        job.updated_at = new Date().toISOString();
+        return job;
+      },
     },
   } as unknown as Repositories;
 }
@@ -435,6 +460,36 @@ describe('POST /v1/generate', () => {
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(false);
     expect(json.error!.code).toBe('CONFLICT');
+  });
+
+  it('enqueues { jobId } when GENERATION_QUEUE is bound', async () => {
+    const { app } = await setupWithApprovedMessage();
+    const sent: Array<{ jobId: string }> = [];
+    const fakeQueue = {
+      async send(msg: { jobId: string }) {
+        sent.push(msg);
+      },
+    };
+    const res = await app.request(
+      '/v1/generate',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: '11111111-1111-1111-1111-111111111111',
+          approvalMessageId: '22222222-2222-2222-2222-222222222222',
+        }),
+      },
+      { ENVIRONMENT: 'production', GENERATION_QUEUE: fakeQueue } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    expect(sent).toHaveLength(1);
+    const json = (await res.json()) as ApiResponse;
+    expect(sent[0].jobId).toBe((json.data as { id: string }).id);
   });
 });
 

@@ -5,13 +5,15 @@ import type { GenerationJobRepository } from '../repositories/generationJobRepos
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { GenerationJobRow } from '@orra/db';
+import type { Env } from '../env.js';
 
 // ---------------------------------------------------------------------------
 // Generation service
 // ---------------------------------------------------------------------------
 // Business logic for generation job operations.
 // All methods enforce workspace scoping and verify project ownership.
-// Phase 9F: stub only — no queue, no AI, no credit reservation.
+// Phase 9G: enqueue { jobId } to GENERATION_QUEUE after creating the row.
+// No AI, no credit reservation, no artifact mutation yet.
 
 export interface CreateStubGenerationJobInput {
   projectId: string;
@@ -43,11 +45,16 @@ function mapJobRowToDto(row: GenerationJobRow): GenerationJobDto {
   };
 }
 
+export interface QueueProducer {
+  send(message: { jobId: string }): Promise<void>;
+}
+
 export class GenerationService {
   constructor(
     private jobRepo: GenerationJobRepository,
     private chatRepo: ChatRepository,
-    private projectRepo: ProjectRepository
+    private projectRepo: ProjectRepository,
+    private env?: Env
   ) {}
 
   /**
@@ -109,6 +116,23 @@ export class GenerationService {
         summaryLine: approvalCard?.summaryLine ?? null,
       } as unknown as import('@orra/db').Json,
     });
+
+    // 6. Enqueue a small message to the generation queue.
+    // The consumer picks this up and transitions the job lifecycle.
+    // If enqueue fails, the queued row remains in the database and can be
+    // retried manually or by a recovery process later. This is acceptable
+    // for the skeleton phase; production would likely mark the job failed
+    // or implement an outbox pattern.
+    const queue = this.env?.GENERATION_QUEUE;
+    if (queue) {
+      try {
+        await queue.send({ jobId: row.id });
+      } catch (enqueueErr) {
+        // Intentionally not failing the request; the job row exists and
+        // represents recoverable state. Log for observability.
+        console.error('Generation queue enqueue failed:', enqueueErr);
+      }
+    }
 
     return mapJobRowToDto(row);
   }

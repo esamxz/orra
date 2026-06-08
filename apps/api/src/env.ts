@@ -25,5 +25,5 @@ export const EnvSchema = z.object({
 export type Env = z.infer<typeof EnvSchema> & {
   // Cloudflare bindings (optional until used)
   ORRA_ASSETS?: R2Bucket;
-  ORRA_QUEUE?: Queue;
+  GENERATION_QUEUE?: Queue;
 };

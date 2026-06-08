@@ -21,9 +21,10 @@
     "dist",
     "build",
     // apps have their own tsconfig.json with environment-specific types
-    // (web = browser + vite/client, api = Worker + @cloudflare/workers-types)
+    // (web = browser + vite/client, api = Worker + @cloudflare/workers-types, consumer = Worker)
     "apps/web",
     "apps/api",
+    "apps/consumer",
     // external tool directories that may contain TypeScript files
     ".agents",
     ".claude",

@@ -4,6 +4,7 @@ import { useTheme } from '../hooks/useTheme';
 import { usePersistedActionDispatch } from '../hooks/usePersistedActionDispatch';
 import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import { useProjectMessages } from '../hooks/useProjectMessages';
+import { useGenerationJobPolling } from '../hooks/useGenerationJobPolling';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { ApiClientError } from '../api/errors';
@@ -124,6 +125,7 @@ export default function WorkspacePage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [realMessages, setRealMessages] = useState<UiMessage[]>([]);
   const [actingMessageId, setActingMessageId] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | undefined>(undefined);
   const lastIntentRef = useRef<DirectorIntentResult | null>(null);
 
   const { theme, toggle: toggleTheme } = useTheme();
@@ -167,6 +169,11 @@ export default function WorkspacePage() {
     reload: reloadMessages,
   } = useProjectMessages(projectId ?? undefined);
 
+  const {
+    job: polledJob,
+    // state: pollingState, // reserved for future UI states
+  } = useGenerationJobPolling(activeJobId);
+
   // Selection state from workspace store
   const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
   const selectedLayerId = useWorkspaceStore((s) => s.selectedLayerId);
@@ -204,6 +211,42 @@ export default function WorkspacePage() {
       setRealMessages(apiMessages.map(mapApiMessageToUi));
     }
   }, [apiMessages, projectId]);
+
+  // Update generating message when polled job status changes
+  useEffect(() => {
+    if (!activeJobId || !polledJob) return;
+
+    setRealMessages((prev) => {
+      const generatingIdx = prev.findIndex((m) => m.type === 'generating' && m.id === `job-${activeJobId}`);
+      if (generatingIdx === -1) return prev;
+
+      const updated = [...prev];
+      const status = polledJob.status;
+
+      if (status === 'running') {
+        updated[generatingIdx] = {
+          ...updated[generatingIdx],
+          text: `Generation running (${activeJobId.slice(0, 8)}…)`,
+        };
+      } else if (status === 'succeeded') {
+        updated[generatingIdx] = {
+          ...updated[generatingIdx],
+          type: 'done',
+          text: 'Generation completed. Result writing comes next.',
+        };
+        flash('Generation completed');
+      } else if (status === 'failed') {
+        updated[generatingIdx] = {
+          ...updated[generatingIdx],
+          type: 'done',
+          text: `Generation failed: ${polledJob.error ? JSON.stringify(polledJob.error) : 'Unknown error'}`,
+        };
+        flash('Generation failed');
+      }
+
+      return updated;
+    });
+  }, [polledJob, activeJobId, flash]);
 
   const displayMessages = useMemo(() => {
     return projectId ? realMessages : messages;
@@ -360,10 +403,11 @@ export default function WorkspacePage() {
             : 'Plan updated',
       );
 
-      // Phase 9F: create stub generation job after approval
+      // Phase 9G: create generation job and start polling after approval
       if (action === 'approve_and_create') {
         try {
           const job = await createGenerationJob({ projectId, approvalMessageId: messageId });
+          setActiveJobId(job.id);
           setRealMessages((prev) => [
             ...prev,
             {

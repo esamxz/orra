@@ -86,6 +86,31 @@ function createFakeGenerationJobRepository(): GenerationJobRepository {
     async listByProject(input) {
       return jobs.filter((j) => j.project_id === input.projectId && j.workspace_id === input.workspaceId);
     },
+    async findById(id) {
+      return jobs.find((j) => j.id === id) ?? null;
+    },
+    async markRunningGuarded(id) {
+      const job = jobs.find((j) => j.id === id && j.status === 'queued');
+      if (!job) return null;
+      job.status = 'running';
+      job.updated_at = new Date().toISOString();
+      return job;
+    },
+    async markSucceededGuarded(id) {
+      const job = jobs.find((j) => j.id === id && j.status === 'running');
+      if (!job) return null;
+      job.status = 'succeeded';
+      job.updated_at = new Date().toISOString();
+      return job;
+    },
+    async markFailedGuarded(id, errorPayload) {
+      const job = jobs.find((j) => j.id === id && (j.status === 'queued' || j.status === 'running'));
+      if (!job) return null;
+      job.status = 'failed';
+      job.error = errorPayload as GenerationJobRow['error'];
+      job.updated_at = new Date().toISOString();
+      return job;
+    },
   };
 }
 
@@ -459,5 +484,114 @@ describe('GenerationService', () => {
     const jobs = await jobRepo.listByProject({ workspaceId: 'ws-1', projectId: 'proj-1' });
     expect(jobs).toHaveLength(1);
     expect(jobs[0].kind).toBe('full_generate');
+  });
+
+  it('enqueues { jobId } when GENERATION_QUEUE is present', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const sentMessages: Array<{ jobId: string }> = [];
+    const fakeQueue = {
+      async send(msg: { jobId: string }) {
+        sentMessages.push(msg);
+      },
+    };
+
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(jobRepo, chatRepo, projectRepo, {
+      GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+    } as unknown as import('../env.js').Env);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' });
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).toEqual({ jobId: result.id });
+  });
+
+  it('does not fail when GENERATION_QUEUE is missing', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(jobRepo, chatRepo, projectRepo, {} as unknown as import('../env.js').Env);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' });
+    expect(result.status).toBe('queued');
   });
 });

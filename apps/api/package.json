@@ -17,6 +17,9 @@
     "jose": "^6.0.10",
     "zod": "^3.25.72"
   },
+  "exports": {
+    "./src/*": "./src/*"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260603.0",
     "@hono/zod-validator": "^0.5.0",
