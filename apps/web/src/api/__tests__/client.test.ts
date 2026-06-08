@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createApiClient } from '../client.js';
+import { createApiClient, createDefaultAuthTokenProvider } from '../client.js';
 import { ApiClientError } from '../errors.js';
 
 describe('createApiClient', () => {
@@ -124,5 +124,70 @@ describe('createApiClient', () => {
     const call = vi.mocked(fetch).mock.calls[0];
     const headers = call[1]?.headers as Headers;
     expect(headers.get('Authorization')).toBe('Bearer new-token');
+  });
+});
+
+describe('createDefaultAuthTokenProvider', () => {
+  const originalEnv = { ...import.meta.env };
+
+  beforeEach(() => {
+    // Reset localStorage mock before each test
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      length: 0,
+      key: (_index: number) => null,
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // Restore import.meta.env
+    Object.assign(import.meta.env, originalEnv);
+  });
+
+  it('returns null when dev auth token fallback is disabled', async () => {
+    import.meta.env.DEV = true;
+    import.meta.env.VITE_DEV_AUTH_TOKEN_ENABLED = 'false';
+
+    const provider = createDefaultAuthTokenProvider();
+    const token = await provider();
+
+    expect(token).toBeNull();
+  });
+
+  it('returns null in production regardless of localStorage token', async () => {
+    import.meta.env.DEV = false;
+    import.meta.env.VITE_DEV_AUTH_TOKEN_ENABLED = 'true';
+    localStorage.setItem('orra:dev:authToken', 'secret-token');
+
+    const provider = createDefaultAuthTokenProvider();
+    const token = await provider();
+
+    expect(token).toBeNull();
+  });
+
+  it('returns localStorage token when dev mode and fallback are both enabled', async () => {
+    import.meta.env.DEV = true;
+    import.meta.env.VITE_DEV_AUTH_TOKEN_ENABLED = 'true';
+    localStorage.setItem('orra:dev:authToken', 'dev-jwt-123');
+
+    const provider = createDefaultAuthTokenProvider();
+    const token = await provider();
+
+    expect(token).toBe('dev-jwt-123');
+  });
+
+  it('returns null when dev enabled but localStorage key is missing', async () => {
+    import.meta.env.DEV = true;
+    import.meta.env.VITE_DEV_AUTH_TOKEN_ENABLED = 'true';
+
+    const provider = createDefaultAuthTokenProvider();
+    const token = await provider();
+
+    expect(token).toBeNull();
   });
 });

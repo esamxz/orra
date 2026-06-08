@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
     "@orra/renderer": "workspace:*",
     "@orra/shared": "workspace:*",
     "jszip": "^3.10.1",

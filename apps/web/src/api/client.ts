@@ -131,18 +131,24 @@ function getDefaultBaseUrl(): string {
 // ---------------------------------------------------------------------------
 // Auth token provider boundary
 // ---------------------------------------------------------------------------
-// In development, a token can be injected manually via localStorage under the
-// key `orra:dev:authToken`. Real Clerk frontend wiring comes in a later phase.
+// The API client obtains tokens from a provider set at runtime.
+// In production, the provider is wired to Clerk via useAuth().
+// In development, an explicit localStorage fallback is available ONLY when
+// VITE_DEV_AUTH_TOKEN_ENABLED is set to "true".
 
-async function defaultGetAuthToken(): Promise<string | null> {
-  if (import.meta.env.DEV) {
-    const manual = localStorage.getItem('orra:dev:authToken');
-    if (manual) return manual;
-  }
-  return null;
+/** @internal exported for testing */
+export function createDefaultAuthTokenProvider(): () => Promise<string | null> {
+  const devEnabled = import.meta.env.VITE_DEV_AUTH_TOKEN_ENABLED === 'true';
+  return async () => {
+    if (import.meta.env.DEV && devEnabled) {
+      const manual = localStorage.getItem('orra:dev:authToken');
+      if (manual) return manual;
+    }
+    return null;
+  };
 }
 
 export const apiClient = createApiClient({
   baseUrl: getDefaultBaseUrl(),
-  getAuthToken: defaultGetAuthToken,
+  getAuthToken: createDefaultAuthTokenProvider(),
 });
