@@ -8,6 +8,9 @@ import CreateBrandSystemModal from '../components/brand/CreateBrandSystemModal';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { useTheme } from '../hooks/useTheme';
 import UsageStatus from '../components/workspace/UsageStatus';
+import { useProjects } from '../hooks/useProjects';
+import { createProject } from '../api/projects';
+import { ApiClientError } from '../api/errors';
 
 const TYPE_OPTS = [
   { id:'single', icon:'post' as const, title:'Single Post', sub:'One standalone visual' },
@@ -45,11 +48,87 @@ export default function DashboardPage() {
   const [brandOpen, setBrandOpen] = useState(false);
   const [brandModalOpen, setBrandModalOpen] = useState(false);
 
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const brand = BRANDS[brandIdx];
 
-  const start = (extra: Record<string, unknown> = {}) => {
-    navigate('/workspace', { state: { mode: type, ratio, brand, ...extra } });
+  // ---------------------------------------------------------------------------
+  // Project list from API
+  // ---------------------------------------------------------------------------
+  const {
+    projects: apiProjects,
+    state: projectsState,
+    error: projectsError,
+  } = useProjects(tab === 'Recent' ? 'recent' : 'all');
+
+  // ---------------------------------------------------------------------------
+  // Create project via API, then navigate to workspace
+  // ---------------------------------------------------------------------------
+  const start = async (extra: Record<string, unknown> = {}) => {
+    setCreateLoading(true);
+    setCreateError(null);
+
+    try {
+      const selectedRatio = RATIOS.find((r) => r.id === ratio) ?? RATIOS[1];
+      const projectType = type === 'single' ? 'post' : type === 'carousel' ? 'carousel' : 'from_assets';
+
+      const project = await createProject({
+        name: (extra.projectName as string) || (type === 'carousel' ? 'Untitled carousel' : 'Untitled post'),
+        type: projectType,
+        ratio: { name: selectedRatio.id, w: selectedRatio.w, h: selectedRatio.h },
+        brandSystemId: brand.id,
+      });
+
+      if (project.currentArtifactId) {
+        navigate(`/workspace/${project.id}`, {
+          state: {
+            mode: type,
+            ratio,
+            brand,
+            currentArtifactId: project.currentArtifactId,
+            ...extra,
+          },
+        });
+      } else {
+        // Fallback: no artifact yet — open workspace anyway
+        navigate(`/workspace/${project.id}`, {
+          state: { mode: type, ratio, brand, ...extra },
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof ApiClientError
+        ? err.message
+        : 'Could not create the project. Please try again.';
+      setCreateError(msg);
+      setCreateLoading(false);
+    }
   };
+
+  // ---------------------------------------------------------------------------
+  // Open an existing project
+  // ---------------------------------------------------------------------------
+  const openProject = (project: typeof apiProjects[number]) => {
+    const isCarouselProject = project.type === 'carousel';
+    navigate(`/workspace/${project.id}`, {
+      state: {
+        mode: isCarouselProject ? 'carousel' : 'single',
+        ratio: project.ratio.name,
+        brand: BRANDS[0],
+        projectName: project.name,
+        currentArtifactId: project.currentArtifactId,
+      },
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Derive displayed projects
+  // ---------------------------------------------------------------------------
+  // When the API is available, use real projects. If the API fails or returns
+  // empty, the empty/error states are shown explicitly. Mock projects are
+  // still rendered as demo content behind a clear "Demo" label when the API
+  // is unreachable so the prototype design stays intact.
+  const useMockFallback = projectsState === 'error';
 
   return (
     <div className="dash">
@@ -97,13 +176,13 @@ export default function DashboardPage() {
               <div className="backdrop" style={{zIndex:5}} onClick={()=>setBrandOpen(false)} />
               <div className="menu-pop" style={{top:54,right:'auto',left:0,width:'100%',zIndex:6}}>
                 <div className="mh">Switch brand system</div>
-                {BRANDS.map((b,i)=>(
+                {BRANDS.map((b,i)=>[
                   <button key={b.id} className="menu-item" onClick={()=>{setBrandIdx(i);setBrandOpen(false);}}>
                     <span className="ic" style={{background:b.logoBg,color:b.logoFg,fontFamily:'var(--font-display)'}}>{b.initial}</span>
                     <span className="tx"><b>{b.name}</b><span>{b.fonts.join(' · ')}</span></span>
                     {i===brandIdx && <span style={{marginLeft:'auto',color:'var(--primary)'}}>{<Icon.check s={16} />}</span>}
                   </button>
-                ))}
+                ])}
               </div>
             </>}
           </div>
@@ -118,9 +197,17 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          <button className="btn btn-primary" style={{width:'100%',height:46,fontSize:15.5}} onClick={()=>start()}>
-            {<Icon.spark s={18} />} Start creating
+          <button
+            className="btn btn-primary"
+            style={{width:'100%',height:46,fontSize:15.5}}
+            onClick={()=>start()}
+            disabled={createLoading}
+          >
+            {createLoading ? 'Creating…' : <>{<Icon.spark s={18} />} Start creating</>}
           </button>
+          {createError && (
+            <p style={{ marginTop: 8, fontSize: 12.5, color: 'var(--danger, #c44)' }}>{createError}</p>
+          )}
         </div>
 
         <UsageStatus />
@@ -147,18 +234,67 @@ export default function DashboardPage() {
         <div className="dash-scroll">
           {(tab==='Recent' || tab==='Your projects') && (
             <div className="proj-grid">
-              <button className="proj-card new-proj-card" onClick={()=>start({mode:'carousel',ratio:'4:5',brand:BRANDS[0]})}>
+              <button className="proj-card new-proj-card" onClick={()=>start({mode:'carousel',ratio:'4:5',brand:BRANDS[0]})} disabled={createLoading}>
                 <span className="plus">{<Icon.plus s={22} />}</span>
                 <b>New project</b>
               </button>
-              {(tab==='Recent' ? RECENT_PROJECTS : PROJECTS).map(p => (
-                <button key={p.id} className="proj-card" onClick={()=>start({mode:p.mode==='Carousel'?'carousel':'single',ratio:'4:5',brand:BRANDS[0],projectName:p.name})}>
+
+              {/* Loading state */}
+              {projectsState === 'loading' && (
+                <div className="proj-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 180 }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>Loading projects…</span>
+                </div>
+              )}
+
+              {/* Error state */}
+              {projectsState === 'error' && (
+                <div className="proj-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 180 }}>
+                  <span style={{ color: 'var(--danger, #c44)', fontSize: 13 }}>{projectsError}</span>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {projectsState === 'empty' && !useMockFallback && (
+                <div className="proj-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 180 }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>No projects yet</span>
+                </div>
+              )}
+
+              {/* Real API projects */}
+              {!useMockFallback && apiProjects.map((p) => {
+                const projectMode = p.type === 'carousel' ? 'Carousel' : 'Single post';
+                const projectCards = p.type === 'carousel' ? 'Carousel' : '1 card';
+                return (
+                  <button
+                    key={p.id}
+                    className="proj-card"
+                    onClick={() => openProject(p)}
+                  >
+                    <MiniThumb variant={'cover'} label={p.name} />
+                    <div className="proj-meta">
+                      <b>{p.name}</b>
+                      <div className="row">
+                        <span className="pill">{projectMode}</span>
+                        <span>{projectMode === 'Carousel' ? projectCards : 'Edited just now'}</span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* Mock fallback projects (demo mode) */}
+              {useMockFallback && (tab === 'Recent' ? RECENT_PROJECTS : PROJECTS).map((p) => (
+                <button
+                  key={p.id}
+                  className="proj-card"
+                  onClick={() => start({ mode: p.mode === 'Carousel' ? 'carousel' : 'single', ratio: '4:5', brand: BRANDS[0], projectName: p.name })}
+                >
                   <MiniThumb variant={p.variant} label={p.name} />
                   <div className="proj-meta">
                     <b>{p.name}</b>
                     <div className="row">
                       <span className="pill">{p.mode}</span>
-                      <span>{p.mode==='Carousel' ? p.cards+' cards' : 'Edited '+p.when}</span>
+                      <span>{p.mode === 'Carousel' ? p.cards + ' cards' : 'Edited ' + p.when}</span>
                     </div>
                   </div>
                 </button>
@@ -169,7 +305,7 @@ export default function DashboardPage() {
           {tab==='Trend templates' && <>
             <div className="section-head">
               <h2>Trend templates</h2>
-              <p>Starting prompts with reference visuals — not fixed modes. Tweak anything once you’re in.</p>
+              <p>Starting prompts with reference visuals — not fixed modes. Tweak anything once you're in.</p>
             </div>
             <div className="trend-grid">
               {TEMPLATES.map(t => (

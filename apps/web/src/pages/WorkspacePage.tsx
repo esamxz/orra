@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import { useDocumentHistory } from '../hooks/useDocumentHistory';
+import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
 import { BRANDS } from '../data/cards';
@@ -59,11 +60,13 @@ interface LocationState {
   brand?: typeof BRANDS[0];
   projectName?: string;
   prefill?: string;
+  currentArtifactId?: string;
 }
 
 export default function WorkspacePage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { projectId } = useParams();
   const config = (location.state as LocationState | null) || {};
 
   const isCarousel = config.mode === 'carousel' || config.mode === 'assets';
@@ -88,6 +91,11 @@ export default function WorkspacePage() {
   }, []);
 
   const { artifact, dispatch, undo, redo, reset: resetArtifact, canUndo, canRedo } = useDocumentHistory(null, flash);
+
+  // ---------------------------------------------------------------------------
+  // Artifact loading from API (Phase 8D.1)
+  // ---------------------------------------------------------------------------
+  const artifactLoader = useArtifactLoader();
 
   // Selection state from workspace store
   const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
@@ -150,6 +158,31 @@ export default function WorkspacePage() {
       setActiveCard(Math.max(0, artifact.cards.length - 1));
     }
   }, [artifact, activeCardIndex, setActiveCard]);
+
+  // ---------------------------------------------------------------------------
+  // Load artifact from API when workspace opens with a projectId
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!projectId) {
+      artifactLoader.clear();
+      return;
+    }
+    const artifactId = config.currentArtifactId as string | undefined;
+    if (artifactId) {
+      artifactLoader.load(artifactId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // Hydrate editor when API artifact finishes loading
+  useEffect(() => {
+    if (artifactLoader.state === 'idle' && artifactLoader.document) {
+      resetArtifact(artifactLoader.document);
+      setActiveCard(0);
+      clearSelection();
+      setPhase('generated');
+    }
+  }, [artifactLoader.state, artifactLoader.document, resetArtifact, setActiveCard, clearSelection]);
 
   /* ----- chat send ----- */
   const send = () => {
@@ -530,7 +563,30 @@ export default function WorkspacePage() {
         <section className="stage">
           <div className="stage-grid" />
           <div className="stage-main">
-            {phase!=='generated' ? (
+            {/* Artifact loading state */}
+            {artifactLoader.state === 'loading' && (
+              <div className="empty">
+                <div className="orb"><img src="/orra_logo.svg" alt="Orra" style={{width:44,height:44}} /></div>
+                <h2>Loading project…</h2>
+                <p style={{color:'var(--muted)'}}>Fetching the latest artifact from the server.</p>
+              </div>
+            )}
+
+            {/* Artifact error state */}
+            {(artifactLoader.state === 'error' || artifactLoader.state === 'not_found') && (
+              <div className="empty">
+                <div className="orb" style={{opacity:0.5}}><img src="/orra_logo.svg" alt="Orra" style={{width:44,height:44}} /></div>
+                <h2>Unable to load project</h2>
+                <p style={{color:'var(--danger, #c44)', fontSize:13.5}}>{artifactLoader.error || 'The artifact could not be loaded.'}</p>
+                <div className="opts">
+                  <button className="btn btn-ghost" onClick={()=> navigate('/')}>
+                    {<Icon.arrowLeft s={16} />} Back to dashboard
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {phase!=='generated' && artifactLoader.state !== 'loading' && artifactLoader.state !== 'error' && artifactLoader.state !== 'not_found' ? (
               <div className="empty">
                 <div className="orb"><img src="/orra_logo.svg" alt="Orra" style={{width:44,height:44}} /></div>
                 <h2>A quiet canvas, ready</h2>
