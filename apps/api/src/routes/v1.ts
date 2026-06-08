@@ -3,6 +3,7 @@ import type { Env } from '../env.js';
 import projectRoutes from './projects.js';
 import artifactRoutes from './artifacts.js';
 import chatRoutes from './chat.js';
+import generationRoutes from './generation.js';
 
 // ---------------------------------------------------------------------------
 // V1 protected route mount point
@@ -28,6 +29,9 @@ v1.route('/projects', chatRoutes);
 
 // Artifact read-only (Phase 8B)
 v1.route('/artifacts', artifactRoutes);
+
+// Generation jobs (Phase 9F — stub, no queue/AI/credits yet)
+v1.route('/', generationRoutes);
 
 // Future route modules (commented placeholders)
 // v1.route('/brand-systems', brandRoutes);

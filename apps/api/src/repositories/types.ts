@@ -3,6 +3,7 @@ import type { WorkspaceRepository } from './workspaceRepository.js';
 import type { ProjectRepository } from './projectRepository.js';
 import type { ArtifactRepository } from './artifactRepository.js';
 import type { ChatRepository } from './chatRepository.js';
+import type { GenerationJobRepository } from './generationJobRepository.js';
 
 // ---------------------------------------------------------------------------
 // Repository context
@@ -16,4 +17,5 @@ export interface Repositories {
   project: ProjectRepository;
   artifact: ArtifactRepository;
   chat: ChatRepository;
+  generationJob: GenerationJobRepository;
 }

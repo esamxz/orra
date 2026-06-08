@@ -200,6 +200,17 @@ function createFakeRepositories(
         return messages[idx];
       },
     },
+    generationJob: {
+      async createStubJob() {
+        throw new Error('not used');
+      },
+      async findByIdForWorkspace() {
+        return null;
+      },
+      async listByProject() {
+        return [];
+      },
+    },
   } as unknown as Repositories;
 }
 

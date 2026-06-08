@@ -129,3 +129,27 @@ export interface ApprovalActionResponse {
   ok: true;
   data: ChatMessageDto;
 }
+
+// ---------------------------------------------------------------------------
+// Generation job types
+// ---------------------------------------------------------------------------
+
+export type GenerationJobStatus = 'queued' | 'running' | 'partial' | 'succeeded' | 'failed';
+export type GenerationJobKind = 'full_generate' | 'region_edit';
+
+export interface GenerationJobDto {
+  id: string;
+  projectId: string;
+  status: GenerationJobStatus;
+  kind: GenerationJobKind;
+  resultVersionId: string | null;
+  error: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGenerationJobInput {
+  projectId: string;
+  approvalMessageId: string;
+  idempotencyKey?: string;
+}

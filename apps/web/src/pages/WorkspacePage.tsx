@@ -5,6 +5,7 @@ import { usePersistedActionDispatch } from '../hooks/usePersistedActionDispatch'
 import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import { useProjectMessages } from '../hooks/useProjectMessages';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
+import { createGenerationJob } from '../api/generation';
 import { ApiClientError } from '../api/errors';
 import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto, ApprovalAction } from '../api/types';
 import type { ApprovalState } from '@orra/shared';
@@ -358,6 +359,26 @@ export default function WorkspacePage() {
             ? 'Plan cancelled'
             : 'Plan updated',
       );
+
+      // Phase 9F: create stub generation job after approval
+      if (action === 'approve_and_create') {
+        try {
+          const job = await createGenerationJob({ projectId, approvalMessageId: messageId });
+          setRealMessages((prev) => [
+            ...prev,
+            {
+              id: `job-${job.id}`,
+              role: 'ai',
+              type: 'generating',
+              text: `Generation queued (${job.id.slice(0, 8)}…)`,
+            },
+          ]);
+          flash('Generation queued');
+        } catch (err) {
+          const msg = err instanceof ApiClientError ? err.message : 'Failed to queue generation.';
+          flash(msg);
+        }
+      }
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : 'Action failed. Please try again.';
       flash(msg);
@@ -702,6 +723,12 @@ export default function WorkspacePage() {
             )}
             {displayMessages.map(m => {
               if (m.type==='thinking') return (
+                <div key={m.id} className="msg ai">
+                  <div className="av">{<Icon.sparkFill s={12} />}</div>
+                  <div className="bubble"><span className="thinking"><span className="dots"><i/><i/><i/></span>{m.text}</span></div>
+                </div>
+              );
+              if (m.type==='generating') return (
                 <div key={m.id} className="msg ai">
                   <div className="av">{<Icon.sparkFill s={12} />}</div>
                   <div className="bubble"><span className="thinking"><span className="dots"><i/><i/><i/></span>{m.text}</span></div>
