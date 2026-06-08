@@ -177,6 +177,45 @@ function createFakeRepositories(projects: ProjectRow[] = []): Repositories {
         return { artifact, version };
       },
     },
+    chat: {
+      async ensureThreadForProject(input: { workspaceId: string; projectId: string }) {
+        return {
+          id: 'thread-fake-1',
+          workspace_id: input.workspaceId,
+          project_id: input.projectId,
+          title: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        };
+      },
+      async findThreadByProjectId() {
+        return null;
+      },
+      async listMessagesByThread() {
+        return [];
+      },
+      async appendMessage(input: {
+        workspaceId: string;
+        threadId: string;
+        role: import('@orra/db').ChatMessageRow['role'];
+        kind: import('@orra/db').ChatMessageRow['kind'];
+        content: string;
+        metadata?: import('@orra/db').Json;
+        seq?: number;
+      }) {
+        return {
+          id: randomUUID(),
+          workspace_id: input.workspaceId,
+          thread_id: input.threadId,
+          role: input.role,
+          kind: input.kind,
+          content: input.content,
+          metadata: input.metadata ?? {},
+          seq: input.seq ?? null,
+          created_at: '2026-01-01T00:00:00Z',
+        };
+      },
+    },
   } as unknown as Repositories;
 }
 

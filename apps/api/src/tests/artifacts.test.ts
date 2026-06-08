@@ -167,6 +167,20 @@ function createFakeRepositories(
         return { artifact, version };
       },
     },
+    chat: {
+      async ensureThreadForProject() {
+        throw new Error('not used');
+      },
+      async findThreadByProjectId() {
+        return null;
+      },
+      async listMessagesByThread() {
+        return [];
+      },
+      async appendMessage() {
+        throw new Error('not used');
+      },
+    },
   } as unknown as Repositories;
 }
 

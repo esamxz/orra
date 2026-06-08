@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../env.js';
 import projectRoutes from './projects.js';
 import artifactRoutes from './artifacts.js';
+import chatRoutes from './chat.js';
 
 // ---------------------------------------------------------------------------
 // V1 protected route mount point
@@ -20,6 +21,10 @@ const v1 = new Hono<{ Bindings: Env }>();
 
 // Project CRUD (Phase 8A)
 v1.route('/projects', projectRoutes);
+
+// Chat persistence (Phase 9A)
+// Mounted at /projects so full paths are /v1/projects/:id/messages
+v1.route('/projects', chatRoutes);
 
 // Artifact read-only (Phase 8B)
 v1.route('/artifacts', artifactRoutes);

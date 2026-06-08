@@ -1,0 +1,360 @@
+import { describe, it, expect } from 'vitest';
+import { ChatService } from '../services/chatService.js';
+import { ApiError } from '../errors.js';
+import type { ChatRepository } from '../repositories/chatRepository.js';
+import type { ProjectRepository } from '../repositories/projectRepository.js';
+import type { ProjectRow, ChatThreadRow, ChatMessageRow } from '@orra/db';
+
+// ---------------------------------------------------------------------------
+// Fake project repository
+// ---------------------------------------------------------------------------
+
+function createFakeProjectRepository(initial: ProjectRow[] = []): ProjectRepository {
+  const projects = [...initial];
+
+  return {
+    async create() {
+      throw new Error('not used');
+    },
+    async listByWorkspace() {
+      return [];
+    },
+    async findByIdForWorkspace(input) {
+      return projects.find((p) => p.id === input.id && p.workspace_id === input.workspaceId) ?? null;
+    },
+    async updateForWorkspace() {
+      return null;
+    },
+    async deleteForWorkspace() {},
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fake chat repository
+// ---------------------------------------------------------------------------
+
+function createFakeChatRepository(
+  initialThreads: ChatThreadRow[] = [],
+  initialMessages: ChatMessageRow[] = []
+): ChatRepository {
+  const threads = [...initialThreads];
+  const messages = [...initialMessages];
+  let nextThreadId = 1;
+  let nextMessageId = 1;
+
+  return {
+    async ensureThreadForProject(input) {
+      const existing = threads.find(
+        (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+      );
+      if (existing) return existing;
+
+      const thread: ChatThreadRow = {
+        id: `thread-${nextThreadId++}`,
+        workspace_id: input.workspaceId,
+        project_id: input.projectId,
+        title: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      threads.push(thread);
+      return thread;
+    },
+
+    async findThreadByProjectId(input) {
+      return (
+        threads.find(
+          (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+        ) ?? null
+      );
+    },
+
+    async listMessagesByThread(input) {
+      return messages
+        .filter((m) => m.thread_id === input.threadId && m.workspace_id === input.workspaceId)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .slice(0, input.limit);
+    },
+
+    async appendMessage(input) {
+      const message: ChatMessageRow = {
+        id: `msg-${nextMessageId++}`,
+        workspace_id: input.workspaceId,
+        thread_id: input.threadId,
+        role: input.role,
+        kind: input.kind,
+        content: input.content,
+        metadata: input.metadata ?? {},
+        seq: input.seq ?? null,
+        created_at: new Date().toISOString(),
+      };
+      messages.push(message);
+      return message;
+    },
+  };
+}
+
+function fakeAuthContext(workspaceId: string) {
+  return {
+    env: {} as unknown as import('../env.js').Env,
+    requestId: 'req-123',
+    auth: {
+      isAuthenticated: true,
+      clerkUserId: 'usr_test',
+      userId: 'user-1',
+      workspaceId,
+      role: 'owner' as const,
+      authSource: 'clerk' as const,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('ChatService', () => {
+  it('appendUserMessage requires auth', async () => {
+    const service = new ChatService(createFakeChatRepository(), createFakeProjectRepository());
+    const ctx = {
+      env: {} as unknown as import('../env.js').Env,
+      requestId: 'req-123',
+      auth: undefined,
+    };
+
+    await expect(
+      service.appendUserMessage(ctx, 'proj-1', { content: 'Hello' })
+    ).rejects.toThrow(ApiError);
+  });
+
+  it('appendUserMessage verifies project ownership', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ChatService(createFakeChatRepository(), projectRepo);
+    const ctx = fakeAuthContext('ws-2');
+
+    await expect(
+      service.appendUserMessage(ctx, 'proj-1', { content: 'Hello' })
+    ).rejects.toThrow('Project not found');
+  });
+
+  it('cross-workspace project returns NOT_FOUND', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ChatService(createFakeChatRepository(), projectRepo);
+    const ctx = fakeAuthContext('ws-2');
+
+    await expect(service.appendUserMessage(ctx, 'proj-1', { content: 'Hello' })).rejects.toThrow(
+      ApiError
+    );
+    await expect(service.appendUserMessage(ctx, 'proj-1', { content: 'Hello' })).rejects.toThrow(
+      'Project not found'
+    );
+  });
+
+  it('appendUserMessage creates thread if missing', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const message = await service.appendUserMessage(ctx, 'proj-1', { content: 'Hello' });
+
+    expect(message.projectId).toBe('proj-1');
+    expect(message.role).toBe('user');
+    expect(message.kind).toBe('text');
+    expect(message.content).toBe('Hello');
+    expect(message.threadId).toBeTruthy();
+  });
+
+  it('appendUserMessage returns frontend-safe DTO', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ChatService(createFakeChatRepository(), projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const message = await service.appendUserMessage(ctx, 'proj-1', { content: 'Test' });
+
+    expect(message).toHaveProperty('id');
+    expect(message).toHaveProperty('projectId');
+    expect(message).toHaveProperty('threadId');
+    expect(message).toHaveProperty('role');
+    expect(message).toHaveProperty('kind');
+    expect(message).toHaveProperty('content');
+    expect(message).toHaveProperty('metadata');
+    expect(message).toHaveProperty('seq');
+    expect(message).toHaveProperty('createdAt');
+    expect(message).not.toHaveProperty('workspace_id');
+  });
+
+  it('listMessages returns ordered messages', async () => {
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const messages: ChatMessageRow[] = [
+      {
+        id: 'msg-1',
+        workspace_id: 'ws-1',
+        thread_id: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'First',
+        metadata: {},
+        seq: null,
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        workspace_id: 'ws-1',
+        thread_id: 'thread-1',
+        role: 'assistant',
+        kind: 'text',
+        content: 'Second',
+        metadata: {},
+        seq: null,
+        created_at: '2026-01-01T00:01:00Z',
+      },
+    ];
+
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository([thread], messages);
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.listMessages(ctx, 'proj-1', { limit: 50 });
+
+    expect(result).toHaveLength(2);
+    expect(result[0].content).toBe('First');
+    expect(result[1].content).toBe('Second');
+  });
+
+  it('listMessages creates thread safely when empty', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.listMessages(ctx, 'proj-1', { limit: 50 });
+
+    expect(result).toHaveLength(0);
+  });
+
+  it('appendAssistantMessage stores assistant role and kind', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const message = await service.appendAssistantMessage(ctx, 'proj-1', {
+      content: 'Plan ready',
+      kind: 'approval_summary',
+      metadata: { planId: 'plan-1' },
+    });
+
+    expect(message.role).toBe('assistant');
+    expect(message.kind).toBe('approval_summary');
+    expect(message.content).toBe('Plan ready');
+    expect(message.metadata).toEqual({ planId: 'plan-1' });
+  });
+});

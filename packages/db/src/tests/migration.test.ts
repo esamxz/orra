@@ -38,15 +38,18 @@ const MIGRATIONS_DIR = join(__dirname, '../../../../supabase/migrations');
 const FOUNDATION = join(MIGRATIONS_DIR, '20260607000001_orra_foundation.sql');
 const HARDENING = join(MIGRATIONS_DIR, '20260607000002_orra_hardening.sql');
 const ATOMIC = join(MIGRATIONS_DIR, '20260608000002_orra_atomic_artifact_version.sql');
+const CHAT_THREAD = join(MIGRATIONS_DIR, '20260608000003_orra_chat_thread_uniqueness.sql');
 
 let foundation: string;
 let hardening: string;
 let atomic: string;
+let chatThread: string;
 
 beforeAll(() => {
   foundation = readFileSync(FOUNDATION, 'utf-8').toLowerCase();
   hardening = readFileSync(HARDENING, 'utf-8').toLowerCase();
   atomic = readFileSync(ATOMIC, 'utf-8').toLowerCase();
+  chatThread = readFileSync(CHAT_THREAD, 'utf-8').toLowerCase();
 });
 
 // ---------------------------------------------------------------------------
@@ -466,6 +469,26 @@ describe('hardening migration: artifact_versions.version > 0', () => {
 
   it('ALTER TABLE targets artifact_versions', () => {
     expect(has(hardening, 'alter table artifact_versions')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chat thread uniqueness migration
+// ---------------------------------------------------------------------------
+
+describe('chat thread uniqueness migration', () => {
+  it('migration file is readable', () => {
+    expect(chatThread.length).toBeGreaterThan(0);
+  });
+
+  it('adds unique index on chat_threads(project_id)', () => {
+    expect(
+      has(chatThread, 'create unique index') && has(chatThread, 'chat_threads(project_id)')
+    ).toBe(true);
+  });
+
+  it('index name is idx_chat_threads_project_id_unique', () => {
+    expect(has(chatThread, 'idx_chat_threads_project_id_unique')).toBe(true);
   });
 });
 

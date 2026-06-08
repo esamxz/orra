@@ -2,6 +2,7 @@ import type { UserRepository } from './userRepository.js';
 import type { WorkspaceRepository } from './workspaceRepository.js';
 import type { ProjectRepository } from './projectRepository.js';
 import type { ArtifactRepository } from './artifactRepository.js';
+import type { ChatRepository } from './chatRepository.js';
 
 // ---------------------------------------------------------------------------
 // Repository context
@@ -14,4 +15,5 @@ export interface Repositories {
   workspace: WorkspaceRepository;
   project: ProjectRepository;
   artifact: ArtifactRepository;
+  chat: ChatRepository;
 }

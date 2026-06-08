@@ -1,0 +1,573 @@
+import { describe, it, expect } from 'vitest';
+import { Hono } from 'hono';
+import type { Env } from '../env.js';
+import { createAuthMiddleware } from '../middleware/auth.js';
+import { requestIdMiddleware } from '../middleware/request-id.js';
+import { errorHandler } from '../middleware/error-handler.js';
+import { createFakeVerifier } from '../auth/verifier.js';
+import chatRoutes from '../routes/chat.js';
+import type { Repositories } from '../repositories/types.js';
+import type { ProjectRow, ChatThreadRow, ChatMessageRow } from '@orra/db';
+import type { CreateProjectInput, FindProjectInput, UpdateProjectInput, DeleteProjectInput } from '../repositories/projectRepository.js';
+
+const fakeVerifier = createFakeVerifier();
+
+interface ApiResponse<T = unknown> {
+  ok: boolean;
+  data: T;
+  error?: {
+    code: string;
+    message: string;
+    requestId: string;
+    details?: unknown;
+  };
+}
+
+function createFakeRepositories(
+  initialProjects: ProjectRow[] = [],
+  initialThreads: ChatThreadRow[] = [],
+  initialMessages: ChatMessageRow[] = []
+): Repositories {
+  const projects = [...initialProjects];
+  const threads = [...initialThreads];
+  const messages = [...initialMessages];
+  let nextThreadId = 1;
+  let nextMessageId = 1;
+
+  return {
+    user: {
+      findByClerkId: async () => null,
+      createFromClerkIdentity: async () => ({
+        id: 'user-fake-1',
+        clerk_id: 'usr_test_fake',
+        email: 'test@orra.local',
+        display_name: 'Test User',
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      }),
+    },
+    workspace: {
+      findPersonalWorkspaceForUser: async () => null,
+      createPersonalWorkspace: async () => ({
+        id: 'ws-fake-1',
+        name: "Test User's Workspace",
+        type: 'personal',
+        owner_user_id: 'user-fake-1',
+        plan: 'free',
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      }),
+      ensurePersonalWorkspaceForUser: async () => ({
+        workspaceId: 'ws-fake-1',
+        role: 'owner',
+      }),
+    },
+    project: {
+      async create(input: CreateProjectInput) {
+        const project: ProjectRow = {
+          id: `proj-${Date.now()}`,
+          workspace_id: input.workspaceId,
+          name: input.name,
+          type: input.type,
+          ratio: input.ratio as ProjectRow['ratio'],
+          brand_system_id: input.brandSystemId ?? null,
+          source_template_id: null,
+          autosave_state: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        };
+        projects.push(project);
+        return project;
+      },
+      async listByWorkspace() {
+        return [];
+      },
+      async findByIdForWorkspace(input: FindProjectInput) {
+        return (
+          projects.find((p) => p.id === input.id && p.workspace_id === input.workspaceId) ?? null
+        );
+      },
+      async updateForWorkspace(input: UpdateProjectInput) {
+        const idx = projects.findIndex(
+          (p) => p.id === input.id && p.workspace_id === input.workspaceId
+        );
+        if (idx === -1) return null;
+        projects[idx] = { ...projects[idx], ...input.updates };
+        return projects[idx];
+      },
+      async deleteForWorkspace(input: DeleteProjectInput) {
+        const idx = projects.findIndex(
+          (p) => p.id === input.id && p.workspace_id === input.workspaceId
+        );
+        if (idx !== -1) projects.splice(idx, 1);
+      },
+    },
+    artifact: {
+      async createArtifactForProject() {
+        throw new Error('not used');
+      },
+      async createVersion() {
+        throw new Error('not used');
+      },
+      async setCurrentVersion() {
+        throw new Error('not used');
+      },
+      async setCurrentVersionGuarded() {
+        return null;
+      },
+      async commitVersion() {
+        return null;
+      },
+      async getArtifactByIdForWorkspace() {
+        return null;
+      },
+      async getArtifactByProjectIdForWorkspace() {
+        return null;
+      },
+      async getCurrentVersion() {
+        return null;
+      },
+    },
+    chat: {
+      async ensureThreadForProject(input: { workspaceId: string; projectId: string }) {
+        const existing = threads.find(
+          (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+        );
+        if (existing) return existing;
+
+        const thread: ChatThreadRow = {
+          id: `thread-${nextThreadId++}`,
+          workspace_id: input.workspaceId,
+          project_id: input.projectId,
+          title: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        };
+        threads.push(thread);
+        return thread;
+      },
+      async findThreadByProjectId(input: { workspaceId: string; projectId: string }) {
+        return (
+          threads.find(
+            (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+          ) ?? null
+        );
+      },
+      async listMessagesByThread(input: { workspaceId: string; threadId: string; limit: number }) {
+        return messages
+          .filter((m) => m.thread_id === input.threadId && m.workspace_id === input.workspaceId)
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .slice(0, input.limit);
+      },
+      async appendMessage(input: {
+        workspaceId: string;
+        threadId: string;
+        role: ChatMessageRow['role'];
+        kind: ChatMessageRow['kind'];
+        content: string;
+        metadata?: import('@orra/db').Json;
+        seq?: number;
+      }) {
+        const message: ChatMessageRow = {
+          id: `msg-${nextMessageId++}`,
+          workspace_id: input.workspaceId,
+          thread_id: input.threadId,
+          role: input.role,
+          kind: input.kind,
+          content: input.content,
+          metadata: input.metadata ?? ({} as import('@orra/db').Json),
+          seq: input.seq ?? null,
+          created_at: new Date().toISOString(),
+        };
+        messages.push(message);
+        return message;
+      },
+    },
+  } as unknown as Repositories;
+}
+
+function buildApp(repositories?: Repositories) {
+  const app = new Hono<{ Bindings: Env }>();
+  app.use(requestIdMiddleware);
+  app.use(
+    createAuthMiddleware(fakeVerifier, repositories ? { repositories } : undefined)
+  );
+  app.route('/v1/projects', chatRoutes);
+  app.onError(errorHandler);
+  return app;
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/projects/:id/messages
+// ---------------------------------------------------------------------------
+
+describe('GET /v1/projects/:id/messages', () => {
+  it('requires authentication', async () => {
+    const app = buildApp();
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      { method: 'GET' },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('UNAUTHENTICATED');
+  });
+
+  it('returns messages for a project', async () => {
+    const repos = createFakeRepositories(
+      [
+        {
+          id: '11111111-1111-1111-1111-111111111111',
+          workspace_id: 'ws-fake-1',
+          name: 'Project One',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          brand_system_id: null,
+          source_template_id: null,
+          autosave_state: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      [
+        {
+          id: 'thread-1',
+          workspace_id: 'ws-fake-1',
+          project_id: '11111111-1111-1111-1111-111111111111',
+          title: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      [
+        {
+          id: 'msg-1',
+          workspace_id: 'ws-fake-1',
+          thread_id: 'thread-1',
+          role: 'user',
+          kind: 'text',
+          content: 'Hello',
+          metadata: {},
+          seq: null,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    expect(Array.isArray(json.data)).toBe(true);
+    expect((json.data as Array<{ content: string }>)[0].content).toBe('Hello');
+  });
+
+  it('returns NOT_FOUND for project in another workspace', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/projects/:id/messages
+// ---------------------------------------------------------------------------
+
+describe('POST /v1/projects/:id/messages', () => {
+  it('appends a user message', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Hello world' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    expect((json.data as { content: string }).content).toBe('Hello world');
+    expect((json.data as { role: string }).role).toBe('user');
+    expect((json.data as { kind: string }).kind).toBe('text');
+  });
+
+  it('rejects empty content', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: '' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('rejects whitespace-only content', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: '   ' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('rejects malformed project id', async () => {
+    const app = buildApp(createFakeRepositories());
+    const res = await app.request(
+      '/v1/projects/not-a-uuid/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Hello' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('returns NOT_FOUND for project in another workspace', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Hello' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('NOT_FOUND');
+  });
+
+  it('response includes requestId on errors', async () => {
+    const app = buildApp();
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          'x-request-id': 'req-test-789',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Hello' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.error!.requestId).toBe('req-test-789');
+  });
+
+  it('does not trigger AI or generation', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Create a post' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    // The route is pure persistence: it returns the created message
+    // without any approval card, assistant reply, or job enqueue.
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    expect(json.data).toHaveProperty('id');
+    expect(json.data).toHaveProperty('content', 'Create a post');
+    expect(json.data).toHaveProperty('role', 'user');
+    expect(json.data).not.toHaveProperty('approvalCard');
+    expect(json.data).not.toHaveProperty('reply');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error response quality
+// ---------------------------------------------------------------------------
+
+describe('Chat route error responses', () => {
+  it('does not leak stack traces or DB details', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    const text = await res.text();
+    expect(text).not.toContain('stack');
+    expect(text).not.toContain('Supabase');
+    expect(text).not.toContain('postgres');
+    expect(text).not.toContain('SQL');
+  });
+});

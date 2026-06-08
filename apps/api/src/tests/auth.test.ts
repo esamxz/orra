@@ -59,6 +59,8 @@ function createFakeRepositories(): Repositories {
       }),
     },
     project: {},
+    artifact: {},
+    chat: {},
   } as unknown as Repositories;
 }
 
