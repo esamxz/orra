@@ -123,25 +123,44 @@ describe('service context', () => {
   });
 });
 
-describe('repository stubs', () => {
-  const fakeDb = { from: () => ({}) } as unknown as DbClient;
+describe('repository instantiation', () => {
+  it('getRepositories builds real UserRepository and WorkspaceRepository', () => {
+    const dbEnv = {
+      ENVIRONMENT: 'development',
+      SUPABASE_URL: 'https://example.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test',
+    } as unknown as Env;
 
-  it('UserRepository stub exists and throws not-implemented', async () => {
+    const ctx = createServiceContext(dbEnv, 'req-test');
+    const repos = getRepositories(ctx);
+
+    expect(repos.user).toBeDefined();
+    expect(repos.workspace).toBeDefined();
+    expect(repos.project).toBeDefined();
+    // Real repositories should not throw on these method calls when backed
+    // by a real DB client (the client itself won't connect without network).
+    // We verify they are the real classes by checking constructor names.
+    expect(repos.user.constructor.name).toBe('SupabaseUserRepository');
+    expect(repos.workspace.constructor.name).toBe('SupabaseWorkspaceRepository');
+  });
+
+  it('UserRepository stub still exists for tests that need it', async () => {
     const { StubUserRepository } = await import('../repositories/userRepository.js');
+    const fakeDb = { from: () => ({}) } as unknown as DbClient;
     const repo = new StubUserRepository(fakeDb);
     await expect(repo.findByClerkId('id')).rejects.toThrow('not implemented');
-    await expect(repo.createFromClerkIdentity({ clerkId: 'id', email: null, displayName: null })).rejects.toThrow('not implemented');
   });
 
-  it('WorkspaceRepository stub exists and throws not-implemented', async () => {
+  it('WorkspaceRepository stub still exists for tests that need it', async () => {
     const { StubWorkspaceRepository } = await import('../repositories/workspaceRepository.js');
+    const fakeDb = { from: () => ({}) } as unknown as DbClient;
     const repo = new StubWorkspaceRepository(fakeDb);
     await expect(repo.findPersonalWorkspaceForUser('id')).rejects.toThrow('not implemented');
-    await expect(repo.createPersonalWorkspace({ name: 'Test', type: 'personal', ownerUserId: 'id', plan: 'free' })).rejects.toThrow('not implemented');
   });
 
-  it('ProjectRepository stub exists with no methods', async () => {
+  it('ProjectRepository stub still exists with no methods', async () => {
     const { StubProjectRepository } = await import('../repositories/projectRepository.js');
+    const fakeDb = { from: () => ({}) } as unknown as DbClient;
     const repo = new StubProjectRepository(fakeDb);
     expect(repo).toBeDefined();
   });

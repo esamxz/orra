@@ -2,8 +2,8 @@ import type { Env } from '../env.js';
 import type { AuthContext } from '../auth/types.js';
 import type { DbClient } from '../db/client.js';
 import type { Repositories } from '../repositories/types.js';
-import { StubUserRepository } from '../repositories/userRepository.js';
-import { StubWorkspaceRepository } from '../repositories/workspaceRepository.js';
+import { SupabaseUserRepository } from '../repositories/userRepository.js';
+import { SupabaseWorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { StubProjectRepository } from '../repositories/projectRepository.js';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +66,26 @@ export function createServiceContext(
 import { createServiceDbClient } from '../db/client.js';
 import { ApiError } from '../errors.js';
 
+// ---------------------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Assert that the service context carries a fully-populated AuthContext.
+ * Throws UNAUTHENTICATED when auth is missing.
+ * Throws FORBIDDEN when workspace is missing (protected routes must
+ * have completed workspace bootstrap).
+ */
+export function requireAuth(ctx: ServiceContext): AuthContext {
+  if (!ctx.auth?.isAuthenticated) {
+    throw new ApiError('UNAUTHENTICATED', 'Authentication required.');
+  }
+  if (!ctx.auth.workspaceId) {
+    throw new ApiError('FORBIDDEN', 'Workspace context is missing.');
+  }
+  return ctx.auth;
+}
+
 /**
  * Return the DB client from the context, creating it lazily from env if
  * not already present. Throws INTERNAL if env is missing required DB config.
@@ -99,8 +119,8 @@ export function getRepositories(ctx: ServiceContext): Repositories {
 
   const db = getDbClient(ctx);
   const repos: Repositories = {
-    user: new StubUserRepository(db),
-    workspace: new StubWorkspaceRepository(db),
+    user: new SupabaseUserRepository(db),
+    workspace: new SupabaseWorkspaceRepository(db),
     project: new StubProjectRepository(db),
   };
 

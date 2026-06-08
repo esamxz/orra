@@ -11,6 +11,7 @@ import {
 import { requestIdMiddleware } from '../middleware/request-id.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { createServiceContext } from '../services/service-context.js';
+import type { Repositories } from '../repositories/types.js';
 
 const fakeVerifier = createFakeVerifier();
 
@@ -28,16 +29,60 @@ type ProtectedResponse = {
   role?: string;
 };
 
-function buildProtectedApp(_env: Record<string, unknown>) {
+function createFakeRepositories(): Repositories {
+  return {
+    user: {
+      findByClerkId: async () => null,
+      createFromClerkIdentity: async () => ({
+        id: 'user-fake-1',
+        clerk_id: 'usr_test_fake',
+        email: 'test@orra.local',
+        display_name: 'Test User',
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      }),
+    },
+    workspace: {
+      findPersonalWorkspaceForUser: async () => null,
+      createPersonalWorkspace: async () => ({
+        id: 'ws-fake-1',
+        name: "Test User's Workspace",
+        type: 'personal',
+        owner_user_id: 'user-fake-1',
+        plan: 'free',
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      }),
+      ensurePersonalWorkspaceForUser: async () => ({
+        workspaceId: 'ws-fake-1',
+        role: 'owner',
+      }),
+    },
+    project: {},
+  } as unknown as Repositories;
+}
+
+function buildProtectedApp(
+  _env: Record<string, unknown>,
+  overrides?: Repositories
+) {
   const app = new Hono<{ Bindings: Env }>();
   app.use(requestIdMiddleware);
-  app.use(createAuthMiddleware(fakeVerifier));
+  app.use(
+    createAuthMiddleware(
+      fakeVerifier,
+      overrides ? { repositories: overrides } : undefined
+    )
+  );
   app.get('/protected', (c) => {
     const auth = getAuth(c);
     return c.json({
       clerkUserId: auth?.clerkUserId,
       authSource: auth?.authSource,
       isAuthenticated: auth?.isAuthenticated,
+      userId: auth?.userId,
+      workspaceId: auth?.workspaceId,
+      role: auth?.role,
     });
   });
   app.onError(errorHandler);
@@ -85,7 +130,10 @@ describe('auth middleware — protected routes', () => {
   });
 
   it('accepts a valid fake token and sets AuthContext', async () => {
-    const app = buildProtectedApp({ ENVIRONMENT: 'production' });
+    const app = buildProtectedApp(
+      { ENVIRONMENT: 'production' },
+      createFakeRepositories()
+    );
     const res = await app.request(
       '/protected',
       { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
@@ -100,7 +148,10 @@ describe('auth middleware — protected routes', () => {
   });
 
   it('does not expose the raw token in the response', async () => {
-    const app = buildProtectedApp({ ENVIRONMENT: 'production' });
+    const app = buildProtectedApp(
+      { ENVIRONMENT: 'production' },
+      createFakeRepositories()
+    );
     const res = await app.request(
       '/protected',
       { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
@@ -128,7 +179,11 @@ describe('auth middleware — protected routes', () => {
     // Use the real production verifier (not the fake one)
     const app = new Hono<{ Bindings: Env }>();
     app.use(requestIdMiddleware);
-    app.use(createAuthMiddleware((await import('../auth/verifier.js')).createProductionVerifier()));
+    app.use(
+      createAuthMiddleware(
+        (await import('../auth/verifier.js')).createProductionVerifier()
+      )
+    );
     app.get('/protected', (c) => c.json({ ok: true }));
     app.onError(errorHandler);
 
@@ -148,7 +203,11 @@ describe('auth middleware — protected routes', () => {
   it('service context receives auth from a valid token', async () => {
     const app = new Hono<{ Bindings: Env }>();
     app.use(requestIdMiddleware);
-    app.use(createAuthMiddleware(fakeVerifier));
+    app.use(
+      createAuthMiddleware(fakeVerifier, {
+        repositories: createFakeRepositories(),
+      })
+    );
     app.get('/protected', (c) => {
       const auth = getAuth(c);
       const ctx = createServiceContext(c.env as Env, 'req-123', auth);
@@ -212,7 +271,11 @@ describe('auth middleware — production verifier with local keys', () => {
 
     const app = new Hono<{ Bindings: Env }>();
     app.use(requestIdMiddleware);
-    app.use(createAuthMiddleware(verifier));
+    app.use(
+      createAuthMiddleware(verifier, {
+        repositories: createFakeRepositories(),
+      })
+    );
     app.get('/protected', (c) => {
       const auth = getAuth(c);
       return c.json({
@@ -244,7 +307,7 @@ describe('auth middleware — production verifier with local keys', () => {
     expect(json.isAuthenticated).toBe(true);
   });
 
-  it('leaves userId/workspaceId/role undefined in AuthContext', async () => {
+  it('populates userId, workspaceId, and role after bootstrap', async () => {
     const { app, env } = buildApp();
     const token = await signToken('usr_clerk_123');
     const res = await app.request(
@@ -254,9 +317,9 @@ describe('auth middleware — production verifier with local keys', () => {
     );
 
     const json = await res.json() as ProtectedResponse;
-    expect(json.userId).toBeUndefined();
-    expect(json.workspaceId).toBeUndefined();
-    expect(json.role).toBeUndefined();
+    expect(json.userId).toBeDefined();
+    expect(json.workspaceId).toBeDefined();
+    expect(json.role).toBe('owner');
   });
 
   it('rejects an expired local JWT', async () => {
@@ -305,5 +368,88 @@ describe('auth middleware — production verifier with local keys', () => {
 
     const text = await res.text();
     expect(text).not.toContain('bad-token-value');
+  });
+});
+
+describe('auth middleware — bootstrap integration', () => {
+  it('valid Clerk JWT triggers bootstrap on protected route', async () => {
+    const app = buildProtectedApp(
+      { ENVIRONMENT: 'production' },
+      createFakeRepositories()
+    );
+    const res = await app.request(
+      '/protected',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json() as ProtectedResponse;
+    expect(json.userId).toBeDefined();
+    expect(json.workspaceId).toBeDefined();
+    expect(json.role).toBe('owner');
+  });
+
+  it('public health route does not bootstrap', async () => {
+    const app = new Hono<{ Bindings: Env }>();
+    app.use(requestIdMiddleware);
+    app.use(createAuthMiddleware(fakeVerifier));
+    app.get('/health', (c) => c.json({ ok: true }));
+    app.onError(errorHandler);
+
+    const res = await app.request(
+      '/health',
+      { method: 'GET' },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('OPTIONS preflight does not bootstrap', async () => {
+    const app = new Hono<{ Bindings: Env }>();
+    app.use(requestIdMiddleware);
+    app.use(createAuthMiddleware(fakeVerifier));
+    app.options('/protected', (c) => c.json({ ok: true }));
+    app.onError(errorHandler);
+
+    const res = await app.request(
+      '/protected',
+      { method: 'OPTIONS' },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    // OPTIONS must not trigger auth rejection or bootstrap failure.
+    expect(res.status).toBe(200);
+  });
+
+  it('missing DB env on protected route fails safely', async () => {
+    const app = buildProtectedApp({ ENVIRONMENT: 'production' });
+    const res = await app.request(
+      '/protected',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    // Without overrides, getRepositories tries to create a real DB client
+    // and throws INTERNAL because env lacks Supabase config.
+    expect(res.status).toBe(500);
+    const json = await res.json() as AuthResponse;
+    expect(json.error.code).toBe('INTERNAL');
+    expect(json.error.message).toBe('Authentication bootstrap failed.');
+  });
+
+  it('no token or secrets leak in errors', async () => {
+    const app = buildProtectedApp({ ENVIRONMENT: 'production' });
+    const res = await app.request(
+      '/protected',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    const text = await res.text();
+    expect(text).not.toContain('SUPABASE');
+    expect(text).not.toContain('service_role');
+    expect(text).not.toContain('test_valid');
   });
 });

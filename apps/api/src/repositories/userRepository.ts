@@ -1,11 +1,11 @@
 import type { DbClient } from '../db/client.js';
 import type { UserRow } from '@orra/db';
+import { mapDbError } from '../db/errors.js';
 
 // ---------------------------------------------------------------------------
 // User repository
 // ---------------------------------------------------------------------------
 // Contract for user lookups and creation from Clerk identities.
-// Full implementation is deferred to the user/workspace bootstrap phase.
 
 export interface CreateUserInput {
   clerkId: string;
@@ -33,5 +33,49 @@ export class StubUserRepository implements UserRepository {
 
   async createFromClerkIdentity(_input: CreateUserInput): Promise<UserRow> {
     throw new Error('UserRepository.createFromClerkIdentity is not implemented yet.');
+  }
+}
+
+/**
+ * Production implementation backed by Supabase.
+ * createFromClerkIdentity uses upsert on clerk_id so concurrent first
+ * requests for the same user never create duplicate rows.
+ */
+export class SupabaseUserRepository implements UserRepository {
+  constructor(private db: DbClient) {}
+
+  async findByClerkId(clerkId: string): Promise<UserRow | null> {
+    const { data, error } = await this.db
+      .from('users')
+      .select('*')
+      .eq('clerk_id', clerkId)
+      .maybeSingle();
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    return data;
+  }
+
+  async createFromClerkIdentity(input: CreateUserInput): Promise<UserRow> {
+    const { data, error } = await this.db
+      .from('users')
+      .upsert(
+        {
+          clerk_id: input.clerkId,
+          email: input.email,
+          display_name: input.displayName,
+        },
+        { onConflict: 'clerk_id' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    return data as UserRow;
   }
 }

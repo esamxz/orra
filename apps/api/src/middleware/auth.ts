@@ -5,6 +5,13 @@ import { ApiError } from '../errors.js';
 import type { AuthContext } from '../auth/types.js';
 import { DEV_AUTH, UNAUTHENTICATED_AUTH } from '../auth/types.js';
 import type { ClerkVerifier } from '../auth/verifier.js';
+import { AuthBootstrapService } from '../services/authBootstrapService.js';
+import {
+  createServiceContext,
+  getRepositories,
+} from '../services/service-context.js';
+import type { ServiceContextOverrides } from '../services/service-context.js';
+import { getRequestId } from './request-id.js';
 
 // ---------------------------------------------------------------------------
 // Auth middleware factory
@@ -25,7 +32,10 @@ function isDevAuthEnabled(env: Env): boolean {
   return env.DEV_AUTH_ENABLED === 'true' && (env.ENVIRONMENT === 'development' || !env.ENVIRONMENT);
 }
 
-export function createAuthMiddleware(verifier: ClerkVerifier): MiddlewareHandler {
+export function createAuthMiddleware(
+  verifier: ClerkVerifier,
+  overrides?: ServiceContextOverrides
+): MiddlewareHandler {
   return createMiddleware(
     async (c: Context, next: Next): Promise<void | Response> => {
       const env = c.env;
@@ -59,13 +69,36 @@ export function createAuthMiddleware(verifier: ClerkVerifier): MiddlewareHandler
       const result = await verifier.verifyToken(token, env);
 
       if (result.ok) {
-        const authContext: AuthContext = {
-          isAuthenticated: true,
-          clerkUserId: result.clerkUserId,
-          authSource: 'clerk',
-          // userId/workspaceId/role remain undefined until DB workspace bootstrap.
-        };
-        c.set('auth', authContext);
+        const requestId = getRequestId(c) || 'unknown';
+        const serviceCtx = createServiceContext(c.env as Env, requestId, undefined, overrides);
+
+        try {
+          const repos = getRepositories(serviceCtx);
+          const bootstrapService = new AuthBootstrapService(repos.user, repos.workspace);
+          const bootstrapResult = await bootstrapService.bootstrap({
+            clerkUserId: result.clerkUserId,
+            email: result.email ?? null,
+            displayName: result.displayName ?? null,
+          });
+
+          const authContext: AuthContext = {
+            isAuthenticated: true,
+            clerkUserId: result.clerkUserId,
+            userId: bootstrapResult.userId,
+            workspaceId: bootstrapResult.workspaceId,
+            role: bootstrapResult.role,
+            authSource: 'clerk',
+          };
+          c.set('auth', authContext);
+        } catch (err) {
+          // If the DB is not configured, getRepositories throws INTERNAL.
+          // Surface a safe message without leaking env details.
+          if (err instanceof ApiError && err.code === 'INTERNAL') {
+            throw new ApiError('INTERNAL', 'Authentication bootstrap failed.');
+          }
+          throw err;
+        }
+
         return next();
       }
 

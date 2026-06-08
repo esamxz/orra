@@ -22,6 +22,8 @@ import type { Env } from '../env.js';
 export interface ClerkVerifyResult {
   ok: true;
   clerkUserId: string;
+  email?: string;
+  displayName?: string;
 }
 
 export interface ClerkVerifyFailure {
@@ -67,7 +69,15 @@ async function verifyWithKeyResolver(
       return { ok: false, reason: 'JWT missing subject claim.' };
     }
 
-    return { ok: true, clerkUserId };
+    const email = typeof payload.email === 'string' ? payload.email : undefined;
+    const displayName =
+      typeof payload.name === 'string'
+        ? payload.name
+        : typeof payload.given_name === 'string' && typeof payload.family_name === 'string'
+          ? `${payload.given_name} ${payload.family_name}`
+          : undefined;
+
+    return { ok: true, clerkUserId, email, displayName };
   } catch (err) {
     // Map common jose errors to safe messages. Never leak token details.
     // jose messages include patterns like:
@@ -133,7 +143,12 @@ export function createFakeVerifier(): ClerkVerifier {
   return {
     async verifyToken(token: string): Promise<ClerkVerifyResponse> {
       if (token.startsWith('test_')) {
-        return { ok: true, clerkUserId: 'usr_test_fake' };
+        return {
+          ok: true,
+          clerkUserId: 'usr_test_fake',
+          email: 'test@orra.local',
+          displayName: 'Test User',
+        };
       }
       return { ok: false, reason: 'Invalid test token.' };
     },
