@@ -55,6 +55,12 @@ chatRoutes.get(
 );
 
 // POST /v1/projects/:id/messages — append a user text message
+//
+// When the message classifies as generation intent, the service also creates
+// an assistant approval_summary message. The response then includes:
+//   { message, intent, approvalMessage? }
+//
+// No AI calls, no credit reservation, no generation jobs in this phase.
 chatRoutes.post(
   '/:id/messages',
   validateParam(ProjectIdParamSchema),

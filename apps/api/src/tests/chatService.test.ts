@@ -453,7 +453,7 @@ describe('ChatService', () => {
     expect(result.intent.generationHint?.artifactType).toBe('post');
   });
 
-  it('appendUserMessage does not create assistant message', async () => {
+  it('generation intent creates approval_summary assistant message', async () => {
     const projectRepo = createFakeProjectRepository([
       {
         id: 'proj-1',
@@ -473,14 +473,113 @@ describe('ChatService', () => {
     const service = new ChatService(chatRepo, projectRepo);
     const ctx = fakeAuthContext('ws-1');
 
-    await service.appendUserMessage(ctx, 'proj-1', { content: 'Create a post' });
+    const result = await service.appendUserMessage(ctx, 'proj-1', { content: 'Create a post' });
+
+    expect(result.approvalMessage).toBeDefined();
+    expect(result.approvalMessage!.role).toBe('assistant');
+    expect(result.approvalMessage!.kind).toBe('approval_summary');
+    expect(typeof result.approvalMessage!.content).toBe('string');
+
+    const messages = await service.listMessages(ctx, 'proj-1', { limit: 50 });
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe('user');
+    expect(messages[1].role).toBe('assistant');
+    expect(messages[1].kind).toBe('approval_summary');
+  });
+
+  it('approval message metadata contains approvalCard', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a 5-card carousel about self-improvement',
+    });
+
+    expect(result.approvalMessage).toBeDefined();
+    const meta = result.approvalMessage!.metadata as Record<string, unknown>;
+    expect(meta).toHaveProperty('approvalCard');
+    const card = meta.approvalCard as Record<string, unknown>;
+    expect(card.summaryLine).toContain('5-card carousel');
+    expect(card.actions).toContain('approve_and_create');
+    expect(card.actions).toContain('cancel');
+  });
+
+  it('approval metadata includes sourceUserMessageId', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', { content: 'Create a post' });
+
+    expect(result.approvalMessage).toBeDefined();
+    const meta = result.approvalMessage!.metadata as Record<string, unknown>;
+    expect(meta).toHaveProperty('sourceUserMessageId');
+    expect(meta.sourceUserMessageId).toBe(result.message.id);
+  });
+
+  it('conversation intent does not create approval_summary', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'What do you think about this idea?',
+    });
+
+    expect(result.approvalMessage).toBeUndefined();
 
     const messages = await service.listMessages(ctx, 'proj-1', { limit: 50 });
     expect(messages).toHaveLength(1);
     expect(messages[0].role).toBe('user');
   });
 
-  it('appendUserMessage does not create approval_summary message', async () => {
+  it('no generation job is created', async () => {
     const projectRepo = createFakeProjectRepository([
       {
         id: 'proj-1',
@@ -502,8 +601,41 @@ describe('ChatService', () => {
 
     await service.appendUserMessage(ctx, 'proj-1', { content: 'Create a post' });
 
+    // If a generation job were created, it would be visible in some repository.
+    // Since we only have chat and project repos, verify no extra messages
+    // beyond the user + approval_summary appear.
     const messages = await service.listMessages(ctx, 'proj-1', { limit: 50 });
-    const approvalMessages = messages.filter((m) => m.kind === 'approval_summary');
-    expect(approvalMessages).toHaveLength(0);
+    expect(messages).toHaveLength(2);
+    expect(messages.filter((m) => m.kind === 'job_ref')).toHaveLength(0);
+  });
+
+  it('no artifact mutation happens', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await service.appendUserMessage(ctx, 'proj-1', { content: 'Create a post' });
+
+    // There is no artifact repo in ChatService, and no artifact state to mutate.
+    // This test serves as a structural guard: approval card creation must not
+    // touch the artifact or its versions.
+    const messages = await service.listMessages(ctx, 'proj-1', { limit: 50 });
+    const kinds = messages.map((m) => m.kind);
+    expect(kinds).toEqual(['text', 'approval_summary']);
   });
 });

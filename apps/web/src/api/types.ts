@@ -1,4 +1,5 @@
 import type { ArtifactDocument } from '@orra/shared';
+export type { ApprovalCardDto } from '@orra/shared';
 
 // ---------------------------------------------------------------------------
 // Frontend API types
@@ -110,4 +111,5 @@ export interface DirectorIntentResult {
 export interface AppendProjectMessageResponse {
   message: ChatMessageDto;
   intent: DirectorIntentResult;
+  approvalMessage?: ChatMessageDto;
 }

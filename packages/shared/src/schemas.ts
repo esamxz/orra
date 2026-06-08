@@ -173,9 +173,32 @@ export const ArtifactDocumentSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Approval card (lightweight user-facing summary)
+// ---------------------------------------------------------------------------
+
+export const ApprovalActionSchema = z.enum([
+  'approve_and_create',
+  'add_cta',
+  'edit_direction',
+  'cancel',
+]);
+
+export const ApprovalCardSchema = z.object({
+  summaryLine: z.string().min(1),
+  style: z.string(),
+  format: z.string(),
+  brand: z.string(),
+  cta: z.string(),
+  assumptions: z.array(z.string()),
+  actions: z.array(ApprovalActionSchema).min(1),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 
+export type ApprovalAction = z.infer<typeof ApprovalActionSchema>;
+export type ApprovalCardDto = z.infer<typeof ApprovalCardSchema>;
 export type RatioName = z.infer<typeof RatioNameSchema>;
 export type Ratio = z.infer<typeof RatioSchema>;
 export type Box = z.infer<typeof BoxSchema>;

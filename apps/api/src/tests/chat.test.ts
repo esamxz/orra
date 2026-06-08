@@ -495,7 +495,7 @@ describe('POST /v1/projects/:id/messages', () => {
     expect(json.error!.requestId).toBe('req-test-789');
   });
 
-  it('does not trigger AI or generation', async () => {
+  it('does not trigger AI or generation jobs', async () => {
     const repos = createFakeRepositories([
       {
         id: '11111111-1111-1111-1111-111111111111',
@@ -525,18 +525,159 @@ describe('POST /v1/projects/:id/messages', () => {
       { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
     );
 
-    // The route persists the user message and returns intent classification,
-    // but does not create an approval card, assistant reply, or enqueue a job.
+    // The route persists the user message and returns intent classification
+    // plus a deterministic approval card skeleton. No real AI, no job enqueue.
     expect(res.status).toBe(201);
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(true);
-    const data = json.data as { message: { id: string; content: string; role: string }; intent: unknown };
+    const data = json.data as {
+      message: { id: string; content: string; role: string };
+      intent: unknown;
+      approvalMessage?: { role: string; kind: string };
+    };
     expect(data.message).toHaveProperty('id');
     expect(data.message).toHaveProperty('content', 'Create a post');
     expect(data.message).toHaveProperty('role', 'user');
     expect(data.intent).toBeDefined();
-    expect(data).not.toHaveProperty('approvalCard');
     expect(data).not.toHaveProperty('reply');
+  });
+
+  it('POST generation message returns message, intent, and approvalMessage', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Create a 5-card carousel about self-improvement' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      message: { role: string; kind: string };
+      intent: { mode: string };
+      approvalMessage?: { role: string; kind: string; content: string };
+    };
+    expect(data.message.role).toBe('user');
+    expect(data.intent.mode).toBe('generation');
+    expect(data.approvalMessage).toBeDefined();
+    expect(data.approvalMessage!.role).toBe('assistant');
+    expect(data.approvalMessage!.kind).toBe('approval_summary');
+    expect(typeof data.approvalMessage!.content).toBe('string');
+  });
+
+  it('POST conversation message returns message and intent without approvalMessage', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'What do you think about this?' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      message: { role: string };
+      intent: { mode: string };
+      approvalMessage?: unknown;
+    };
+    expect(data.message.role).toBe('user');
+    expect(data.intent.mode).toBe('conversation');
+    expect(data.approvalMessage).toBeUndefined();
+  });
+
+  it('GET messages returns approval_summary message after generation POST', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+
+    // First, post a generation message
+    await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Create a post about focus' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    // Then, list messages
+    const getRes = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(getRes.status).toBe(200);
+    const json = (await getRes.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const messages = json.data as Array<{ role: string; kind: string }>;
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe('user');
+    expect(messages[1].role).toBe('assistant');
+    expect(messages[1].kind).toBe('approval_summary');
   });
 
   it('returns generation intent for creation prompt', async () => {

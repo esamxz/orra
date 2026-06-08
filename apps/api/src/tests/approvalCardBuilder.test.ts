@@ -1,0 +1,184 @@
+import { describe, it, expect } from 'vitest';
+import { buildApprovalCard } from '../services/approvalCardBuilder.js';
+import type { DirectorIntentResult } from '../services/directorIntentService.js';
+
+function makeGenerationIntent(opts: Partial<DirectorIntentResult['generationHint']> = {}): DirectorIntentResult {
+  return {
+    mode: 'generation',
+    confidence: 'high',
+    reason: 'Detected clear creation intent.',
+    generationHint: {
+      artifactType: opts.artifactType ?? 'post',
+      requestedCardCount: opts.requestedCardCount,
+      rawTopic: opts.rawTopic ?? 'focus',
+    },
+  };
+}
+
+
+describe('buildApprovalCard', () => {
+  it('builds carousel summary from 5-card generation hint', () => {
+    const intent = makeGenerationIntent({
+      artifactType: 'carousel',
+      requestedCardCount: 5,
+      rawTopic: 'self-improvement',
+    });
+
+    const card = buildApprovalCard({
+      content: 'Create a 5-card carousel about self-improvement',
+      intent,
+      projectType: 'carousel',
+      ratioName: '4:5',
+    });
+
+    expect(card.summaryLine).toBe('Ready to create a 5-card carousel about self-improvement.');
+    expect(card.format).toBe('4:5');
+    expect(card.actions).toContain('approve_and_create');
+    expect(card.actions).toContain('add_cta');
+    expect(card.actions).toContain('edit_direction');
+    expect(card.actions).toContain('cancel');
+  });
+
+  it('builds post summary from post hint', () => {
+    const intent = makeGenerationIntent({
+      artifactType: 'post',
+      rawTopic: 'morning routines',
+    });
+
+    const card = buildApprovalCard({
+      content: 'Make a post about morning routines',
+      intent,
+      projectType: 'post',
+      ratioName: '1:1',
+    });
+
+    expect(card.summaryLine).toBe('Ready to create a post about morning routines.');
+    expect(card.format).toBe('1:1');
+  });
+
+  it('uses project ratio in format', () => {
+    const intent = makeGenerationIntent({ rawTopic: 'focus' });
+
+    const card9x16 = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '9:16',
+    });
+    expect(card9x16.format).toBe('9:16');
+
+    const card16x9 = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '16:9',
+    });
+    expect(card16x9.format).toBe('16:9');
+  });
+
+  it('brand text changes when project has brandSystemId', () => {
+    const intent = makeGenerationIntent();
+
+    const withoutBrand = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandSystemId: null,
+    });
+    expect(withoutBrand.brand).toBe('No brand selected');
+
+    const withBrand = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandSystemId: 'brand-123',
+    });
+    expect(withBrand.brand).toBe('Selected brand system');
+  });
+
+  it('CTA defaults to Not set', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+    });
+    expect(card.cta).toBe('Not set');
+  });
+
+  it('actions include approve_and_create, add_cta, edit_direction, cancel', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+    });
+    expect(card.actions).toEqual([
+      'approve_and_create',
+      'add_cta',
+      'edit_direction',
+      'cancel',
+    ]);
+  });
+
+  it('copy avoids technical fields like model, prompt, token, provider', () => {
+    const intent = makeGenerationIntent({ rawTopic: 'focus' });
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+    });
+
+    const json = JSON.stringify(card).toLowerCase();
+    expect(json).not.toContain('model');
+    expect(json).not.toContain('prompt');
+    expect(json).not.toContain('token');
+    expect(json).not.toContain('provider');
+    expect(json).not.toContain('layer');
+    expect(json).not.toContain('flux');
+    expect(json).not.toContain('gemini');
+    expect(json).not.toContain('gpt');
+  });
+
+  it('uses project name as topic fallback when rawTopic is empty', () => {
+    const intent: DirectorIntentResult = {
+      mode: 'generation',
+      confidence: 'high',
+      reason: 'Detected creation intent.',
+      generationHint: { artifactType: 'post' },
+    };
+
+    const card = buildApprovalCard({
+      content: 'Make a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      projectName: 'My Cool Project',
+    });
+
+    expect(card.summaryLine).toContain('My Cool Project');
+  });
+
+  it('uses generic fallback when no topic and no project name', () => {
+    const intent: DirectorIntentResult = {
+      mode: 'generation',
+      confidence: 'high',
+      reason: 'Detected creation intent.',
+      generationHint: { artifactType: 'post' },
+    };
+
+    const card = buildApprovalCard({
+      content: 'Make a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+    });
+
+    expect(card.summaryLine).toContain('your topic');
+  });
+});

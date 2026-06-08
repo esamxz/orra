@@ -1,0 +1,118 @@
+// ---------------------------------------------------------------------------
+// Approval Card Builder
+// ---------------------------------------------------------------------------
+// Deterministic builder that creates a lightweight ApprovalCardDto from a
+// user message, Director intent result, and project metadata.
+//
+// This is a skeleton seam. Real AI planning will replace the deterministic
+// defaults in a later phase.
+//
+// Rules:
+//   - No AI provider calls.
+//   - No model names, token counts, or image prompts in output.
+//   - Calm, short UI copy. No em dashes or unnecessary dash punctuation.
+//   - CTA defaults to "Not set". Missing CTA never blocks generation.
+// ---------------------------------------------------------------------------
+
+import type { ApprovalCardDto, ApprovalAction } from '@orra/shared';
+import type { DirectorIntentResult } from './directorIntentService.js';
+
+export interface BuildApprovalCardInput {
+  /** The raw user message content. */
+  content: string;
+  /** The classified Director intent. */
+  intent: DirectorIntentResult;
+  /** Project type (post | carousel | from_assets). */
+  projectType: string;
+  /** Project ratio name (e.g. "4:5"). */
+  ratioName: string;
+  /** Optional brand system id attached to the project. */
+  brandSystemId?: string | null;
+  /** Project name, used for fallback topic extraction. */
+  projectName?: string;
+}
+
+const DEFAULT_STYLE = 'calm, premium, focused';
+const DEFAULT_ASSUMPTIONS = [
+  'Using a clean visual direction.',
+  'Readable editable text will be rendered by Orra.',
+];
+const ALL_ACTIONS: ApprovalAction[] = [
+  'approve_and_create',
+  'add_cta',
+  'edit_direction',
+  'cancel',
+];
+
+function buildSummaryLine(input: BuildApprovalCardInput): string {
+  const hint = input.intent.generationHint;
+  const topic = hint?.rawTopic ?? extractTopicFallback(input.content, input.projectName);
+  const typeLabel = hint?.artifactType === 'carousel' ? 'carousel' : 'post';
+  const cardCount = hint?.requestedCardCount;
+
+  if (hint?.artifactType === 'carousel' && cardCount && cardCount > 1) {
+    return `Ready to create a ${cardCount}-card ${typeLabel} about ${topic}.`;
+  }
+
+  return `Ready to create a ${typeLabel} about ${topic}.`;
+}
+
+function extractTopicFallback(content: string, projectName?: string): string {
+  // Try to extract a topic after "about", "on", "for"
+  const aboutMatch = content.match(/(?:about|on|for)\s+(.+?)(?:\.|$)/i);
+  if (aboutMatch) {
+    const topic = aboutMatch[1].trim();
+    if (topic.length > 1 && topic.length < 80) return topic;
+  }
+
+  // Clean generation keywords and return remainder
+  let cleaned = content
+    .replace(/\b(create|make|design|build|generate|draft|a|an|the|please|some|this|that|me|us|for|about|on)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Reject if the result is just an artifact type word (post, carousel, card, etc.)
+  const artifactOnlyWords = ['post', 'carousel', 'card', 'cards', 'slide', 'slides'];
+  if (
+    cleaned.length > 1 &&
+    cleaned.length < 80 &&
+    !artifactOnlyWords.includes(cleaned.toLowerCase())
+  ) {
+    return cleaned;
+  }
+
+  // Fallback to project name or generic topic
+  return projectName && projectName.length > 1 ? projectName : 'your topic';
+}
+
+function buildBrandLabel(brandSystemId: string | null | undefined): string {
+  if (brandSystemId) {
+    return 'Selected brand system';
+  }
+  return 'No brand selected';
+}
+
+/**
+ * Build a deterministic approval card from the given inputs.
+ *
+ * This function is pure: no side effects, no AI calls, no DB access.
+ */
+export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDto {
+  const summaryLine = buildSummaryLine(input);
+  const style = DEFAULT_STYLE;
+  const format = input.ratioName;
+  const brand = buildBrandLabel(input.brandSystemId);
+  const cta = 'Not set';
+  const assumptions = [...DEFAULT_ASSUMPTIONS];
+  const actions = [...ALL_ACTIONS];
+
+  return {
+    summaryLine,
+    style,
+    format,
+    brand,
+    cta,
+    assumptions,
+    actions,
+  };
+}

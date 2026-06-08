@@ -8,6 +8,7 @@ import {
   classifyDirectorIntent,
   type DirectorIntentResult,
 } from './directorIntentService.js';
+import { buildApprovalCard } from './approvalCardBuilder.js';
 
 // ---------------------------------------------------------------------------
 // Chat service
@@ -34,6 +35,7 @@ export interface AppendUserMessageRequest {
 export interface AppendUserMessageResult {
   message: MessageResponse;
   intent: DirectorIntentResult;
+  approvalMessage?: MessageResponse;
 }
 
 export interface AppendAssistantMessageRequest {
@@ -147,7 +149,36 @@ export class ChatService {
     const message = mapMessageRow(row, projectId);
     const intent = classifyDirectorIntent(input.content);
 
-    return { message, intent };
+    // For generation intent, build and persist a lightweight approval card.
+    // No AI calls. No credits move. No generation job starts.
+    let approvalMessage: MessageResponse | undefined;
+    if (intent.mode === 'generation') {
+      const approvalCard = buildApprovalCard({
+        content: input.content,
+        intent,
+        projectType: project.type,
+        ratioName: (project.ratio as { name: string }).name ?? '4:5',
+        brandSystemId: project.brand_system_id,
+        projectName: project.name,
+      });
+
+      const approvalRow = await this.chatRepo.appendMessage({
+        workspaceId,
+        threadId: thread.id,
+        role: 'assistant',
+        kind: 'approval_summary',
+        content: approvalCard.summaryLine,
+        metadata: {
+          approvalCard,
+          sourceUserMessageId: message.id,
+          intent,
+        } as unknown as import('@orra/db').Json,
+      });
+
+      approvalMessage = mapMessageRow(approvalRow, projectId);
+    }
+
+    return { message, intent, approvalMessage };
   }
 
   /**

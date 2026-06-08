@@ -6,7 +6,7 @@ import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import { useProjectMessages } from '../hooks/useProjectMessages';
 import { appendProjectMessage } from '../api/chat';
 import { ApiClientError } from '../api/errors';
-import type { ChatMessageDto, DirectorIntentResult } from '../api/types';
+import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto } from '../api/types';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
 import { BRANDS } from '../data/cards';
@@ -73,14 +73,21 @@ interface UiMessage {
   type: string;
   text?: string;
   topic?: string;
+  approvalCard?: ApprovalCardDto;
 }
 
 function mapApiMessageToUi(m: ChatMessageDto): UiMessage {
+  const card =
+    m.kind === 'approval_summary' && m.metadata && typeof m.metadata === 'object'
+      ? (m.metadata as Record<string, unknown>).approvalCard as ApprovalCardDto | undefined
+      : undefined;
+
   return {
     id: m.id,
     role: m.role === 'user' ? 'user' : 'ai',
     type: m.kind === 'approval_summary' ? 'approval' : m.kind === 'job_ref' ? 'done' : 'text',
     text: m.content ?? '',
+    approvalCard: card,
   };
 }
 
@@ -271,11 +278,15 @@ export default function WorkspacePage() {
 
       try {
         const saved = await appendProjectMessage(projectId, { content: text });
-        setRealMessages((prev) =>
-          prev.map((m) =>
+        setRealMessages((prev) => {
+          const replaced = prev.map((m) =>
             m.id === tempId ? mapApiMessageToUi(saved.message) : m,
-          ),
-        );
+          );
+          if (saved.approvalMessage) {
+            return [...replaced, mapApiMessageToUi(saved.approvalMessage)];
+          }
+          return replaced;
+        });
         lastIntentRef.current = saved.intent;
         setSendState('idle');
       } catch (err) {
@@ -660,14 +671,24 @@ export default function WorkspacePage() {
                   <div className="bubble"><span className="thinking"><span className="dots"><i/><i/><i/></span>{m.text}</span></div>
                 </div>
               );
-              if (m.type==='approval') return (
-                <div key={m.id} className="msg ai" style={{display:'block'}}>
-                  <ApprovalCard specs={specs} ctaSet={ctaSet}
-                    onApprove={()=>approve(m.topic || '')}
-                    onAddCta={()=>{setCtaSet(true);flash('CTA added to plan');}}
-                    onEdit={()=>{ taRef.current&&taRef.current.focus(); flash('Edit your direction below'); }} />
-                </div>
-              );
+              if (m.type==='approval') {
+                const approvalSpecs = m.approvalCard ? {
+                  lead: m.approvalCard.summaryLine,
+                  style: m.approvalCard.style,
+                  format: m.approvalCard.format,
+                  brand: m.approvalCard.brand,
+                  cta: m.approvalCard.cta,
+                } : specs;
+                const isReal = !!m.approvalCard;
+                return (
+                  <div key={m.id} className="msg ai" style={{display:'block'}}>
+                    <ApprovalCard specs={approvalSpecs} ctaSet={isReal ? false : ctaSet}
+                      onApprove={()=> isReal ? flash('Approve action coming in a later phase') : approve(m.topic || '')}
+                      onAddCta={()=> isReal ? flash('Add CTA coming in a later phase') : (setCtaSet(true),flash('CTA added to plan'))}
+                      onEdit={()=> isReal ? flash('Edit direction coming in a later phase') : (taRef.current&&taRef.current.focus(), flash('Edit your direction below'))} />
+                  </div>
+                );
+              }
               if (m.type==='approvalDone') return (
                 <div key={m.id} className="msg ai"><div className="av">{<Icon.sparkFill s={12} />}</div>
                   <div className="bubble" style={{color:'var(--muted)',fontSize:13.5}}>Plan approved ✓</div></div>
