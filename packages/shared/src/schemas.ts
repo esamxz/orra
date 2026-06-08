@@ -194,11 +194,31 @@ export const ApprovalCardSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Approval state machine
+// ---------------------------------------------------------------------------
+
+export const ApprovalStateStatusSchema = z.enum([
+  'pending',
+  'approved',
+  'cancelled',
+  'needs_cta',
+  'editing_direction',
+]);
+
+export const ApprovalStateSchema = z.object({
+  status: ApprovalStateStatusSchema,
+  selectedAction: ApprovalActionSchema.optional(),
+  updatedAt: z.string(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 
 export type ApprovalAction = z.infer<typeof ApprovalActionSchema>;
 export type ApprovalCardDto = z.infer<typeof ApprovalCardSchema>;
+export type ApprovalStateStatus = z.infer<typeof ApprovalStateStatusSchema>;
+export type ApprovalState = z.infer<typeof ApprovalStateSchema>;
 export type RatioName = z.infer<typeof RatioNameSchema>;
 export type Ratio = z.infer<typeof RatioSchema>;
 export type Box = z.infer<typeof BoxSchema>;

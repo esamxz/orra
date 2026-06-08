@@ -34,11 +34,25 @@ export interface AppendMessageInput {
   seq?: number;
 }
 
+export interface FindMessageInput {
+  workspaceId: string;
+  projectId: string;
+  messageId: string;
+}
+
+export interface UpdateMessageMetadataInput {
+  workspaceId: string;
+  messageId: string;
+  metadata: Json;
+}
+
 export interface ChatRepository {
   ensureThreadForProject(input: EnsureThreadInput): Promise<ChatThreadRow>;
   findThreadByProjectId(input: FindThreadInput): Promise<ChatThreadRow | null>;
   listMessagesByThread(input: ListMessagesInput): Promise<ChatMessageRow[]>;
   appendMessage(input: AppendMessageInput): Promise<ChatMessageRow>;
+  findMessageByIdForProject(input: FindMessageInput): Promise<ChatMessageRow | null>;
+  updateMessageMetadata(input: UpdateMessageMetadataInput): Promise<ChatMessageRow>;
 }
 
 /**
@@ -64,6 +78,16 @@ export class StubChatRepository implements ChatRepository {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async appendMessage(_input: AppendMessageInput): Promise<ChatMessageRow> {
     throw new Error('ChatRepository.appendMessage is not implemented yet.');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async findMessageByIdForProject(_input: FindMessageInput): Promise<ChatMessageRow | null> {
+    throw new Error('ChatRepository.findMessageByIdForProject is not implemented yet.');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async updateMessageMetadata(_input: UpdateMessageMetadataInput): Promise<ChatMessageRow> {
+    throw new Error('ChatRepository.updateMessageMetadata is not implemented yet.');
   }
 }
 
@@ -139,6 +163,40 @@ export class SupabaseChatRepository implements ChatRepository {
         metadata: input.metadata ?? {},
         seq: input.seq ?? null,
       })
+      .select()
+      .single();
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    return data as ChatMessageRow;
+  }
+
+  async findMessageByIdForProject(input: FindMessageInput): Promise<ChatMessageRow | null> {
+    // Join through chat_threads to ensure the message belongs to the project
+    // in the requested workspace.
+    const { data, error } = await this.db
+      .from('chat_messages')
+      .select('*, chat_threads!inner(project_id, workspace_id)')
+      .eq('id', input.messageId)
+      .eq('chat_threads.project_id', input.projectId)
+      .eq('chat_threads.workspace_id', input.workspaceId)
+      .maybeSingle();
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    return data as ChatMessageRow | null;
+  }
+
+  async updateMessageMetadata(input: UpdateMessageMetadataInput): Promise<ChatMessageRow> {
+    const { data, error } = await this.db
+      .from('chat_messages')
+      .update({ metadata: input.metadata })
+      .eq('id', input.messageId)
+      .eq('workspace_id', input.workspaceId)
       .select()
       .single();
 

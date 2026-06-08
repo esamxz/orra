@@ -172,6 +172,10 @@ export class ChatService {
           approvalCard,
           sourceUserMessageId: message.id,
           intent,
+          approvalState: {
+            status: 'pending',
+            updatedAt: new Date().toISOString(),
+          },
         } as unknown as import('@orra/db').Json,
       });
 
@@ -254,5 +258,108 @@ export class ChatService {
       workspaceId: thread.workspace_id,
       createdAt: thread.created_at,
     };
+  }
+
+  /**
+   * Handle an approval action on an approval_summary message.
+   * Validates the message, applies the state transition, updates metadata,
+   * and returns the updated message. No generation jobs or credits move.
+   */
+  async handleApprovalAction(
+    ctx: ServiceContext,
+    projectId: string,
+    messageId: string,
+    input: { action: import('@orra/shared').ApprovalAction; value?: string }
+  ): Promise<MessageResponse> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    // Verify the project exists in this workspace.
+    const project = await this.projectRepo.findByIdForWorkspace({
+      id: projectId,
+      workspaceId,
+    });
+    if (!project) {
+      throw new ApiError('NOT_FOUND', 'Project not found.');
+    }
+
+    // Fetch the message scoped by workspace + project.
+    const messageRow = await this.chatRepo.findMessageByIdForProject({
+      workspaceId,
+      projectId,
+      messageId,
+    });
+    if (!messageRow) {
+      throw new ApiError('NOT_FOUND', 'Approval message not found.');
+    }
+
+    // Must be an assistant approval_summary message.
+    if (messageRow.role !== 'assistant' || messageRow.kind !== 'approval_summary') {
+      throw new ApiError('VALIDATION', 'Message is not an approval summary.');
+    }
+
+    const metadata = (messageRow.metadata ?? {}) as Record<string, unknown>;
+    const approvalCard = metadata.approvalCard as Record<string, unknown> | undefined;
+    if (!approvalCard) {
+      throw new ApiError('VALIDATION', 'Approval message metadata is malformed.');
+    }
+
+    // Determine current state. Back-compat: treat missing approvalState as pending.
+    const existingState = metadata.approvalState as Record<string, unknown> | undefined;
+    const currentStatus = (existingState?.status as string) ?? 'pending';
+
+    // Terminal states cannot be acted upon again.
+    if (currentStatus === 'approved' || currentStatus === 'cancelled') {
+      throw new ApiError('CONFLICT', `Approval is already ${currentStatus}.`);
+    }
+
+    const now = new Date().toISOString();
+    let newStatus: string = currentStatus;
+    const newMetadata: Record<string, unknown> = { ...metadata };
+
+    switch (input.action) {
+      case 'approve_and_create': {
+        newStatus = 'approved';
+        newMetadata.note = 'Generation will be wired in a later phase.';
+        break;
+      }
+      case 'cancel': {
+        newStatus = 'cancelled';
+        break;
+      }
+      case 'add_cta': {
+        newStatus = 'needs_cta';
+        if (input.value) {
+          const cardCopy = { ...approvalCard };
+          cardCopy.cta = input.value;
+          newMetadata.approvalCard = cardCopy;
+        }
+        break;
+      }
+      case 'edit_direction': {
+        newStatus = 'editing_direction';
+        if (input.value) {
+          newMetadata.editDirection = input.value;
+        }
+        break;
+      }
+      default: {
+        throw new ApiError('VALIDATION', `Unsupported action: ${input.action}`);
+      }
+    }
+
+    newMetadata.approvalState = {
+      status: newStatus,
+      selectedAction: input.action,
+      updatedAt: now,
+    };
+
+    const updatedRow = await this.chatRepo.updateMessageMetadata({
+      workspaceId,
+      messageId,
+      metadata: newMetadata as unknown as import('@orra/db').Json,
+    });
+
+    return mapMessageRow(updatedRow, projectId);
   }
 }

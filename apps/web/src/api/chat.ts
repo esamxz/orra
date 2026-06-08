@@ -4,6 +4,8 @@ import type {
   AppendProjectMessageInput,
   ListProjectMessagesParams,
   AppendProjectMessageResponse,
+  ApprovalActionInput,
+  ApprovalActionResponse,
 } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -29,4 +31,18 @@ export async function appendProjectMessage(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export async function submitApprovalAction(
+  projectId: string,
+  messageId: string,
+  input: ApprovalActionInput,
+): Promise<ApprovalActionResponse> {
+  return apiClient.request<ApprovalActionResponse>(
+    `/projects/${projectId}/messages/${messageId}/approval-action`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
 }

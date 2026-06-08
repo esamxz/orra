@@ -4,9 +4,10 @@ import { useTheme } from '../hooks/useTheme';
 import { usePersistedActionDispatch } from '../hooks/usePersistedActionDispatch';
 import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import { useProjectMessages } from '../hooks/useProjectMessages';
-import { appendProjectMessage } from '../api/chat';
+import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { ApiClientError } from '../api/errors';
-import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto } from '../api/types';
+import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto, ApprovalAction } from '../api/types';
+import type { ApprovalState } from '@orra/shared';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
 import { BRANDS } from '../data/cards';
@@ -74,12 +75,21 @@ interface UiMessage {
   text?: string;
   topic?: string;
   approvalCard?: ApprovalCardDto;
+  approvalState?: ApprovalState;
 }
 
 function mapApiMessageToUi(m: ChatMessageDto): UiMessage {
+  const meta =
+    m.metadata && typeof m.metadata === 'object'
+      ? (m.metadata as Record<string, unknown>)
+      : undefined;
   const card =
-    m.kind === 'approval_summary' && m.metadata && typeof m.metadata === 'object'
-      ? (m.metadata as Record<string, unknown>).approvalCard as ApprovalCardDto | undefined
+    m.kind === 'approval_summary' && meta
+      ? (meta.approvalCard as ApprovalCardDto | undefined)
+      : undefined;
+  const state =
+    m.kind === 'approval_summary' && meta
+      ? (meta.approvalState as ApprovalState | undefined)
       : undefined;
 
   return {
@@ -88,6 +98,7 @@ function mapApiMessageToUi(m: ChatMessageDto): UiMessage {
     type: m.kind === 'approval_summary' ? 'approval' : m.kind === 'job_ref' ? 'done' : 'text',
     text: m.content ?? '',
     approvalCard: card,
+    approvalState: state,
   };
 }
 
@@ -111,6 +122,7 @@ export default function WorkspacePage() {
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [sendError, setSendError] = useState<string | null>(null);
   const [realMessages, setRealMessages] = useState<UiMessage[]>([]);
+  const [actingMessageId, setActingMessageId] = useState<string | null>(null);
   const lastIntentRef = useRef<DirectorIntentResult | null>(null);
 
   const { theme, toggle: toggleTheme } = useTheme();
@@ -327,6 +339,30 @@ export default function WorkspacePage() {
           return [...copy, { id:mid(), role:'ai', type:'text', text:'Got it — tell me what you’d like to create and I’ll draft a plan. You can say something like "make a 5-card carousel about morning routines."' }];
         });
       }, 900);
+    }
+  };
+
+  /* ----- approval action handler (real project mode) ----- */
+  const handleApprovalAction = async (messageId: string, action: ApprovalAction, value?: string) => {
+    if (!projectId) return;
+    setActingMessageId(messageId);
+    try {
+      const res = await submitApprovalAction(projectId, messageId, { action, value });
+      setRealMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? mapApiMessageToUi(res.data) : m)),
+      );
+      flash(
+        action === 'approve_and_create'
+          ? 'Plan approved'
+          : action === 'cancel'
+            ? 'Plan cancelled'
+            : 'Plan updated',
+      );
+    } catch (err) {
+      const msg = err instanceof ApiClientError ? err.message : 'Action failed. Please try again.';
+      flash(msg);
+    } finally {
+      setActingMessageId(null);
     }
   };
 
@@ -672,6 +708,19 @@ export default function WorkspacePage() {
                 </div>
               );
               if (m.type==='approval') {
+                const status = m.approvalState?.status;
+                if (status === 'approved') {
+                  return (
+                    <div key={m.id} className="msg ai"><div className="av">{<Icon.sparkFill s={12} />}</div>
+                      <div className="bubble" style={{color:'var(--muted)',fontSize:13.5}}>Plan approved ✓</div></div>
+                  );
+                }
+                if (status === 'cancelled') {
+                  return (
+                    <div key={m.id} className="msg ai"><div className="av">{<Icon.sparkFill s={12} />}</div>
+                      <div className="bubble" style={{color:'var(--muted)',fontSize:13.5}}>Plan cancelled</div></div>
+                  );
+                }
                 const approvalSpecs = m.approvalCard ? {
                   lead: m.approvalCard.summaryLine,
                   style: m.approvalCard.style,
@@ -680,12 +729,17 @@ export default function WorkspacePage() {
                   cta: m.approvalCard.cta,
                 } : specs;
                 const isReal = !!m.approvalCard;
+                const isActing = actingMessageId === m.id;
                 return (
                   <div key={m.id} className="msg ai" style={{display:'block'}}>
-                    <ApprovalCard specs={approvalSpecs} ctaSet={isReal ? false : ctaSet}
-                      onApprove={()=> isReal ? flash('Approve action coming in a later phase') : approve(m.topic || '')}
-                      onAddCta={()=> isReal ? flash('Add CTA coming in a later phase') : (setCtaSet(true),flash('CTA added to plan'))}
-                      onEdit={()=> isReal ? flash('Edit direction coming in a later phase') : (taRef.current&&taRef.current.focus(), flash('Edit your direction below'))} />
+                    <ApprovalCard
+                      specs={approvalSpecs}
+                      ctaSet={isReal ? !!m.approvalCard?.cta : ctaSet}
+                      disabled={isActing}
+                      onApprove={() => isReal ? handleApprovalAction(m.id, 'approve_and_create') : approve(m.topic || '')}
+                      onAddCta={() => isReal ? handleApprovalAction(m.id, 'add_cta', 'Visit the link in bio') : (setCtaSet(true),flash('CTA added to plan'))}
+                      onEdit={() => isReal ? handleApprovalAction(m.id, 'edit_direction', 'Adjust direction') : (taRef.current&&taRef.current.focus(), flash('Edit your direction below'))}
+                    />
                   </div>
                 );
               }

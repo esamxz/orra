@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../env.js';
 import type { Context } from 'hono';
 import { ProjectIdParamSchema } from '../schemas/project.js';
-import { ListMessagesQuerySchema, AppendMessageBodySchema } from '../schemas/chat.js';
+import { ListMessagesQuerySchema, AppendMessageBodySchema, MessageIdParamSchema, ApprovalActionBodySchema } from '../schemas/chat.js';
 import { validateParam, validateQuery, validateJson } from '../middleware/validate.js';
 import { ChatService } from '../services/chatService.js';
 import { createServiceContext, getRepositories } from '../services/service-context.js';
@@ -73,6 +73,34 @@ chatRoutes.post(
     const service = new ChatService(repos.chat, repos.project);
     const result = await service.appendUserMessage(ctx, id, { content: body.content });
     return c.json({ ok: true, data: result }, 201);
+  }
+);
+
+// POST /v1/projects/:id/messages/:messageId/approval-action
+//
+// Handle an action on an approval_summary message. Transitions the approval
+// state without starting generation or moving credits.
+//
+// Actions:
+//   approve_and_create  -> status: approved
+//   cancel              -> status: cancelled
+//   add_cta             -> status: needs_cta (optionally updates CTA text)
+//   edit_direction      -> status: editing_direction (stores direction text)
+chatRoutes.post(
+  '/:id/messages/:messageId/approval-action',
+  validateParam(MessageIdParamSchema),
+  validateJson(ApprovalActionBodySchema),
+  async (c) => {
+    const { id, messageId } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const ctx = buildServiceContext(c);
+    const repos = getRepositories(ctx);
+    const service = new ChatService(repos.chat, repos.project);
+    const updatedMessage = await service.handleApprovalAction(ctx, id, messageId, {
+      action: body.action,
+      value: body.value,
+    });
+    return c.json({ ok: true, data: updatedMessage }, 200);
   }
 );
 

@@ -91,6 +91,25 @@ function createFakeChatRepository(
       messages.push(message);
       return message;
     },
+
+    async findMessageByIdForProject(input) {
+      const thread = threads.find(
+        (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+      );
+      if (!thread) return null;
+      return (
+        messages.find((m) => m.id === input.messageId && m.thread_id === thread.id) ?? null
+      );
+    },
+
+    async updateMessageMetadata(input) {
+      const idx = messages.findIndex(
+        (m) => m.id === input.messageId && m.workspace_id === input.workspaceId
+      );
+      if (idx === -1) throw new Error('Message not found');
+      messages[idx] = { ...messages[idx], metadata: input.metadata };
+      return messages[idx];
+    },
   };
 }
 

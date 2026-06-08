@@ -113,3 +113,19 @@ export interface AppendProjectMessageResponse {
   intent: DirectorIntentResult;
   approvalMessage?: ChatMessageDto;
 }
+
+// ---------------------------------------------------------------------------
+// Approval action types
+// ---------------------------------------------------------------------------
+
+export type ApprovalAction = 'approve_and_create' | 'cancel' | 'add_cta' | 'edit_direction';
+
+export interface ApprovalActionInput {
+  action: ApprovalAction;
+  value?: string;
+}
+
+export interface ApprovalActionResponse {
+  ok: true;
+  data: ChatMessageDto;
+}
