@@ -18,6 +18,15 @@ export interface AuthContext {
   authSource: AuthSource;
 }
 
+export interface ResolvedAuthContext {
+  isAuthenticated: true;
+  clerkUserId: string;
+  userId: string;
+  workspaceId: string;
+  role: UserRole;
+  authSource: AuthSource;
+}
+
 // ---------------------------------------------------------------------------
 // Dev auth fallback — only used when DEV_AUTH_ENABLED is true.
 // ---------------------------------------------------------------------------

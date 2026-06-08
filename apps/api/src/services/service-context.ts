@@ -1,10 +1,10 @@
 import type { Env } from '../env.js';
-import type { AuthContext } from '../auth/types.js';
+import type { AuthContext, ResolvedAuthContext } from '../auth/types.js';
 import type { DbClient } from '../db/client.js';
 import type { Repositories } from '../repositories/types.js';
 import { SupabaseUserRepository } from '../repositories/userRepository.js';
 import { SupabaseWorkspaceRepository } from '../repositories/workspaceRepository.js';
-import { StubProjectRepository } from '../repositories/projectRepository.js';
+import { SupabaseProjectRepository } from '../repositories/projectRepository.js';
 
 // ---------------------------------------------------------------------------
 // Service context
@@ -76,14 +76,14 @@ import { ApiError } from '../errors.js';
  * Throws FORBIDDEN when workspace is missing (protected routes must
  * have completed workspace bootstrap).
  */
-export function requireAuth(ctx: ServiceContext): AuthContext {
+export function requireAuth(ctx: ServiceContext): ResolvedAuthContext {
   if (!ctx.auth?.isAuthenticated) {
     throw new ApiError('UNAUTHENTICATED', 'Authentication required.');
   }
   if (!ctx.auth.workspaceId) {
     throw new ApiError('FORBIDDEN', 'Workspace context is missing.');
   }
-  return ctx.auth;
+  return ctx.auth as ResolvedAuthContext;
 }
 
 /**
@@ -121,7 +121,7 @@ export function getRepositories(ctx: ServiceContext): Repositories {
   const repos: Repositories = {
     user: new SupabaseUserRepository(db),
     workspace: new SupabaseWorkspaceRepository(db),
-    project: new StubProjectRepository(db),
+    project: new SupabaseProjectRepository(db),
   };
 
   ctx.repositories = repos;

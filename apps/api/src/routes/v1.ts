@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../env.js';
+import projectRoutes from './projects.js';
 
 // ---------------------------------------------------------------------------
 // V1 protected route mount point
@@ -8,7 +9,6 @@ import type { Env } from '../env.js';
 // to /v1/* before this router is reached.
 //
 // Future phases add:
-//   - projectRoutes
 //   - artifactRoutes
 //   - brandRoutes
 //   - assetRoutes
@@ -18,8 +18,10 @@ import type { Env } from '../env.js';
 
 const v1 = new Hono<{ Bindings: Env }>();
 
+// Project CRUD (Phase 8A)
+v1.route('/projects', projectRoutes);
+
 // Future route modules (commented placeholders)
-// v1.route('/projects', projectRoutes);
 // v1.route('/artifacts', artifactRoutes);
 // v1.route('/brand-systems', brandRoutes);
 // v1.route('/assets', assetRoutes);

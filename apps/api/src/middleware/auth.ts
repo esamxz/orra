@@ -90,6 +90,9 @@ export function createAuthMiddleware(
             authSource: 'clerk',
           };
           c.set('auth', authContext);
+          if (overrides?.repositories) {
+            c.set('repositories', overrides.repositories);
+          }
         } catch (err) {
           // If the DB is not configured, getRepositories throws INTERNAL.
           // Surface a safe message without leaking env details.
