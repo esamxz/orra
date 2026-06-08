@@ -106,3 +106,4 @@ frontend-design/*
 .playwright-mcp/*
 supabase/*
 system-design/*
+.agents/*
