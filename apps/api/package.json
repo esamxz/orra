@@ -4,11 +4,20 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "echo 'Not implemented in this phase'",
-    "build": "echo 'Not implemented in this phase'",
+    "dev": "wrangler dev",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests in this phase'"
+    "test": "vitest run"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "hono": "^4.12.23",
+    "zod": "^3.25.72"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260603.0",
+    "@hono/zod-validator": "^0.5.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.3",
+    "wrangler": "^4.98.0"
+  }
 }

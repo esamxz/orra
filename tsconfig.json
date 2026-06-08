@@ -16,5 +16,5 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "exclude": ["node_modules", "dist", "build", "apps/web"]
+  "exclude": ["node_modules", "dist", "build", "apps/web", "apps/api"]
 }
