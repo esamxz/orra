@@ -20,7 +20,7 @@ export const EnvSchema = z.object({
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   QUEUE_NAME: z.string().optional(),
-  ENVIRONMENT: z.enum(['development', 'staging', 'production']).default('development'),
+  ENVIRONMENT: z.enum(['development', 'test', 'staging', 'production']).default('development'),
   ALLOWED_ORIGINS: z.string().optional(), // comma-separated list
   DEV_AUTH_ENABLED: z.literal('true').optional(), // explicit opt-in for dev auth fallback
   DEV_GENERATION_QUEUE_DISABLED: z.literal('true').optional(), // explicit opt-in for local dev without queue

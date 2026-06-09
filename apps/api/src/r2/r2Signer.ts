@@ -1,14 +1,15 @@
 import { ApiError } from '../errors.js';
 import type { Env } from '../env.js';
+import { RealR2Signer } from './realR2Signer.js';
 
 // ---------------------------------------------------------------------------
 // R2 upload signer abstraction
 // ---------------------------------------------------------------------------
-// Phase 12A creates the interface and a fake signer for dev/test.
-// Production S3-compatible signing is planned for Phase 12B.
+// Phase 12A created the interface and a fake signer for dev/test.
+// Phase 12B added real AWS SigV4 presigned URL generation for production.
 //
 // The fake signer returns a clearly dev-only URL. It must not be used
-// in production.
+// in production or staging.
 
 export interface R2Signer {
   /**
@@ -53,18 +54,35 @@ export class FakeR2Signer implements R2Signer {
 /**
  * Factory: create the correct signer for the current environment.
  *
- * - development / staging → FakeR2Signer
- * - production → throws INTERNAL (real signer not yet implemented)
+ * - development / test → FakeR2Signer (safe for local development)
+ * - staging / production → RealR2Signer (requires R2 signing env)
  *
- * Phase 12B will add an S3-compatible signer for production.
+ * In staging and production, missing any required R2 signing env throws
+ * a safe INTERNAL configuration error. Never silently falls back to fake.
  */
 export function createR2Signer(env: Env): R2Signer {
-  if (env.ENVIRONMENT === 'development' || env.ENVIRONMENT === 'staging') {
+  if (env.ENVIRONMENT === 'development' || env.ENVIRONMENT === 'test') {
     return new FakeR2Signer();
   }
 
-  throw new ApiError(
-    'INTERNAL',
-    'R2 production signer is not configured. Phase 12A supports dev/test uploads only. Real S3-compatible signing will be added in Phase 12B.'
-  );
+  const accountId = env.R2_ACCOUNT_ID;
+  const bucketName = env.R2_BUCKET_NAME;
+  const accessKeyId = env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
+
+  if (!accountId || !bucketName || !accessKeyId || !secretAccessKey) {
+    const missing = [
+      !accountId && 'R2_ACCOUNT_ID',
+      !bucketName && 'R2_BUCKET_NAME',
+      !accessKeyId && 'R2_ACCESS_KEY_ID',
+      !secretAccessKey && 'R2_SECRET_ACCESS_KEY',
+    ].filter((m): m is string => Boolean(m));
+
+    throw new ApiError(
+      'INTERNAL',
+      `R2 signer configuration incomplete. Missing: ${missing.join(', ')}.`
+    );
+  }
+
+  return new RealR2Signer(accountId, bucketName, accessKeyId, secretAccessKey);
 }

@@ -2,6 +2,11 @@
   "name": "@orra/api",
   "main": "src/index.ts",
   "compatibility_date": "2025-11-11",
+  "vars": {
+    "ENVIRONMENT": "development",
+    "R2_ACCOUNT_ID": "<your-account-id>",
+    "R2_BUCKET_NAME": "orra-assets"
+  },
   "queues": {
     "producers": [
       {
@@ -17,3 +22,17 @@
     }
   ]
 }
+
+// Secrets (set via `wrangler secret put` — never commit real values):
+//   R2_ACCESS_KEY_ID     — R2 S3-compatible access key
+//   R2_SECRET_ACCESS_KEY — R2 S3-compatible secret key
+//
+// CORS required on the R2 bucket for browser uploads:
+//   Allowed methods: PUT
+//   Allowed headers: Content-Type
+//   Allowed origins: app domain and staging domain
+//
+// Upload flow:
+//   1. Client requests upload intent → server returns presigned PUT URL
+//   2. Client PUTs file bytes directly to the presigned URL
+//   3. Upload confirmation/status endpoint will be added in a future phase
