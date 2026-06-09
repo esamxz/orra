@@ -158,6 +158,19 @@ export interface AssetConfirmInput {
   expectedContentType?: string;
 }
 
+export interface AssetPreviewInfo {
+  method: 'GET';
+  url: string;
+  expiresAt: string;
+}
+
+export interface AssetPreviewUrlResponse {
+  asset: AssetDto;
+  preview: AssetPreviewInfo;
+}
+
+const PREVIEW_EXPIRY_SECONDS = 300; // 5 minutes
+
 export class AssetUploadService {
   constructor(
     private assetRepo: AssetRepository,
@@ -391,6 +404,128 @@ export class AssetUploadService {
     }
 
     return mapBrandAssetRowToDto(updated, extractFileNameFromR2Key(updated.r2_key));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Asset listing
+  // ---------------------------------------------------------------------------
+
+  async listProjectAssets(
+    ctx: ServiceContext,
+    projectId: string
+  ): Promise<AssetDto[]> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    // Verify project exists in workspace
+    const project = await this.projectRepo.findByIdForWorkspace({
+      id: projectId,
+      workspaceId,
+    });
+    if (!project) {
+      throw new ApiError('NOT_FOUND', 'Project not found.');
+    }
+
+    const rows = await this.assetRepo.listProjectAssets({ projectId, workspaceId });
+    return rows.map((row) => mapProjectAssetRowToDto(row, extractFileNameFromR2Key(row.r2_key)));
+  }
+
+  async listBrandAssets(
+    ctx: ServiceContext,
+    brandSystemId: string
+  ): Promise<AssetDto[]> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    // Verify brand system exists in workspace
+    const brand = await this.brandSystemRepo.findByIdForWorkspace({
+      id: brandSystemId,
+      workspaceId,
+    });
+    if (!brand) {
+      throw new ApiError('NOT_FOUND', 'Brand system not found.');
+    }
+
+    const rows = await this.assetRepo.listBrandAssets({ brandSystemId, workspaceId });
+    return rows.map((row) => mapBrandAssetRowToDto(row, extractFileNameFromR2Key(row.r2_key)));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Preview URL generation
+  // ---------------------------------------------------------------------------
+
+  async createProjectAssetPreviewUrl(
+    ctx: ServiceContext,
+    projectId: string,
+    assetId: string
+  ): Promise<AssetPreviewUrlResponse> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    const asset = await this.assetRepo.findProjectAssetForWorkspace({
+      id: assetId,
+      projectId,
+      workspaceId,
+    });
+
+    if (!asset) {
+      throw new ApiError('NOT_FOUND', 'Asset not found.');
+    }
+
+    if (asset.status !== 'uploaded') {
+      throw new ApiError(
+        'VALIDATION',
+        'Preview is only available for uploaded assets. Please confirm the upload first.'
+      );
+    }
+
+    const readUrl = await this.r2Signer.createReadUrl(asset.r2_key, PREVIEW_EXPIRY_SECONDS);
+
+    return {
+      asset: mapProjectAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key)),
+      preview: {
+        method: 'GET',
+        url: readUrl.url,
+        expiresAt: readUrl.expiresAt,
+      },
+    };
+  }
+
+  async createBrandAssetPreviewUrl(
+    ctx: ServiceContext,
+    brandSystemId: string,
+    assetId: string
+  ): Promise<AssetPreviewUrlResponse> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    const asset = await this.assetRepo.findBrandAssetForWorkspace({
+      id: assetId,
+      brandSystemId,
+      workspaceId,
+    });
+
+    if (!asset) {
+      throw new ApiError('NOT_FOUND', 'Asset not found.');
+    }
+
+    if (asset.status !== 'uploaded') {
+      throw new ApiError(
+        'VALIDATION',
+        'Preview is only available for uploaded assets. Please confirm the upload first.'
+      );
+    }
+
+    const readUrl = await this.r2Signer.createReadUrl(asset.r2_key, PREVIEW_EXPIRY_SECONDS);
+
+    return {
+      asset: mapBrandAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key)),
+      preview: {
+        method: 'GET',
+        url: readUrl.url,
+        expiresAt: readUrl.expiresAt,
+      },
+    };
   }
 }
 

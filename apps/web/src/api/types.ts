@@ -267,6 +267,15 @@ export interface UploadIntentResponse {
   };
 }
 
+export interface AssetPreviewUrlResponse {
+  asset: AssetDto;
+  preview: {
+    method: 'GET';
+    url: string;
+    expiresAt: string;
+  };
+}
+
 export interface ConfirmAssetUploadInput {
   expectedSizeBytes?: number;
   expectedContentType?: string;

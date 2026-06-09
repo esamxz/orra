@@ -28,6 +28,20 @@ export interface R2Signer {
     headers: Record<string, string>;
     expiresAt: string;
   }>;
+
+  /**
+   * Generate a short-lived signed GET URL for reading an object.
+   *
+   * @param key - The server-generated R2 object key.
+   * @param expiresInSeconds - How long the URL remains valid.
+   */
+  createReadUrl(
+    key: string,
+    expiresInSeconds: number
+  ): Promise<{
+    url: string;
+    expiresAt: string;
+  }>;
 }
 
 /**
@@ -46,6 +60,17 @@ export class FakeR2Signer implements R2Signer {
       headers: {
         'Content-Type': contentType,
       },
+      expiresAt,
+    };
+  }
+
+  async createReadUrl(
+    key: string,
+    expiresInSeconds: number
+  ): Promise<{ url: string; expiresAt: string }> {
+    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+    return {
+      url: `https://fake-r2.orra.local/read?key=${encodeURIComponent(key)}&expires=${encodeURIComponent(expiresAt)}`,
       expiresAt,
     };
   }

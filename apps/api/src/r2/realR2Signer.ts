@@ -172,4 +172,66 @@ export class RealR2Signer implements R2Signer {
       expiresAt,
     };
   }
+
+  async createReadUrl(
+    key: string,
+    expiresInSeconds: number
+  ): Promise<{ url: string; expiresAt: string }> {
+    const now = this.clock.now();
+    const timestamp = formatTimestamp(now);
+    const datestamp = formatDatestamp(now);
+    const host = `${this.accountId}.r2.cloudflarestorage.com`;
+
+    const credentialScope = `${datestamp}/${DEFAULT_REGION}/${DEFAULT_SERVICE}/aws4_request`;
+    const credential = `${this.accessKeyId}/${credentialScope}`;
+
+    const queryParams: Record<string, string> = {
+      'X-Amz-Algorithm': ALGORITHM,
+      'X-Amz-Content-SHA256': 'UNSIGNED-PAYLOAD',
+      'X-Amz-Credential': credential,
+      'X-Amz-Date': timestamp,
+      'X-Amz-Expires': String(expiresInSeconds),
+      'X-Amz-SignedHeaders': 'host',
+    };
+
+    const canonicalUri = `/${encodePath(this.bucketName)}/${encodePath(key)}`;
+    const canonicalQueryString = buildCanonicalQueryString(queryParams);
+
+    const canonicalHeaders = `host:${host}\n`;
+    const signedHeaders = 'host';
+
+    const canonicalRequest = [
+      'GET',
+      canonicalUri,
+      canonicalQueryString,
+      canonicalHeaders,
+      signedHeaders,
+      'UNSIGNED-PAYLOAD',
+    ].join('\n');
+
+    const stringToSign = [
+      ALGORITHM,
+      timestamp,
+      credentialScope,
+      await sha256Hex(canonicalRequest),
+    ].join('\n');
+
+    const signingKey = await getSignatureKey(
+      this.secretAccessKey,
+      datestamp,
+      DEFAULT_REGION,
+      DEFAULT_SERVICE
+    );
+
+    const signature = await hmacHex(signingKey, stringToSign);
+
+    const finalUrl = `https://${host}${canonicalUri}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+
+    const expiresAt = new Date(now.getTime() + expiresInSeconds * 1000).toISOString();
+
+    return {
+      url: finalUrl,
+      expiresAt,
+    };
+  }
 }

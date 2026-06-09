@@ -11,6 +11,7 @@ import {
   ProjectUploadIntentBodySchema,
   ProjectAssetConfirmParamSchema,
   AssetConfirmBodySchema,
+  ProjectAssetPreviewParamSchema,
 } from '../schemas/asset.js';
 import { validateJson, validateQuery, validateParam } from '../middleware/validate.js';
 import { ProjectService } from '../services/projectService.js';
@@ -130,6 +131,36 @@ projectRoutes.post(
       expectedSizeBytes: body.expectedSizeBytes,
       expectedContentType: body.expectedContentType,
     });
+    return c.json({ ok: true, data: result });
+  }
+);
+
+// GET /v1/projects/:id/assets — list project assets
+projectRoutes.get(
+  '/:id/assets',
+  validateParam(ProjectIdParamSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const ctx = buildServiceContext(c);
+    const repos = getRepositories(ctx);
+    const signer = createR2Signer(c.env);
+    const service = new AssetUploadService(repos.asset, repos.project, repos.brandSystem, signer);
+    const assets = await service.listProjectAssets(ctx, id);
+    return c.json({ ok: true, data: assets });
+  }
+);
+
+// GET /v1/projects/:projectId/assets/:assetId/preview-url — get a short-lived read URL for an uploaded asset
+projectRoutes.get(
+  '/:projectId/assets/:assetId/preview-url',
+  validateParam(ProjectAssetPreviewParamSchema),
+  async (c) => {
+    const { projectId, assetId } = c.req.valid('param');
+    const ctx = buildServiceContext(c);
+    const repos = getRepositories(ctx);
+    const signer = createR2Signer(c.env);
+    const service = new AssetUploadService(repos.asset, repos.project, repos.brandSystem, signer);
+    const result = await service.createProjectAssetPreviewUrl(ctx, projectId, assetId);
     return c.json({ ok: true, data: result });
   }
 );

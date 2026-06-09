@@ -89,3 +89,13 @@ export const ProjectIdParamSchema = z.object({
 export const BrandSystemIdParamSchema = z.object({
   id: z.string().uuid(),
 });
+
+export const ProjectAssetPreviewParamSchema = z.object({
+  projectId: z.string().uuid(),
+  assetId: z.string().uuid(),
+});
+
+export const BrandAssetPreviewParamSchema = z.object({
+  brandSystemId: z.string().uuid(),
+  assetId: z.string().uuid(),
+});

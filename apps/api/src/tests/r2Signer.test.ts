@@ -28,6 +28,16 @@ describe('FakeR2Signer', () => {
     expect(expires).toBeGreaterThanOrEqual(before + 119_000);
     expect(expires).toBeLessThanOrEqual(after + 121_000);
   });
+
+  it('returns a fake read URL with key and expiry', async () => {
+    const signer = new FakeR2Signer();
+    const result = await signer.createReadUrl('my/key.png', 300);
+
+    expect(result.url).toContain('fake-r2.orra.local');
+    expect(result.url).toContain('read?');
+    expect(result.url).toContain(encodeURIComponent('my/key.png'));
+    expect(result.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -156,6 +166,40 @@ describe('RealR2Signer', () => {
     const result = await signer.createUploadUrl('k', 'image/png', 300);
 
     expect(result.url).not.toContain('fake-r2.orra.local');
+  });
+
+  it('returns a real R2 presigned GET URL', async () => {
+    const fixedDate = new Date('2026-01-01T00:00:00Z');
+    const signer = createSigner({ now: () => fixedDate });
+    const result = await signer.createReadUrl('workspace/ws-1/key.png', 300);
+
+    expect(result.url).toMatch(/^https:\/\/test-account\.r2\.cloudflarestorage\.com\//);
+    expect(result.url).toContain('/orra-assets/');
+    expect(result.url).toContain('workspace/ws-1/key.png');
+  });
+
+  it('read URL includes all required X-Amz query parameters', async () => {
+    const fixedDate = new Date('2026-01-01T00:00:00Z');
+    const signer = createSigner({ now: () => fixedDate });
+    const result = await signer.createReadUrl('k', 300);
+
+    const url = new URL(result.url);
+    expect(url.searchParams.get('X-Amz-Algorithm')).toBe('AWS4-HMAC-SHA256');
+    expect(url.searchParams.get('X-Amz-Credential')).toBeTruthy();
+    expect(url.searchParams.get('X-Amz-Date')).toBeTruthy();
+    expect(url.searchParams.get('X-Amz-Expires')).toBe('300');
+    expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe('host');
+    expect(url.searchParams.get('X-Amz-Signature')).toBeTruthy();
+    expect(url.searchParams.get('X-Amz-Content-SHA256')).toBe('UNSIGNED-PAYLOAD');
+  });
+
+  it('read URL does not expose secret key', async () => {
+    const fixedDate = new Date('2026-01-01T00:00:00Z');
+    const signer = createSigner({ now: () => fixedDate });
+    const result = await signer.createReadUrl('k', 300);
+
+    expect(result.url).not.toContain('testsecretkey');
+    expect(result.url).not.toContain('secretkey');
   });
 });
 

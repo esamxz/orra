@@ -1067,3 +1067,581 @@ describe('POST /v1/brand-systems/:brandSystemId/assets/:assetId/confirm', () => 
     expect(data.status).toBe('uploaded');
   });
 });
+
+// ---------------------------------------------------------------------------
+// GET /v1/projects/:id/assets
+// ---------------------------------------------------------------------------
+
+describe('GET /v1/projects/:id/assets', () => {
+  it('lists project assets for the authenticated workspace', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    // Seed two assets directly
+    await repos.asset.createProjectAsset({
+      workspaceId: 'ws-fake-1',
+      projectId: '11111111-1111-1111-1111-111111111111',
+      kind: 'upload',
+      r2Key: 'workspace/ws-fake-1/projects/11111111-1111-1111-1111-111111111111/assets/a1/hero.png',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+    await repos.asset.createProjectAsset({
+      workspaceId: 'ws-fake-1',
+      projectId: '11111111-1111-1111-1111-111111111111',
+      kind: 'reference',
+      r2Key: 'workspace/ws-fake-1/projects/11111111-1111-1111-1111-111111111111/assets/a2/ref.jpg',
+      contentType: 'image/jpeg',
+      sizeBytes: 2048,
+    });
+
+    const app = buildProjectApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as Array<{ kind: string; fileName: string; status: string }>;
+    expect(data).toHaveLength(2);
+    expect(data[0].kind).toBe('upload');
+    expect(data[1].kind).toBe('reference');
+  });
+
+  it('requires authentication', async () => {
+    const app = buildProjectApp();
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets',
+      { method: 'GET' },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('UNAUTHENTICATED');
+  });
+
+  it('returns NOT_FOUND for project in another workspace', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildProjectApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('NOT_FOUND');
+  });
+
+  it('does not include assets from other projects', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+      {
+        id: '22222222-2222-2222-2222-222222222222',
+        workspace_id: 'ws-fake-1',
+        name: 'Project Two',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    await repos.asset.createProjectAsset({
+      workspaceId: 'ws-fake-1',
+      projectId: '11111111-1111-1111-1111-111111111111',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+    await repos.asset.createProjectAsset({
+      workspaceId: 'ws-fake-1',
+      projectId: '22222222-2222-2222-2222-222222222222',
+      kind: 'upload',
+      r2Key: 'key-2',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const app = buildProjectApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as Array<{ r2Key: string }>;
+    expect(data).toHaveLength(1);
+    expect(data[0].r2Key).toBe('key-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/projects/:projectId/assets/:assetId/preview-url
+// ---------------------------------------------------------------------------
+
+describe('GET /v1/projects/:projectId/assets/:assetId/preview-url', () => {
+  it('returns a preview URL for an uploaded project asset', async () => {
+    getFakeR2ObjectInspector().clear();
+
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildProjectApp(repos);
+
+    // Create upload intent
+    const intentRes = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets/upload-intent',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: 'hero.png',
+          contentType: 'image/png',
+          sizeBytes: 1024,
+          kind: 'upload',
+        }),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    const intentJson = (await intentRes.json()) as ApiResponse;
+    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
+    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+
+    // Register in fake R2 and confirm
+    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 1024, contentType: 'image/png' });
+
+    const confirmRes = await app.request(
+      `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(confirmRes.status).toBe(200);
+
+    // Request preview URL
+    const previewRes = await app.request(
+      `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${assetId}/preview-url`,
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(previewRes.status).toBe(200);
+    const previewJson = (await previewRes.json()) as ApiResponse;
+    expect(previewJson.ok).toBe(true);
+
+    const data = previewJson.data as {
+      asset: { id: string; status: string };
+      preview: { method: string; url: string; expiresAt: string };
+    };
+    expect(data.asset.id).toBe(assetId);
+    expect(data.asset.status).toBe('uploaded');
+    expect(data.preview.method).toBe('GET');
+    expect(data.preview.url).toContain('fake-r2.orra.local');
+    expect(data.preview.url).toContain('read?');
+    expect(data.preview.expiresAt).toBeTruthy();
+  });
+
+  it('denies preview URL for pending_upload asset', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    // Seed a pending asset directly
+    const asset = await repos.asset.createProjectAsset({
+      workspaceId: 'ws-fake-1',
+      projectId: '11111111-1111-1111-1111-111111111111',
+      kind: 'upload',
+      r2Key: 'key-pending',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const app = buildProjectApp(repos);
+    const res = await app.request(
+      `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${asset.id}/preview-url`,
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+    expect(json.error!.message).toContain('uploaded');
+  });
+
+  it('returns NOT_FOUND for cross-workspace asset preview', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const asset = await repos.asset.createProjectAsset({
+      workspaceId: 'ws-other',
+      projectId: '11111111-1111-1111-1111-111111111111',
+      kind: 'upload',
+      r2Key: 'key-other',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    // Mark as uploaded directly via repo
+    await repos.asset.markProjectAssetUploaded({
+      id: asset.id,
+      projectId: '11111111-1111-1111-1111-111111111111',
+      workspaceId: 'ws-other',
+      sizeBytes: 1024,
+      contentType: 'image/png',
+    });
+
+    const app = buildProjectApp(repos);
+    const res = await app.request(
+      `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${asset.id}/preview-url`,
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('NOT_FOUND');
+  });
+
+  it('requires authentication', async () => {
+    const app = buildProjectApp();
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets/00000000-0000-0000-0000-000000000001/preview-url',
+      { method: 'GET' },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('UNAUTHENTICATED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/brand-systems/:id/assets
+// ---------------------------------------------------------------------------
+
+describe('GET /v1/brand-systems/:id/assets', () => {
+  it('lists brand assets for the authenticated workspace', async () => {
+    const repos = createFakeRepositories([], [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Brand One',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    await repos.asset.createBrandAsset({
+      workspaceId: 'ws-fake-1',
+      brandSystemId: '11111111-1111-1111-1111-111111111111',
+      kind: 'logo',
+      r2Key: 'key-logo',
+      contentType: 'image/png',
+      sizeBytes: 2048,
+    });
+
+    const app = buildBrandApp(repos);
+    const res = await app.request(
+      '/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as Array<{ kind: string; fileName: string }>;
+    expect(data).toHaveLength(1);
+    expect(data[0].kind).toBe('logo');
+  });
+
+  it('returns NOT_FOUND for brand in another workspace', async () => {
+    const repos = createFakeRepositories([], [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Brand One',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildBrandApp(repos);
+    const res = await app.request(
+      '/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/brand-systems/:brandSystemId/assets/:assetId/preview-url
+// ---------------------------------------------------------------------------
+
+describe('GET /v1/brand-systems/:brandSystemId/assets/:assetId/preview-url', () => {
+  it('returns a preview URL for an uploaded brand asset', async () => {
+    getFakeR2ObjectInspector().clear();
+
+    const repos = createFakeRepositories([], [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Brand One',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildBrandApp(repos);
+
+    const intentRes = await app.request(
+      '/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/upload-intent',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: 'logo.png',
+          contentType: 'image/png',
+          sizeBytes: 2048,
+          kind: 'logo',
+        }),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    const intentJson = (await intentRes.json()) as ApiResponse;
+    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
+    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+
+    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 2048, contentType: 'image/png' });
+
+    await app.request(
+      `/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    const previewRes = await app.request(
+      `/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/${assetId}/preview-url`,
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(previewRes.status).toBe(200);
+    const previewJson = (await previewRes.json()) as ApiResponse;
+    expect(previewJson.ok).toBe(true);
+
+    const data = previewJson.data as {
+      asset: { id: string; status: string };
+      preview: { method: string; url: string };
+    };
+    expect(data.asset.status).toBe('uploaded');
+    expect(data.preview.method).toBe('GET');
+    expect(data.preview.url).toContain('fake-r2.orra.local');
+  });
+
+  it('denies preview URL for pending_upload brand asset', async () => {
+    const repos = createFakeRepositories([], [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Brand One',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const asset = await repos.asset.createBrandAsset({
+      workspaceId: 'ws-fake-1',
+      brandSystemId: '11111111-1111-1111-1111-111111111111',
+      kind: 'logo',
+      r2Key: 'key-pending',
+      contentType: 'image/png',
+      sizeBytes: 2048,
+    });
+
+    const app = buildBrandApp(repos);
+    const res = await app.request(
+      `/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/${asset.id}/preview-url`,
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer test_valid' },
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+    expect(json.error!.message).toContain('uploaded');
+  });
+});

@@ -8,6 +8,7 @@ import { useGenerationJobPolling } from '../hooks/useGenerationJobPolling';
 import { useCreditStatus } from '../hooks/useCreditStatus';
 import { useBrandSystems } from '../hooks/useBrandSystems';
 import { useAssetUpload } from '../hooks/useAssetUpload';
+import { useProjectAssets } from '../hooks/useProjectAssets';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { updateProject } from '../api/projects';
@@ -134,6 +135,15 @@ export default function WorkspacePage() {
 
   const projectAssetUpload = useAssetUpload();
   const projectAssetInputRef = useRef<HTMLInputElement>(null);
+
+  const projectAssets = useProjectAssets(projectId ?? undefined);
+
+  // Reload asset list after a successful upload
+  useEffect(() => {
+    if (projectAssetUpload.asset) {
+      projectAssets.reload();
+    }
+  }, [projectAssetUpload.asset]);
 
   const { theme, toggle: toggleTheme } = useTheme();
   const [toast, setToast] = useState<string | null>(null);
@@ -971,6 +981,52 @@ export default function WorkspacePage() {
               );
             })}
           </div>
+
+          {/* Project assets strip — minimal preview list */}
+          {projectId && projectAssets.assets.length > 0 && (
+            <div style={{ padding: '8px 12px', borderTop: '1px solid var(--line-soft)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Project assets
+              </div>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
+                {projectAssets.assets.map((asset) => (
+                  <div key={asset.id} style={{ flex: 'none', width: 56, textAlign: 'center' }}>
+                    {projectAssets.previewUrls[asset.id] ? (
+                      <img
+                        src={projectAssets.previewUrls[asset.id]}
+                        alt={asset.fileName}
+                        style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'cover', display: 'block' }}
+                      />
+                    ) : (
+                      <button
+                        className="btn-icon"
+                        style={{
+                          width: 56,
+                          height: 56,
+                          borderRadius: 6,
+                          background: 'var(--inset)',
+                          color: 'var(--muted)',
+                          fontSize: 10,
+                          cursor: asset.status === 'uploaded' ? 'pointer' : 'default',
+                        }}
+                        onClick={() => {
+                          if (asset.status === 'uploaded') {
+                            projectAssets.getPreviewUrl(asset.id);
+                          }
+                        }}
+                        title={asset.status === 'uploaded' ? 'Load preview' : 'Upload pending'}
+                      >
+                        {asset.status === 'uploaded' ? 'IMG' : '…'}
+                      </button>
+                    )}
+                    <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 56 }}>
+                      {asset.fileName}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="composer">
             {displayMessages.length===0 && (

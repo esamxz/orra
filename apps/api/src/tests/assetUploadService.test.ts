@@ -93,11 +93,15 @@ function createFakeAssetRepository(): AssetRepository {
       brandAssets.push(asset);
       return asset;
     },
-    async listProjectAssets() {
-      return [];
+    async listProjectAssets(input) {
+      return projectAssets.filter(
+        (a) => a.project_id === input.projectId && a.workspace_id === input.workspaceId
+      );
     },
-    async listBrandAssets() {
-      return [];
+    async listBrandAssets(input) {
+      return brandAssets.filter(
+        (a) => a.brand_system_id === input.brandSystemId && a.workspace_id === input.workspaceId
+      );
     },
     async findProjectAssetForWorkspace(input) {
       return (
@@ -710,5 +714,402 @@ describe('AssetUploadService', () => {
     await expect(
       service.confirmProjectAssetUpload(ctx, 'proj-1', intent.asset.id, {})
     ).rejects.toThrow('Asset not found');
+  });
+
+  // ---------------------------------------------------------------------------
+  // List assets
+  // ---------------------------------------------------------------------------
+
+  it('listProjectAssets returns workspace-scoped assets', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Test',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const brandRepo = createFakeBrandSystemRepository();
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    await assetRepo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+    await assetRepo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'reference',
+      r2Key: 'key-2',
+      contentType: 'image/jpeg',
+      sizeBytes: 2048,
+    });
+
+    const result = await service.listProjectAssets(ctx, 'proj-1');
+    expect(result).toHaveLength(2);
+    expect(result.map((a) => a.kind)).toEqual(['upload', 'reference']);
+  });
+
+  it('listProjectAssets rejects cross-workspace project', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-other',
+        name: 'Test',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const brandRepo = createFakeBrandSystemRepository();
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(service.listProjectAssets(ctx, 'proj-1')).rejects.toThrow(ApiError);
+    await expect(service.listProjectAssets(ctx, 'proj-1')).rejects.toThrow('Project not found');
+  });
+
+  it('listBrandAssets returns workspace-scoped assets', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository();
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: 'brand-1',
+        workspace_id: 'ws-1',
+        name: 'Test Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    await assetRepo.createBrandAsset({
+      workspaceId: 'ws-1',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-logo',
+      contentType: 'image/png',
+      sizeBytes: 2048,
+    });
+
+    const result = await service.listBrandAssets(ctx, 'brand-1');
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe('logo');
+  });
+
+  it('listBrandAssets rejects cross-workspace brand', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository();
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: 'brand-1',
+        workspace_id: 'ws-other',
+        name: 'Test Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(service.listBrandAssets(ctx, 'brand-1')).rejects.toThrow(ApiError);
+    await expect(service.listBrandAssets(ctx, 'brand-1')).rejects.toThrow('Brand system not found');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Preview URLs
+  // ---------------------------------------------------------------------------
+
+  it('createProjectAssetPreviewUrl returns GET url for uploaded asset', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Test',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const brandRepo = createFakeBrandSystemRepository();
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    const asset = await assetRepo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+    await assetRepo.markProjectAssetUploaded({
+      id: asset.id,
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      sizeBytes: 1024,
+      contentType: 'image/png',
+    });
+
+    const result = await service.createProjectAssetPreviewUrl(ctx, 'proj-1', asset.id);
+    expect(result.asset.id).toBe(asset.id);
+    expect(result.preview.method).toBe('GET');
+    expect(result.preview.url).toContain('fake-r2.orra.local');
+    expect(result.preview.url).toContain('read?');
+    expect(result.preview.expiresAt).toBeTruthy();
+  });
+
+  it('createProjectAssetPreviewUrl rejects cross-workspace asset', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-other',
+        name: 'Test',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const brandRepo = createFakeBrandSystemRepository();
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    const asset = await assetRepo.createProjectAsset({
+      workspaceId: 'ws-other',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+    await assetRepo.markProjectAssetUploaded({
+      id: asset.id,
+      projectId: 'proj-1',
+      workspaceId: 'ws-other',
+      sizeBytes: 1024,
+      contentType: 'image/png',
+    });
+
+    await expect(
+      service.createProjectAssetPreviewUrl(ctx, 'proj-1', asset.id)
+    ).rejects.toThrow(ApiError);
+    await expect(
+      service.createProjectAssetPreviewUrl(ctx, 'proj-1', asset.id)
+    ).rejects.toThrow('Asset not found');
+  });
+
+  it('createProjectAssetPreviewUrl rejects pending_upload asset', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Test',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const brandRepo = createFakeBrandSystemRepository();
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    const asset = await assetRepo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+    // Leave as pending_upload
+
+    await expect(
+      service.createProjectAssetPreviewUrl(ctx, 'proj-1', asset.id)
+    ).rejects.toThrow(ApiError);
+    await expect(
+      service.createProjectAssetPreviewUrl(ctx, 'proj-1', asset.id)
+    ).rejects.toThrow('uploaded');
+  });
+
+  it('createBrandAssetPreviewUrl returns GET url for uploaded asset', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository();
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: 'brand-1',
+        workspace_id: 'ws-1',
+        name: 'Test Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    const asset = await assetRepo.createBrandAsset({
+      workspaceId: 'ws-1',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-logo',
+      contentType: 'image/png',
+      sizeBytes: 2048,
+    });
+    await assetRepo.markBrandAssetUploaded({
+      id: asset.id,
+      brandSystemId: 'brand-1',
+      workspaceId: 'ws-1',
+      sizeBytes: 2048,
+      contentType: 'image/png',
+    });
+
+    const result = await service.createBrandAssetPreviewUrl(ctx, 'brand-1', asset.id);
+    expect(result.asset.id).toBe(asset.id);
+    expect(result.preview.method).toBe('GET');
+    expect(result.preview.url).toContain('fake-r2.orra.local');
+  });
+
+  it('createBrandAssetPreviewUrl rejects cross-workspace asset', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository();
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: 'brand-1',
+        workspace_id: 'ws-other',
+        name: 'Test Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    const asset = await assetRepo.createBrandAsset({
+      workspaceId: 'ws-other',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-logo',
+      contentType: 'image/png',
+      sizeBytes: 2048,
+    });
+    await assetRepo.markBrandAssetUploaded({
+      id: asset.id,
+      brandSystemId: 'brand-1',
+      workspaceId: 'ws-other',
+      sizeBytes: 2048,
+      contentType: 'image/png',
+    });
+
+    await expect(
+      service.createBrandAssetPreviewUrl(ctx, 'brand-1', asset.id)
+    ).rejects.toThrow(ApiError);
+    await expect(
+      service.createBrandAssetPreviewUrl(ctx, 'brand-1', asset.id)
+    ).rejects.toThrow('Asset not found');
+  });
+
+  it('createBrandAssetPreviewUrl rejects pending_upload asset', async () => {
+    const assetRepo = createFakeAssetRepository();
+    const projectRepo = createFakeProjectRepository();
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: 'brand-1',
+        workspace_id: 'ws-1',
+        name: 'Test Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const signer = new FakeR2Signer();
+    const service = new AssetUploadService(assetRepo, projectRepo, brandRepo, signer);
+    const ctx = fakeAuthContext('ws-1');
+
+    const asset = await assetRepo.createBrandAsset({
+      workspaceId: 'ws-1',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-logo',
+      contentType: 'image/png',
+      sizeBytes: 2048,
+    });
+    // Leave as pending_upload
+
+    await expect(
+      service.createBrandAssetPreviewUrl(ctx, 'brand-1', asset.id)
+    ).rejects.toThrow(ApiError);
+    await expect(
+      service.createBrandAssetPreviewUrl(ctx, 'brand-1', asset.id)
+    ).rejects.toThrow('uploaded');
   });
 });

@@ -1,6 +1,7 @@
 import { apiClient } from './client.js';
 import type {
   AssetDto,
+  AssetPreviewUrlResponse,
   UploadIntentInput,
   UploadIntentResponse,
   ConfirmAssetUploadInput,
@@ -51,4 +52,36 @@ export async function confirmBrandAssetUpload(
     method: 'POST',
     body: JSON.stringify(input ?? {}),
   });
+}
+
+export async function listProjectAssets(projectId: string): Promise<AssetDto[]> {
+  return apiClient.request<AssetDto[]>(`/projects/${projectId}/assets`, {
+    method: 'GET',
+  });
+}
+
+export async function listBrandAssets(brandSystemId: string): Promise<AssetDto[]> {
+  return apiClient.request<AssetDto[]>(`/brand-systems/${brandSystemId}/assets`, {
+    method: 'GET',
+  });
+}
+
+export async function getProjectAssetPreviewUrl(
+  projectId: string,
+  assetId: string,
+): Promise<AssetPreviewUrlResponse> {
+  return apiClient.request<AssetPreviewUrlResponse>(
+    `/projects/${projectId}/assets/${assetId}/preview-url`,
+    { method: 'GET' },
+  );
+}
+
+export async function getBrandAssetPreviewUrl(
+  brandSystemId: string,
+  assetId: string,
+): Promise<AssetPreviewUrlResponse> {
+  return apiClient.request<AssetPreviewUrlResponse>(
+    `/brand-systems/${brandSystemId}/assets/${assetId}/preview-url`,
+    { method: 'GET' },
+  );
 }
