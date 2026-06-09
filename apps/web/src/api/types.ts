@@ -143,6 +143,8 @@ export interface GenerationJobDto {
   status: GenerationJobStatus;
   kind: GenerationJobKind;
   resultVersionId: string | null;
+  reservedCredits: number;
+  capturedCredits: number;
   error: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;

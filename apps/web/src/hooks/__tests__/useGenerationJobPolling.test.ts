@@ -26,6 +26,8 @@ describe('useGenerationJobPolling', () => {
     status: 'queued',
     kind: 'full_generate',
     resultVersionId: null,
+    reservedCredits: 10,
+    capturedCredits: 0,
     error: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',

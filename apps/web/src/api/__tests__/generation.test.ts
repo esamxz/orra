@@ -85,4 +85,13 @@ describe('generation API', () => {
 
     await expect(getGenerationJob('job-1')).rejects.toBeInstanceOf(ApiClientError);
   });
+
+  it('maps INSUFFICIENT_CREDITS ApiClientError', async () => {
+    vi.mocked(clientModule.apiClient.request).mockRejectedValue(
+      new ApiClientError('INSUFFICIENT_CREDITS', 'Not enough credits for this generation.'),
+    );
+
+    await expect(createGenerationJob({ projectId: 'proj-1', approvalMessageId: 'msg-1' })).rejects.toBeInstanceOf(ApiClientError);
+    await expect(createGenerationJob({ projectId: 'proj-1', approvalMessageId: 'msg-1' })).rejects.toThrow('Not enough credits');
+  });
 });

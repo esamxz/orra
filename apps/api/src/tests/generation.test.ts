@@ -7,7 +7,8 @@ import { errorHandler } from '../middleware/error-handler.js';
 import { createFakeVerifier } from '../auth/verifier.js';
 import generationRoutes from '../routes/generation.js';
 import type { Repositories } from '../repositories/types.js';
-import type { ProjectRow, ChatThreadRow, ChatMessageRow, GenerationJobRow } from '@orra/db';
+import type { ProjectRow, ChatThreadRow, ChatMessageRow, GenerationJobRow, CreditBalanceRow } from '@orra/db';
+import type { CreditRepository, GrantCreditsInput, ReserveCreditsInput, CaptureCreditsInput, RefundCreditsInput } from '../repositories/creditRepository.js';
 import type { CreateProjectInput, FindProjectInput, UpdateProjectInput, DeleteProjectInput } from '../repositories/projectRepository.js';
 
 const fakeVerifier = createFakeVerifier();
@@ -36,6 +37,17 @@ function createFakeRepositories(
   let nextThreadId = 1;
   let nextMessageId = 1;
   let nextJobId = 1;
+  let nextLedgerId = 1;
+
+  const creditBalances: CreditBalanceRow[] = [
+    {
+      workspace_id: 'ws-fake-1',
+      subscription_available: 100,
+      topup_available: 0,
+      reserved: 0,
+      updated_at: '2026-01-01T00:00:00Z',
+    },
+  ];
 
   return {
     user: {
@@ -263,6 +275,63 @@ function createFakeRepositories(
         return job;
       },
     },
+    credit: {
+      async getBalanceForWorkspace(workspaceId: string) {
+        return creditBalances.find((b) => b.workspace_id === workspaceId) ?? null;
+      },
+      async listLedgerForWorkspace() {
+        return [];
+      },
+      async grantCredits(input: GrantCreditsInput) {
+        let bal = creditBalances.find((b) => b.workspace_id === input.workspaceId);
+        if (!bal) {
+          bal = {
+            workspace_id: input.workspaceId,
+            subscription_available: 0,
+            topup_available: 0,
+            reserved: 0,
+            updated_at: new Date().toISOString(),
+          };
+          creditBalances.push(bal);
+        }
+        if (input.bucket === 'subscription') {
+          bal.subscription_available += input.amount;
+        } else {
+          bal.topup_available += input.amount;
+        }
+        bal.updated_at = new Date().toISOString();
+        return { ledgerId: `grant-${nextLedgerId++}` };
+      },
+      async reserveCredits(input: ReserveCreditsInput) {
+        const bal = creditBalances.find((b) => b.workspace_id === input.workspaceId);
+        const available = (bal?.subscription_available ?? 0) + (bal?.topup_available ?? 0);
+        if (!bal || available < input.amount) {
+          throw new Error('Insufficient credits');
+        }
+        bal.reserved += input.amount;
+        bal.subscription_available -= input.amount;
+        bal.updated_at = new Date().toISOString();
+        return { reservedAmount: input.amount };
+      },
+      async captureCredits(input: CaptureCreditsInput) {
+        const bal = creditBalances.find((b) => b.workspace_id === input.workspaceId);
+        if (bal) {
+          bal.reserved = Math.max(0, bal.reserved - input.actualAmount);
+          bal.updated_at = new Date().toISOString();
+        }
+        return { captured: input.actualAmount, refunded: 0 };
+      },
+      async refundCredits(input: RefundCreditsInput) {
+        const bal = creditBalances.find((b) => b.workspace_id === input.workspaceId);
+        if (bal) {
+          const totalReserved = bal.reserved;
+          bal.subscription_available += totalReserved;
+          bal.reserved = 0;
+          bal.updated_at = new Date().toISOString();
+        }
+        return { refunded: 0 };
+      },
+    } as unknown as CreditRepository,
   } as unknown as Repositories;
 }
 
@@ -377,11 +446,45 @@ describe('POST /v1/generate', () => {
     expect(res.status).toBe(201);
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(true);
-    const data = json.data as { id: string; status: string; kind: string; projectId: string };
+    const data = json.data as { id: string; status: string; kind: string; projectId: string; reservedCredits: number; capturedCredits: number };
     expect(data.status).toBe('queued');
     expect(data.kind).toBe('full_generate');
     expect(data.projectId).toBe('11111111-1111-1111-1111-111111111111');
     expect(data.id).toBeTruthy();
+    expect(data.reservedCredits).toBe(10);
+    expect(data.capturedCredits).toBe(0);
+  });
+
+  it('returns INSUFFICIENT_CREDITS when balance too low', async () => {
+    const { app, repos } = await setupWithApprovedMessage();
+    repos.credit = {
+      async getBalanceForWorkspace() { return null; },
+      async listLedgerForWorkspace() { return []; },
+      async grantCredits() { return { ledgerId: 'x' }; },
+      async reserveCredits() { throw new Error('Insufficient credits'); },
+      async captureCredits() { return { captured: 0, refunded: 0 }; },
+      async refundCredits() { return { refunded: 0 }; },
+    } as unknown as CreditRepository;
+    const res = await app.request(
+      '/v1/generate',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: '11111111-1111-1111-1111-111111111111',
+          approvalMessageId: '22222222-2222-2222-2222-222222222222',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(402);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('INSUFFICIENT_CREDITS');
   });
 
   it('rejects invalid body', async () => {

@@ -4,6 +4,7 @@ import type { Context } from 'hono';
 import { CreateGenerationJobBodySchema, JobIdParamSchema } from '../schemas/generation.js';
 import { validateParam, validateJson } from '../middleware/validate.js';
 import { GenerationService } from '../services/generationService.js';
+import { CreditService } from '../services/creditService.js';
 import { createServiceContext, getRepositories } from '../services/service-context.js';
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
@@ -39,10 +40,12 @@ generationRoutes.post(
     const body = c.req.valid('json');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
+    const creditService = new CreditService(repos.credit);
     const service = new GenerationService(
       repos.generationJob,
       repos.chat,
       repos.project,
+      creditService,
       c.env
     );
     const job = await service.createStubGenerationJob(ctx, {
@@ -64,10 +67,12 @@ generationRoutes.get(
     const { id } = c.req.valid('param');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
+    const creditService = new CreditService(repos.credit);
     const service = new GenerationService(
       repos.generationJob,
       repos.chat,
       repos.project,
+      creditService,
       c.env
     );
     const job = await service.getJob(ctx, id);

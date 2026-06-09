@@ -421,6 +421,7 @@ export default function WorkspacePage() {
       );
 
       // Phase 9G: create generation job and start polling after approval
+      // Phase 10B: credit reservation before enqueue
       if (action === 'approve_and_create') {
         try {
           const job = await createGenerationJob({ projectId, approvalMessageId: messageId });
@@ -436,8 +437,12 @@ export default function WorkspacePage() {
           ]);
           flash('Generation queued');
         } catch (err) {
-          const msg = err instanceof ApiClientError ? err.message : 'Failed to queue generation.';
-          flash(msg);
+          if (err instanceof ApiClientError && err.code === 'INSUFFICIENT_CREDITS') {
+            flash('Not enough credits for this generation.');
+          } else {
+            const msg = err instanceof ApiClientError ? err.message : 'Failed to queue generation.';
+            flash(msg);
+          }
         }
       }
     } catch (err) {
