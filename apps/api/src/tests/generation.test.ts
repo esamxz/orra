@@ -251,11 +251,12 @@ function createFakeRepositories(
         job.updated_at = new Date().toISOString();
         return job;
       },
-      async markSucceededWithResultGuarded(id: string, resultVersionId: string) {
+      async markSucceededWithResultGuarded(id: string, resultVersionId: string, capturedCredits = 0) {
         const job = jobs.find((j) => j.id === id && j.status === 'running');
         if (!job) return null;
         job.status = 'succeeded';
         job.result_version_id = resultVersionId;
+        job.captured_credits = capturedCredits;
         job.updated_at = new Date().toISOString();
         return job;
       },

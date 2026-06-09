@@ -1,6 +1,7 @@
 import { createDbClient } from '@orra/api/src/db/client.js';
 import { SupabaseGenerationJobRepository } from '@orra/api/src/repositories/generationJobRepository.js';
 import { SupabaseArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
+import { SupabaseCreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
 import type { ConsumerEnv } from './env.js';
 
@@ -20,7 +21,8 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
     const db = createDbClient(env as unknown as import('@orra/api/src/env.js').Env);
     const jobRepo = new SupabaseGenerationJobRepository(db);
     const artifactRepo = new SupabaseArtifactRepository(db);
-    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+    const creditRepo = new SupabaseCreditRepository(db);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
 
     for (const message of batch.messages) {
       try {

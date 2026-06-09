@@ -229,6 +229,11 @@ export function createFakeDbClient(initial: FakeDbState = {}): DbClient {
     bal.subscription_available = Number(bal.subscription_available ?? 0) + refundAmount;
     bal.updated_at = new Date().toISOString();
 
+    // Remove consumed reserve entries so duplicate capture is rejected
+    tables['credit_ledger'] = ledger.filter(
+      (r) => !(r.workspace_id === workspaceId && r.job_id === jobId && r.entry_type === 'reserve')
+    );
+
     return Promise.resolve({ data: { captured: actualAmount, refunded: refundAmount }, error: null });
   }
 
@@ -263,6 +268,11 @@ export function createFakeDbClient(initial: FakeDbState = {}): DbClient {
     bal.reserved = Math.max(0, Number(bal.reserved ?? 0) - totalReserved);
     bal.subscription_available = Number(bal.subscription_available ?? 0) + totalReserved;
     bal.updated_at = new Date().toISOString();
+
+    // Remove consumed reserve entries so duplicate refund is rejected
+    tables['credit_ledger'] = ledger.filter(
+      (r) => !(r.workspace_id === workspaceId && r.job_id === jobId && r.entry_type === 'reserve')
+    );
 
     return Promise.resolve({ data: { refunded: totalReserved }, error: null });
   }

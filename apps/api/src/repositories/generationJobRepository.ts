@@ -45,11 +45,11 @@ export interface GenerationJobRepository {
    */
   markRunningGuarded(id: string): Promise<GenerationJobRow | null>;
   /**
-   * Transition running -> succeeded with a result_version_id.
+   * Transition running -> succeeded with a result_version_id and optional captured credits.
    * Only succeeds when status = running.
    * Returns the updated row on success, null if no rows matched.
    */
-  markSucceededWithResultGuarded(id: string, resultVersionId: string): Promise<GenerationJobRow | null>;
+  markSucceededWithResultGuarded(id: string, resultVersionId: string, capturedCredits?: number): Promise<GenerationJobRow | null>;
   /**
    * Transition running -> succeeded. Only succeeds when status = running.
    * Returns the updated row on success, null if no rows matched.
@@ -93,7 +93,7 @@ export class StubGenerationJobRepository implements GenerationJobRepository {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async markSucceededWithResultGuarded(_id: string, _resultVersionId: string): Promise<GenerationJobRow | null> {
+  async markSucceededWithResultGuarded(_id: string, _resultVersionId: string, _capturedCredits?: number): Promise<GenerationJobRow | null> {
     throw new Error('GenerationJobRepository.markSucceededWithResultGuarded is not implemented yet.');
   }
 
@@ -200,10 +200,10 @@ export class SupabaseGenerationJobRepository implements GenerationJobRepository 
     return data ?? null;
   }
 
-  async markSucceededWithResultGuarded(id: string, resultVersionId: string): Promise<GenerationJobRow | null> {
+  async markSucceededWithResultGuarded(id: string, resultVersionId: string, capturedCredits = 0): Promise<GenerationJobRow | null> {
     const { data, error } = await this.db
       .from('generation_jobs')
-      .update({ status: 'succeeded', result_version_id: resultVersionId, updated_at: new Date().toISOString() })
+      .update({ status: 'succeeded', result_version_id: resultVersionId, captured_credits: capturedCredits, updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('status', 'running')
       .select()

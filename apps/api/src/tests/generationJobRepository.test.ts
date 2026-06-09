@@ -441,4 +441,33 @@ describe('SupabaseGenerationJobRepository guarded transitions', () => {
     const result = await repo.markSucceededWithResultGuarded('job-1', 'ver-99');
     expect(result).toBeNull();
   });
+
+  it('markSucceededWithResultGuarded stores capturedCredits', async () => {
+    const { db, jobs } = createFakeDbClient([
+      {
+        id: 'job-1',
+        workspace_id: 'ws-1',
+        project_id: 'proj-1',
+        kind: 'full_generate',
+        status: 'running',
+        idempotency_key: null,
+        reserved_credits: 10,
+        captured_credits: 0,
+        plan: null,
+        error: null,
+        result_version_id: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const repo = new SupabaseGenerationJobRepository(db as unknown as DbClient);
+    const result = await repo.markSucceededWithResultGuarded('job-1', 'ver-99', 10);
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('succeeded');
+    expect(result!.captured_credits).toBe(10);
+    expect(jobs[0].captured_credits).toBe(10);
+    expect(jobs[0].result_version_id).toBe('ver-99');
+  });
 });

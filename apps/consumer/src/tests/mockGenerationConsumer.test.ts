@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MockGenerationConsumer } from '../services/mockGenerationConsumer.js';
 import type { GenerationJobRepository } from '@orra/api/src/repositories/generationJobRepository.js';
+import type { CreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import type { ArtifactRepository, ArtifactWithVersion } from '@orra/api/src/repositories/artifactRepository.js';
-import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow } from '@orra/db';
+import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRow, CreditLedgerRow } from '@orra/db';
 import type { ArtifactDocument } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 
@@ -33,11 +34,12 @@ function createFakeJobRepository(initialJobs: GenerationJobRow[] = []): Generati
       job.updated_at = new Date().toISOString();
       return job;
     },
-    async markSucceededWithResultGuarded(id: string, resultVersionId: string) {
+    async markSucceededWithResultGuarded(id: string, resultVersionId: string, capturedCredits = 0) {
       const job = jobs.find((j) => j.id === id && j.status === 'running');
       if (!job) return null;
       job.status = 'succeeded';
       job.result_version_id = resultVersionId;
+      job.captured_credits = capturedCredits;
       job.updated_at = new Date().toISOString();
       return job;
     },
@@ -55,6 +57,180 @@ function createFakeJobRepository(initialJobs: GenerationJobRow[] = []): Generati
       job.error = errorPayload as GenerationJobRow['error'];
       job.updated_at = new Date().toISOString();
       return job;
+    },
+  };
+}
+
+function createFakeCreditRepository(
+  initialBalances: CreditBalanceRow[] = [],
+  initialLedger: CreditLedgerRow[] = []
+): CreditRepository & { balances: CreditBalanceRow[]; ledger: CreditLedgerRow[] } {
+  let nextId = 1;
+  const balances = [...initialBalances];
+  const ledger = [...initialLedger];
+
+  return {
+    balances,
+    ledger,
+    async getBalanceForWorkspace(workspaceId: string) {
+      return balances.find((b) => b.workspace_id === workspaceId) ?? null;
+    },
+
+    async listLedgerForWorkspace(input) {
+      const rows = ledger.filter((l) => l.workspace_id === input.workspaceId);
+      const limit = input.limit ?? 50;
+      return rows.slice(-limit).reverse();
+    },
+
+    async grantCredits(input) {
+      const id = `grant-${nextId++}`;
+      ledger.push({
+        id,
+        workspace_id: input.workspaceId,
+        entry_type: 'grant',
+        bucket: input.bucket,
+        amount: input.amount,
+        job_id: null,
+        expires_at: null,
+        metadata: (input.metadata ?? {}) as import('@orra/db').Json,
+        created_at: new Date().toISOString(),
+      });
+
+      let bal = balances.find((b) => b.workspace_id === input.workspaceId);
+      if (!bal) {
+        bal = {
+          workspace_id: input.workspaceId,
+          subscription_available: 0,
+          topup_available: 0,
+          reserved: 0,
+          updated_at: new Date().toISOString(),
+        };
+        balances.push(bal);
+      }
+      if (input.bucket === 'subscription') {
+        bal.subscription_available += input.amount;
+      } else {
+        bal.topup_available += input.amount;
+      }
+      bal.updated_at = new Date().toISOString();
+      return { ledgerId: id };
+    },
+
+    async reserveCredits(input) {
+      const bal = balances.find((b) => b.workspace_id === input.workspaceId);
+      const available = (bal?.subscription_available ?? 0) + (bal?.topup_available ?? 0);
+      if (!bal || available < input.amount) {
+        throw new Error('Insufficient credits');
+      }
+      const subNeeded = Math.min(bal.subscription_available, input.amount);
+      const topupNeeded = input.amount - subNeeded;
+      if (subNeeded > 0) {
+        ledger.push({
+          id: `res-${nextId++}`,
+          workspace_id: input.workspaceId,
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -subNeeded,
+          job_id: input.jobId,
+          expires_at: null,
+          metadata: (input.metadata ?? {}) as import('@orra/db').Json,
+          created_at: new Date().toISOString(),
+        });
+      }
+      if (topupNeeded > 0) {
+        ledger.push({
+          id: `res-${nextId++}`,
+          workspace_id: input.workspaceId,
+          entry_type: 'reserve',
+          bucket: 'topup',
+          amount: -topupNeeded,
+          job_id: input.jobId,
+          expires_at: null,
+          metadata: (input.metadata ?? {}) as import('@orra/db').Json,
+          created_at: new Date().toISOString(),
+        });
+      }
+      bal.subscription_available -= subNeeded;
+      bal.topup_available -= topupNeeded;
+      bal.reserved += input.amount;
+      bal.updated_at = new Date().toISOString();
+      return { reservedAmount: input.amount };
+    },
+
+    async captureCredits(input) {
+      const bal = balances.find((b) => b.workspace_id === input.workspaceId);
+      const reserves = ledger.filter(
+        (l) =>
+          l.workspace_id === input.workspaceId &&
+          l.job_id === input.jobId &&
+          l.entry_type === 'reserve'
+      );
+      const totalReserved = reserves.reduce((s, r) => s + Math.abs(r.amount), 0);
+      if (totalReserved === 0) {
+        throw new Error('No reservation found for job');
+      }
+      const refund = totalReserved - input.actualAmount;
+      ledger.push({
+        id: `cap-${nextId++}`,
+        workspace_id: input.workspaceId,
+        entry_type: 'capture',
+        bucket: 'subscription',
+        amount: -input.actualAmount,
+        job_id: input.jobId,
+        expires_at: null,
+        metadata: (input.metadata ?? {}) as import('@orra/db').Json,
+        created_at: new Date().toISOString(),
+      });
+      if (refund > 0) {
+        ledger.push({
+          id: `ref-${nextId++}`,
+          workspace_id: input.workspaceId,
+          entry_type: 'refund',
+          bucket: 'subscription',
+          amount: refund,
+          job_id: input.jobId,
+          expires_at: null,
+          metadata: (input.metadata ?? {}) as import('@orra/db').Json,
+          created_at: new Date().toISOString(),
+        });
+      }
+      if (bal) {
+        bal.reserved = Math.max(0, bal.reserved - totalReserved);
+        bal.subscription_available += refund;
+        bal.updated_at = new Date().toISOString();
+      }
+      return { captured: input.actualAmount, refunded: refund };
+    },
+
+    async refundCredits(input) {
+      const bal = balances.find((b) => b.workspace_id === input.workspaceId);
+      const reserves = ledger.filter(
+        (l) =>
+          l.workspace_id === input.workspaceId &&
+          l.job_id === input.jobId &&
+          l.entry_type === 'reserve'
+      );
+      const totalReserved = reserves.reduce((s, r) => s + Math.abs(r.amount), 0);
+      if (totalReserved === 0) {
+        throw new Error('No reservation found for job');
+      }
+      ledger.push({
+        id: `ref-${nextId++}`,
+        workspace_id: input.workspaceId,
+        entry_type: 'refund',
+        bucket: 'subscription',
+        amount: totalReserved,
+        job_id: input.jobId,
+        expires_at: null,
+        metadata: (input.metadata ?? {}) as import('@orra/db').Json,
+        created_at: new Date().toISOString(),
+      });
+      if (bal) {
+        bal.reserved = Math.max(0, bal.reserved - totalReserved);
+        bal.subscription_available += totalReserved;
+        bal.updated_at = new Date().toISOString();
+      }
+      return { refunded: totalReserved };
     },
   };
 }
@@ -384,10 +560,34 @@ describe('MockGenerationConsumer', () => {
     expect(job!.result_version_id).toBeNull();
   });
 
-  it('missing artifact marks job failed', async () => {
-    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+  it('missing artifact marks job failed and refunds credits', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
     const artifactRepo = createFakeArtifactRepository(); // no artifact
-    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
 
     const warnSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await consumer.processMessage({ jobId: 'job-1' });
@@ -396,9 +596,38 @@ describe('MockGenerationConsumer', () => {
     const job = await jobRepo.findById('job-1');
     expect(job!.status).toBe('failed');
     expect(job!.error).toMatchObject({ code: 'MOCK_GENERATION_FAILED' });
+
+    // Credits refunded
+    expect(creditRepo.balances[0].reserved).toBe(0);
+    expect(creditRepo.balances[0].subscription_available).toBe(100);
+    expect(creditRepo.ledger.some((l) => l.entry_type === 'refund')).toBe(true);
   });
 
-  it('invalid persisted document marks job failed', async () => {
+  it('invalid persisted document marks job failed and refunds credits', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
     const artifact: ArtifactRow = {
       id: '11111111-1111-1111-1111-111111111111',
       workspace_id: 'ws-1',
@@ -419,9 +648,9 @@ describe('MockGenerationConsumer', () => {
       created_at: '2026-01-01',
     };
 
-    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
     const artifactRepo = createFakeArtifactRepository(artifact, version);
-    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await consumer.processMessage({ jobId: 'job-1' });
@@ -429,9 +658,35 @@ describe('MockGenerationConsumer', () => {
 
     const job = await jobRepo.findById('job-1');
     expect(job!.status).toBe('failed');
+    expect(creditRepo.balances[0].reserved).toBe(0);
+    expect(creditRepo.balances[0].subscription_available).toBe(100);
   });
 
-  it('generated document validation failure marks job failed', async () => {
+  it('generated document validation failure marks job failed and refunds credits', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
     const artifact: ArtifactRow = {
       id: '11111111-1111-1111-1111-111111111111',
       workspace_id: 'ws-1',
@@ -452,9 +707,9 @@ describe('MockGenerationConsumer', () => {
       created_at: '2026-01-01',
     };
 
-    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
     const artifactRepo = createFakeArtifactRepository(artifact, version);
-    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
 
     // Simulate the generator producing an invalid document by intercepting schema validation
     const parseSpy = vi.spyOn(ArtifactDocumentSchema, 'safeParse').mockReturnValue({
@@ -471,9 +726,35 @@ describe('MockGenerationConsumer', () => {
 
     const job = await jobRepo.findById('job-1');
     expect(job!.status).toBe('failed');
+    expect(creditRepo.balances[0].reserved).toBe(0);
+    expect(creditRepo.balances[0].subscription_available).toBe(100);
   });
 
-  it('artifact commit conflict marks job failed', async () => {
+  it('artifact commit conflict marks job failed and refunds credits', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
     const artifact: ArtifactRow = {
       id: '11111111-1111-1111-1111-111111111111',
       workspace_id: 'ws-1',
@@ -494,11 +775,11 @@ describe('MockGenerationConsumer', () => {
       created_at: '2026-01-01',
     };
 
-    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
     const artifactRepo = createFakeArtifactRepository(artifact, version);
     // Override commitVersion to always return null (simulate conflict)
     artifactRepo.commitVersion = async () => null;
-    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await consumer.processMessage({ jobId: 'job-1' });
@@ -507,9 +788,11 @@ describe('MockGenerationConsumer', () => {
     const job = await jobRepo.findById('job-1');
     expect(job!.status).toBe('failed');
     expect((job!.error as Record<string, string>).message).toContain('commit conflict');
+    expect(creditRepo.balances[0].reserved).toBe(0);
+    expect(creditRepo.balances[0].subscription_available).toBe(100);
   });
 
-  it('no credit repository is called', async () => {
+  it('no credit repository is called when not provided', async () => {
     const artifact: ArtifactRow = {
       id: '11111111-1111-1111-1111-111111111111',
       workspace_id: 'ws-1',
@@ -761,5 +1044,437 @@ describe('MockGenerationConsumer', () => {
     // Second consumer sees the same job but the guard fails
     const second = await jobRepo.markRunningGuarded('job-1');
     expect(second).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 10C: credit capture/refund tests
+  // ---------------------------------------------------------------------------
+
+  it('successful job captures reserved credits and marks capturedCredits', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+    expect(job!.captured_credits).toBe(10);
+    expect(job!.result_version_id).not.toBeNull();
+
+    // Balance reflects capture
+    expect(creditRepo.balances[0].reserved).toBe(0);
+    expect(creditRepo.ledger.some((l) => l.entry_type === 'capture')).toBe(true);
+  });
+
+  it('job is not marked succeeded if capture fails genuinely', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    // Override captureCredits to throw a genuine error (not "No reservation found")
+    creditRepo.captureCredits = async () => {
+      throw new Error('Database connection lost');
+    };
+
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    errorSpy.mockRestore();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
+    expect(job!.captured_credits).toBe(0);
+    // Refund should have happened after capture failure
+    expect(creditRepo.balances[0].reserved).toBe(0);
+    expect(creditRepo.ledger.some((l) => l.entry_type === 'refund')).toBe(true);
+  });
+
+  it('duplicate delivery does not double-capture credits', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+
+    // First delivery succeeds
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfterFirst = await jobRepo.findById('job-1');
+    expect(jobAfterFirst!.status).toBe('succeeded');
+    expect(jobAfterFirst!.captured_credits).toBe(10);
+
+    const captureCountAfterFirst = creditRepo.ledger.filter((l) => l.entry_type === 'capture').length;
+    expect(captureCountAfterFirst).toBe(1);
+
+    // Second delivery (duplicate) sees succeeded and skips early
+    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    consoleSpy.mockRestore();
+
+    // No additional capture should have occurred
+    const captureCountAfterSecond = creditRepo.ledger.filter((l) => l.entry_type === 'capture').length;
+    expect(captureCountAfterSecond).toBe(1);
+  });
+
+  it('failed duplicate does not double-refund credits', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    // Override commitVersion to always return null (simulate conflict)
+    artifactRepo.commitVersion = async () => null;
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+
+    // First delivery fails, refunds credits
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    errorSpy.mockRestore();
+
+    const jobAfterFirst = await jobRepo.findById('job-1');
+    expect(jobAfterFirst!.status).toBe('failed');
+
+    const refundCountAfterFirst = creditRepo.ledger.filter((l) => l.entry_type === 'refund').length;
+    expect(refundCountAfterFirst).toBe(1);
+    expect(creditRepo.balances[0].reserved).toBe(0);
+
+    // Second delivery (duplicate) sees failed and skips early
+    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    consoleSpy.mockRestore();
+
+    // No additional refund should have occurred
+    const refundCountAfterSecond = creditRepo.ledger.filter((l) => l.entry_type === 'refund').length;
+    expect(refundCountAfterSecond).toBe(1);
+  });
+
+  it('reservedCredits = 0 does not call capture or refund', async () => {
+    const creditRepo = createFakeCreditRepository();
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 0 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+    expect(job!.captured_credits).toBe(0);
+    expect(creditRepo.ledger).toHaveLength(0);
+  });
+
+  it('capture treats "No reservation found" as already-captured and proceeds', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    // Simulate a prior partial delivery that already captured but did not mark succeeded
+    creditRepo.captureCredits = async () => {
+      throw new Error('No reservation found for job');
+    };
+
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+    expect(job!.captured_credits).toBe(10);
+  });
+
+  it('refund swallows "No reservation found" safely on duplicate failure', async () => {
+    const creditRepo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 90,
+          topup_available: 0,
+          reserved: 10,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -10,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    // Simulate a prior delivery that already refunded
+    creditRepo.refundCredits = async () => {
+      throw new Error('No reservation found for job');
+    };
+
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    // Override commitVersion to always return null (simulate conflict)
+    artifactRepo.commitVersion = async () => null;
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    errorSpy.mockRestore();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
   });
 });

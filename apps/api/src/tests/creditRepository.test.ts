@@ -301,6 +301,100 @@ describe('SupabaseCreditRepository (fake DB)', () => {
     ).rejects.toThrow('Reservation not found');
   });
 
+  it('captureCredits is idempotent-safe by rejecting duplicate', async () => {
+    const repo = createRepo({
+      credit_balances: [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 0,
+          topup_available: 15,
+          reserved: 35,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      credit_ledger: [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -30,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+        {
+          id: 'ledger-2',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'topup',
+          amount: -5,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+
+    // First capture succeeds
+    const first = await repo.captureCredits({ workspaceId: 'ws-1', jobId: 'job-1', actualAmount: 35 });
+    expect(first.captured).toBe(35);
+
+    // Second capture fails because reservation was consumed
+    await expect(
+      repo.captureCredits({ workspaceId: 'ws-1', jobId: 'job-1', actualAmount: 35 })
+    ).rejects.toThrow('Reservation not found');
+  });
+
+  it('refundCredits is idempotent-safe by rejecting duplicate', async () => {
+    const repo = createRepo({
+      credit_balances: [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 0,
+          topup_available: 15,
+          reserved: 35,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      credit_ledger: [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -30,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+        {
+          id: 'ledger-2',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'topup',
+          amount: -5,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+
+    // First refund succeeds
+    const first = await repo.refundCredits({ workspaceId: 'ws-1', jobId: 'job-1' });
+    expect(first.refunded).toBe(35);
+
+    // Second refund fails because reservation was consumed
+    await expect(
+      repo.refundCredits({ workspaceId: 'ws-1', jobId: 'job-1' })
+    ).rejects.toThrow('Reservation not found');
+  });
+
   // -------------------------------------------------------------------------
   // listLedgerForWorkspace
   // -------------------------------------------------------------------------

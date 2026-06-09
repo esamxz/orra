@@ -96,7 +96,7 @@ function createFakeRepositories(
       async listByProject() { return []; },
       async findById() { return null; },
       async markRunningGuarded() { return null; },
-      async markSucceededWithResultGuarded() { return null; },
+      async markSucceededWithResultGuarded(_id: string, _resultVersionId: string, _capturedCredits = 0) { return null; },
       async markSucceededGuarded() { return null; },
       async markFailedGuarded() { return null; },
     },

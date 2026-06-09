@@ -144,6 +144,13 @@ function createFakeCreditRepository(
         bal.subscription_available += refund;
         bal.updated_at = new Date().toISOString();
       }
+      // Remove consumed reserve entries so duplicate capture is rejected
+      const remaining = ledger.filter(
+        (l) =>
+          !(l.workspace_id === input.workspaceId && l.job_id === input.jobId && l.entry_type === 'reserve')
+      );
+      ledger.length = 0;
+      ledger.push(...remaining);
       return { captured: input.actualAmount, refunded: refund };
     },
 
@@ -175,6 +182,13 @@ function createFakeCreditRepository(
         bal.subscription_available += totalReserved;
         bal.updated_at = new Date().toISOString();
       }
+      // Remove consumed reserve entries so duplicate refund is rejected
+      const remaining = ledger.filter(
+        (l) =>
+          !(l.workspace_id === input.workspaceId && l.job_id === input.jobId && l.entry_type === 'reserve')
+      );
+      ledger.length = 0;
+      ledger.push(...remaining);
       return { refunded: totalReserved };
     },
   };
@@ -418,5 +432,77 @@ describe('CreditService', () => {
     const status = await service.getCreditStatus(ctx);
     // ws-2 has no balance in the seeded repo, so it returns zero defaults.
     expect(status.balance.totalRemaining).toBe(0);
+  });
+
+  it('captureCreditsInternal rejects duplicate capture after reservation consumed', async () => {
+    const repo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 70,
+          topup_available: 0,
+          reserved: 30,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -30,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    const service = new CreditService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const first = await service.captureCreditsInternal(ctx, { jobId: 'job-1', actualAmount: 30 });
+    expect(first.captured).toBe(30);
+
+    await expect(
+      service.captureCreditsInternal(ctx, { jobId: 'job-1', actualAmount: 30 })
+    ).rejects.toThrow('No reservation found');
+  });
+
+  it('refundCreditsInternal rejects duplicate refund after reservation consumed', async () => {
+    const repo = createFakeCreditRepository(
+      [
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 70,
+          topup_available: 0,
+          reserved: 30,
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: 'ledger-1',
+          workspace_id: 'ws-1',
+          entry_type: 'reserve',
+          bucket: 'subscription',
+          amount: -30,
+          job_id: 'job-1',
+          expires_at: null,
+          metadata: {},
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    const service = new CreditService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const first = await service.refundCreditsInternal(ctx, { jobId: 'job-1' });
+    expect(first.refunded).toBe(30);
+
+    await expect(
+      service.refundCreditsInternal(ctx, { jobId: 'job-1' })
+    ).rejects.toThrow('No reservation found');
   });
 });

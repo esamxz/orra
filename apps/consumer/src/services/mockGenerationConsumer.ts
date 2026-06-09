@@ -1,5 +1,6 @@
 import type { GenerationJobRepository } from '@orra/api/src/repositories/generationJobRepository.js';
 import type { ArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
+import type { CreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import type { ArtifactDocument } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
@@ -7,8 +8,8 @@ import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
 // ---------------------------------------------------------------------------
 // Mock generation consumer
 // ---------------------------------------------------------------------------
-// Phase 9H: processes queue messages and writes a deterministic mock artifact
-// version before marking the job succeeded.
+// Phase 10C: processes queue messages, writes a deterministic mock artifact
+// version, then captures or refunds credits based on outcome.
 //
 // Lifecycle:
 //   1. Validate message { jobId }
@@ -19,19 +20,26 @@ import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
 //   6. Validate current document against shared schema
 //   7. Generate mock updated ArtifactDocument
 //   8. Commit new artifact version atomically
-//   9. Mark job succeeded with result_version_id
+//   9. Capture reserved credits (if any)
+//  10. Mark job succeeded with result_version_id and captured_credits
 //
 // Failure handling:
-//   - Missing artifact / invalid document: markFailedGuarded
-//   - Commit conflict: markFailedGuarded
-//   - Any unexpected error: markFailedGuarded (safe fallback)
+//   - Missing artifact / invalid document: refund + markFailedGuarded
+//   - Commit conflict: refund + markFailedGuarded
+//   - Capture failure: refund + markFailedGuarded
+//   - Any unexpected error: refund + markFailedGuarded (safe fallback)
 //
-// Idempotency rule:
+// Idempotency rules:
 //   - Fetch job by id
 //   - Guard transition queued -> running (skip if not queued)
-//   - Perform work (load, generate, commit)
+//   - Perform work (load, generate, commit, capture)
 //   - Guard transition running -> succeeded with result (skip if not running)
 //   - If any guard fails, the message is acked silently (duplicate delivery)
+//   - Credit capture/refund are idempotent at the RPC layer:
+//     - capture: safe to retry because it keys off reserve ledger entries
+//     - refund: safe to retry because it keys off reserve ledger entries
+//     - Both throw "No reservation found" if already consumed, which we
+//       swallow safely in the failure path.
 
 export interface QueueMessage {
   jobId: string;
@@ -40,7 +48,8 @@ export interface QueueMessage {
 export class MockGenerationConsumer {
   constructor(
     private jobRepo: GenerationJobRepository,
-    private artifactRepo: ArtifactRepository
+    private artifactRepo: ArtifactRepository,
+    private creditRepo?: CreditRepository
   ) {}
 
   /**
@@ -152,10 +161,44 @@ export class MockGenerationConsumer {
         throw new Error('Artifact version commit conflict');
       }
 
-      // 10. Transition running -> succeeded with result_version_id (guarded)
+      // 10. Capture reserved credits for mock generation.
+      // For mock generation, actual cost equals reserved cost.
+      const reservedCredits = job.reserved_credits ?? 0;
+      let capturedCredits = 0;
+      if (reservedCredits > 0 && this.creditRepo) {
+        try {
+          const result = await this.creditRepo.captureCredits({
+            workspaceId: job.workspace_id,
+            jobId: job.id,
+            actualAmount: reservedCredits,
+          });
+          capturedCredits = result.captured;
+        } catch (captureErr) {
+          const captureMsg = captureErr instanceof Error ? captureErr.message : String(captureErr);
+          // If the reservation was already consumed (e.g., prior partial delivery),
+          // treat it as captured and continue so the job can finish.
+          if (captureMsg.includes('No reservation found')) {
+            capturedCredits = reservedCredits;
+          } else {
+            // Genuine capture failure: refund what we can and fail the job.
+            try {
+              await this.creditRepo.refundCredits({
+                workspaceId: job.workspace_id,
+                jobId: job.id,
+              });
+            } catch (refundErr) {
+              console.error(`Job ${message.jobId}: refund after capture failure also failed:`, refundErr);
+            }
+            throw new Error(`Credit capture failed: ${captureMsg}`);
+          }
+        }
+      }
+
+      // 11. Transition running -> succeeded with result_version_id and capturedCredits
       const succeeded = await this.jobRepo.markSucceededWithResultGuarded(
         message.jobId,
-        committedVersion.id
+        committedVersion.id,
+        capturedCredits
       );
 
       if (!succeeded) {
@@ -165,12 +208,37 @@ export class MockGenerationConsumer {
         return;
       }
 
-      console.info(`Job ${message.jobId} completed successfully. Result version ${committedVersion.id}`);
+      console.info(`Job ${message.jobId} completed successfully. Result version ${committedVersion.id}, captured ${capturedCredits} credits.`);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error during mock generation';
       console.error(`Job ${message.jobId} failed during processing: ${errMsg}`);
 
-      // Safe fallback: mark job failed so it does not stay running forever
+      // Safe fallback: refund reserved credits if the job is still running
+      // and has a reservation that has not been captured yet.
+      // The refund RPC is safe against duplicate calls (throws "No reservation found"
+      // if already captured or refunded), so we attempt it unconditionally and
+      // swallow the expected duplicate-case error.
+      try {
+        const currentJob = await this.jobRepo.findById(message.jobId);
+        if (currentJob && this.creditRepo) {
+          const reservedCredits = currentJob.reserved_credits ?? 0;
+          const alreadyCaptured = (currentJob.captured_credits ?? 0) > 0;
+          if (reservedCredits > 0 && !alreadyCaptured) {
+            await this.creditRepo.refundCredits({
+              workspaceId: currentJob.workspace_id,
+              jobId: currentJob.id,
+            });
+          }
+        }
+      } catch (refundErr) {
+        const refundMsg = refundErr instanceof Error ? refundErr.message : String(refundErr);
+        // Swallow "No reservation found" safely; log everything else.
+        if (!refundMsg.includes('No reservation found')) {
+          console.error(`Job ${message.jobId}: refund attempt failed:`, refundErr);
+        }
+      }
+
+      // Mark job failed so it does not stay running forever
       await this.jobRepo.markFailedGuarded(message.jobId, {
         code: 'MOCK_GENERATION_FAILED',
         message: errMsg,
