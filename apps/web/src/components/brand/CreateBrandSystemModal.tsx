@@ -5,13 +5,22 @@ import {
   FONT_CATALOG,
   getFontByFamily,
 } from '@orra/shared';
-import { type MockBrandSystem, type BrandTypography } from '../../stores/dashboardStore';
+import { type BrandTypography } from '../../stores/dashboardStore';
 import { BRAND_TYPOGRAPHY_PRESETS, type BrandPresetKey } from '../../data/brandPresets';
+
+export interface BrandSystemFormData {
+  name: string;
+  description: string;
+  palette: string[];
+  toneOfVoice: string;
+  visualDirection: string;
+  typography: BrandTypography;
+}
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreate: (brand: MockBrandSystem) => void;
+  onCreate: (brand: BrandSystemFormData) => void;
 }
 
 const PRESETS = BRAND_TYPOGRAPHY_PRESETS;
@@ -182,13 +191,10 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const fonts = Array.from(new Set([titleFont, bodyFont, accentFont, captionFont]));
     onCreate({
-      id: `brand-${Date.now()}`,
       name: name.trim(),
       description: description.trim(),
       palette,
-      fonts,
       toneOfVoice: tone.trim(),
       visualDirection: visual.trim(),
       typography,

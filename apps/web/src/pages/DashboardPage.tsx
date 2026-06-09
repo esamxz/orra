@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/dashboard.css';
 import { Icon } from '../data/icons';
-import { BRANDS, TEMPLATES, PROJECTS, RECENT_PROJECTS } from '../data/cards';
+import { BRANDS as DEMO_BRANDS, TEMPLATES, PROJECTS, RECENT_PROJECTS } from '../data/cards';
 import { CardBg } from '../data/cards';
 import CreateBrandSystemModal from '../components/brand/CreateBrandSystemModal';
-import { useDashboardStore } from '../stores/dashboardStore';
 import { useTheme } from '../hooks/useTheme';
 import { useCreditStatus } from '../hooks/useCreditStatus';
 import UsageStatus from '../components/workspace/UsageStatus';
 import { useProjects } from '../hooks/useProjects';
+import { useBrandSystems } from '../hooks/useBrandSystems';
+import { brandSystemDtoToDisplayBrand, paletteToColors } from '../components/brand/brandDisplayUtils';
 import { createProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
 
@@ -39,20 +40,52 @@ function MiniThumb({ variant, label }: { variant: string; label?: string }) {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const addBrandSystem = useDashboardStore((s) => s.addBrandSystem);
   const { theme, toggle: toggleTheme } = useTheme();
 
   const [tab, setTab] = useState('Recent');
   const [type, setType] = useState('carousel');
   const [ratio, setRatio] = useState('4:5');
-  const [brandIdx, setBrandIdx] = useState(0);
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const [brandModalOpen, setBrandModalOpen] = useState(false);
 
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const brand = BRANDS[brandIdx];
+  // ---------------------------------------------------------------------------
+  // Brand systems from API
+  // ---------------------------------------------------------------------------
+  const {
+    brands: apiBrands,
+    state: brandsState,
+    error: brandsError,
+    createBrand,
+  } = useBrandSystems();
+
+  // Merge real brands with demo fallback when API fails or returns empty.
+  // "No brand" is always the first option.
+  const displayBrands = useMemo(() => {
+    const noBrand = {
+      id: '__no-brand__',
+      name: 'No brand',
+      initial: '—',
+      logoBg: 'var(--inset)',
+      logoFg: 'var(--muted)',
+      colors: ['#c8d1d8', '#eef1f1'],
+      fonts: ['—'],
+      tone: [],
+    };
+    const real = apiBrands.map(brandSystemDtoToDisplayBrand);
+    // If API failed or no real brands, fall back to demo brands.
+    const fallback = brandsState === 'error' || (brandsState === 'empty' && real.length === 0)
+      ? DEMO_BRANDS
+      : [];
+    return [noBrand, ...real, ...fallback];
+  }, [apiBrands, brandsState]);
+
+  const selectedBrand = useMemo(() => {
+    return displayBrands.find((b) => b.id === selectedBrandId) ?? displayBrands[0];
+  }, [displayBrands, selectedBrandId]);
 
   // ---------------------------------------------------------------------------
   // Credit status from API (Phase 10D)
@@ -81,29 +114,39 @@ export default function DashboardPage() {
 
     try {
       const selectedRatio = RATIOS.find((r) => r.id === ratio) ?? RATIOS[1];
-      const projectType = type === 'single' ? 'post' : type === 'carousel' ? 'carousel' : 'from_assets';
+      const projectType = (type === 'single' ? 'post' : type === 'carousel' ? 'carousel' : 'from_assets') as 'post' | 'carousel' | 'from_assets';
 
-      const project = await createProject({
+      const createInput = {
         name: (extra.projectName as string) || (type === 'carousel' ? 'Untitled carousel' : 'Untitled post'),
         type: projectType,
         ratio: { name: selectedRatio.id, w: selectedRatio.w, h: selectedRatio.h },
-        brandSystemId: brand.id,
-      });
+        ...(selectedBrandId && selectedBrandId !== '__no-brand__'
+          ? { brandSystemId: selectedBrandId }
+          : {}),
+      };
+      const project = await createProject(createInput);
 
       if (project.currentArtifactId) {
         navigate(`/workspace/${project.id}`, {
           state: {
             mode: type,
             ratio,
-            brand,
+            brand: selectedBrand,
             currentArtifactId: project.currentArtifactId,
+            projectBrandSystemId: project.brandSystemId,
             ...extra,
           },
         });
       } else {
         // Fallback: no artifact yet — open workspace anyway
         navigate(`/workspace/${project.id}`, {
-          state: { mode: type, ratio, brand, ...extra },
+          state: {
+            mode: type,
+            ratio,
+            brand: selectedBrand,
+            projectBrandSystemId: project.brandSystemId,
+            ...extra,
+          },
         });
       }
     } catch (err) {
@@ -120,13 +163,18 @@ export default function DashboardPage() {
   // ---------------------------------------------------------------------------
   const openProject = (project: typeof apiProjects[number]) => {
     const isCarouselProject = project.type === 'carousel';
+    // Try to resolve the project's brand from the loaded brand list.
+    const projectBrand = project.brandSystemId
+      ? displayBrands.find((b) => b.id === project.brandSystemId)
+      : displayBrands[0]; // "No brand"
     navigate(`/workspace/${project.id}`, {
       state: {
         mode: isCarouselProject ? 'carousel' : 'single',
         ratio: project.ratio.name,
-        brand: BRANDS[0],
+        brand: projectBrand ?? displayBrands[0],
         projectName: project.name,
         currentArtifactId: project.currentArtifactId,
+        projectBrandSystemId: project.brandSystemId,
       },
     });
   };
@@ -178,21 +226,28 @@ export default function DashboardPage() {
           <div className="field-label">Brand system</div>
           <div style={{position:'relative'}}>
             <button className="selector" onClick={()=>setBrandOpen(v=>!v)}>
-              <span className="sw" style={{background:`conic-gradient(${brand.colors.join(',')})`}} />
-              <span className="tx"><b>{brand.name}</b><span>{brand.tone.join(' · ')}</span></span>
+              <span className="sw" style={{background:`conic-gradient(${selectedBrand.colors.join(',')})`}} />
+              <span className="tx"><b>{selectedBrand.name}</b><span>{selectedBrand.tone.join(' · ') || 'No brand selected'}</span></span>
               <span className="caret">{<Icon.caret s={16} />}</span>
             </button>
             {brandOpen && <>
               <div className="backdrop" style={{zIndex:5}} onClick={()=>setBrandOpen(false)} />
               <div className="menu-pop" style={{top:54,right:'auto',left:0,width:'100%',zIndex:6}}>
                 <div className="mh">Switch brand system</div>
-                {BRANDS.map((b,i)=>[
-                  <button key={b.id} className="menu-item" onClick={()=>{setBrandIdx(i);setBrandOpen(false);}}>
+                {displayBrands.map((b) => (
+                  <button
+                    key={b.id}
+                    className="menu-item"
+                    onClick={()=> {
+                      setSelectedBrandId(b.id === '__no-brand__' ? null : b.id);
+                      setBrandOpen(false);
+                    }}
+                  >
                     <span className="ic" style={{background:b.logoBg,color:b.logoFg,fontFamily:'var(--font-display)'}}>{b.initial}</span>
                     <span className="tx"><b>{b.name}</b><span>{b.fonts.join(' · ')}</span></span>
-                    {i===brandIdx && <span style={{marginLeft:'auto',color:'var(--primary)'}}>{<Icon.check s={16} />}</span>}
+                    {b.id === selectedBrandId && <span style={{marginLeft:'auto',color:'var(--primary)'}}>{<Icon.check s={16} />}</span>}
                   </button>
-                ])}
+                ))}
               </div>
             </>}
           </div>
@@ -248,7 +303,7 @@ export default function DashboardPage() {
         <div className="dash-scroll">
           {(tab==='Recent' || tab==='Your projects') && (
             <div className="proj-grid">
-              <button className="proj-card new-proj-card" onClick={()=>start({mode:'carousel',ratio:'4:5',brand:BRANDS[0]})} disabled={createLoading}>
+              <button className="proj-card new-proj-card" onClick={()=>start({mode:'carousel',ratio:'4:5',brand:selectedBrand})} disabled={createLoading}>
                 <span className="plus">{<Icon.plus s={22} />}</span>
                 <b>New project</b>
               </button>
@@ -301,7 +356,7 @@ export default function DashboardPage() {
                 <button
                   key={p.id}
                   className="proj-card"
-                  onClick={() => start({ mode: p.mode === 'Carousel' ? 'carousel' : 'single', ratio: '4:5', brand: BRANDS[0], projectName: p.name })}
+                  onClick={() => start({ mode: p.mode === 'Carousel' ? 'carousel' : 'single', ratio: '4:5', brand: selectedBrand, projectName: p.name })}
                 >
                   <MiniThumb variant={p.variant} label={p.name} />
                   <div className="proj-meta">
@@ -335,7 +390,7 @@ export default function DashboardPage() {
                     <div className="prompt-preview">{t.prompt}</div>
                     <div className="trend-foot">
                       <span className="eyebrow">{t.tag}</span>
-                      <button className="btn btn-primary btn-sm" onClick={()=>start({ mode: t.tag==='Single post'?'single':'carousel', ratio:'4:5', brand:BRANDS[0], prefill:t.prompt })}>
+                      <button className="btn btn-primary btn-sm" onClick={()=>start({ mode: t.tag==='Single post'?'single':'carousel', ratio:'4:5', brand: selectedBrand, prefill:t.prompt })}>
                         {<Icon.spark s={15} />} Use this prompt
                       </button>
                     </div>
@@ -350,32 +405,66 @@ export default function DashboardPage() {
               <h2>Brand systems</h2>
               <p>Reusable identity — colors, fonts, and tone Orra applies to every layer it makes.</p>
             </div>
-            <div className="brand-grid">
-              {BRANDS.map(b => (
-                <article key={b.id} className="brand-card">
-                  <div className="brand-top">
-                    <div className="brand-logo" style={{background:b.logoBg,color:b.logoFg}}>{b.initial}</div>
-                    <div className="tx"><b>{b.name}</b><span>Brand system</span></div>
-                  </div>
-                  <div className="brand-swatches">
-                    {b.colors.map((c,i)=><div key={i} className="sw" style={{background:c}} />)}
-                  </div>
-                  <div className="brand-fonts">
-                    {<Icon.type s={15} />}<b>{b.fonts[0]}</b><span className="dot" /><b>{b.fonts[1]}</b>
-                  </div>
-                  <div className="brand-tone">
-                    {b.tone.map(t=><span key={t}>{t}</span>)}
-                  </div>
-                </article>
-              ))}
-              <button className="brand-card brand-new" onClick={()=> setBrandModalOpen(true)}>
-                <span className="plus">{<Icon.plus s={22} />}</span>
-                <div>
-                  <b style={{display:'block',color:'inherit'}}>Create brand system</b>
-                  <span style={{fontSize:12.5,color:'var(--muted)'}}>Teach Orra your colors, fonts & voice</span>
+
+            {/* Loading state */}
+            {brandsState === 'loading' && (
+              <div className="brand-grid">
+                <div className="brand-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 180 }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>Loading brand systems…</span>
                 </div>
-              </button>
-            </div>
+              </div>
+            )}
+
+            {/* Error state */}
+            {brandsState === 'error' && (
+              <div className="brand-grid">
+                <div className="brand-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 180 }}>
+                  <span style={{ color: 'var(--danger, #c44)', fontSize: 13 }}>{brandsError}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {brandsState === 'empty' && (
+              <div className="brand-grid">
+                <div className="brand-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 180 }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>No brand systems yet</span>
+                </div>
+              </div>
+            )}
+
+            {/* Real brand systems */}
+            {(brandsState === 'idle' || brandsState === 'empty') && apiBrands.length > 0 && (
+              <div className="brand-grid">
+                {apiBrands.map((dto) => {
+                  const b = brandSystemDtoToDisplayBrand(dto);
+                  return (
+                    <article key={dto.id} className="brand-card">
+                      <div className="brand-top">
+                        <div className="brand-logo" style={{background:b.logoBg,color:b.logoFg}}>{b.initial}</div>
+                        <div className="tx"><b>{b.name}</b><span>Brand system</span></div>
+                      </div>
+                      <div className="brand-swatches">
+                        {b.colors.map((c,i)=><div key={i} className="sw" style={{background:c}} />)}
+                      </div>
+                      <div className="brand-fonts">
+                        {<Icon.type s={15} />}<b>{b.fonts[0] ?? '—'}</b>{b.fonts[1] && <><span className="dot" /><b>{b.fonts[1]}</b></>}
+                      </div>
+                      <div className="brand-tone">
+                        {b.tone.map(t=><span key={t}>{t}</span>)}
+                      </div>
+                    </article>
+                  );
+                })}
+                <button className="brand-card brand-new" onClick={()=> setBrandModalOpen(true)}>
+                  <span className="plus">{<Icon.plus s={22} />}</span>
+                  <div>
+                    <b style={{display:'block',color:'inherit'}}>Create brand system</b>
+                    <span style={{fontSize:12.5,color:'var(--muted)'}}>Teach Orra your colors, fonts & voice</span>
+                  </div>
+                </button>
+              </div>
+            )}
           </>}
         </div>
       </main>
@@ -383,7 +472,20 @@ export default function DashboardPage() {
       <CreateBrandSystemModal
         open={brandModalOpen}
         onClose={() => setBrandModalOpen(false)}
-        onCreate={addBrandSystem}
+        onCreate={async (formData) => {
+          const input = {
+            name: formData.name,
+            description: formData.description || undefined,
+            tone: formData.toneOfVoice || undefined,
+            visualDirection: formData.visualDirection || undefined,
+            colors: paletteToColors(formData.palette),
+            typography: formData.typography as unknown as Record<string, unknown>,
+          };
+          const brand = await createBrand(input);
+          if (brand) {
+            setSelectedBrandId(brand.id);
+          }
+        }}
       />
     </div>
   );

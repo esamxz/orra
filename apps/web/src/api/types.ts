@@ -157,8 +157,51 @@ export interface CreateGenerationJobInput {
 }
 
 // ---------------------------------------------------------------------------
-// Credit types
+// Brand system types
 // ---------------------------------------------------------------------------
+
+export interface BrandSystemDto {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string | null;
+  tone: string | null;
+  visualDirection: string | null;
+  rules: string | null;
+  colors: Record<string, string>;
+  typography: Record<string, unknown>;
+  logoAssetId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBrandSystemInput {
+  name: string;
+  description?: string;
+  tone?: string;
+  visualDirection?: string;
+  rules?: string;
+  colors?: Record<string, string>;
+  typography?: Record<string, unknown>;
+  logoAssetId?: string | null;
+}
+
+export interface UpdateBrandSystemInput {
+  name?: string;
+  description?: string;
+  tone?: string;
+  visualDirection?: string;
+  rules?: string;
+  colors?: Record<string, string>;
+  typography?: Record<string, unknown>;
+  logoAssetId?: string | null;
+}
+
+export interface ListBrandSystemsParams {
+  limit?: number;
+  search?: string;
+}
+
 
 export interface CreditBalanceDto {
   workspaceId: string;

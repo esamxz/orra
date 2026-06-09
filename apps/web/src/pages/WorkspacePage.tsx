@@ -6,14 +6,17 @@ import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import { useProjectMessages } from '../hooks/useProjectMessages';
 import { useGenerationJobPolling } from '../hooks/useGenerationJobPolling';
 import { useCreditStatus } from '../hooks/useCreditStatus';
+import { useBrandSystems } from '../hooks/useBrandSystems';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
+import { updateProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
 import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto, ApprovalAction } from '../api/types';
 import type { ApprovalState } from '@orra/shared';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
-import { BRANDS } from '../data/cards';
+import { BRANDS as DEMO_BRANDS } from '../data/cards';
+import { brandSystemDtoToDisplayBrand, type DisplayBrand } from '../components/brand/brandDisplayUtils';
 import {
   makeArtifactSinglePost,
   makeArtifactCarousel,
@@ -65,10 +68,11 @@ const mid = () => 'm' + (++_mid);
 interface LocationState {
   mode?: string;
   ratio?: string;
-  brand?: typeof BRANDS[0];
+  brand?: DisplayBrand;
   projectName?: string;
   prefill?: string;
   currentArtifactId?: string;
+  projectBrandSystemId?: string | null;
 }
 
 interface UiMessage {
@@ -112,8 +116,6 @@ export default function WorkspacePage() {
   const config = (location.state as LocationState | null) || {};
 
   const isCarousel = config.mode === 'carousel' || config.mode === 'assets';
-  const brand = config.brand || BRANDS[0];
-  const brandHandle = '@' + brand.name.toLowerCase().replace(/[^a-z]+/g,'.').replace(/^\.|\.$/g,'');
 
   const [ratio, setRatio] = useState(config.ratio || '4:5');
   const [phase, setPhase] = useState('empty');
@@ -142,6 +144,68 @@ export default function WorkspacePage() {
   const [serverArtifactId, setServerArtifactId] = useState<string | null>(
     (config.currentArtifactId as string | undefined) || null,
   );
+
+  // ---------------------------------------------------------------------------
+  // Brand systems from API
+  // ---------------------------------------------------------------------------
+  const { brands: apiBrands } = useBrandSystems();
+
+  const allDisplayBrands = useMemo(() => {
+    const noBrand: DisplayBrand = {
+      id: '__no-brand__',
+      name: 'No brand',
+      initial: '—',
+      logoBg: 'var(--inset)',
+      logoFg: 'var(--muted)',
+      colors: ['#c8d1d8', '#eef1f1'],
+      fonts: ['—'],
+      tone: [],
+    };
+    const real = apiBrands.map(brandSystemDtoToDisplayBrand);
+    const fallback = real.length === 0 ? DEMO_BRANDS : [];
+    return [noBrand, ...real, ...fallback];
+  }, [apiBrands]);
+
+  // Resolve the current brand from project state or navigation state.
+  const projectBrandId = config.projectBrandSystemId ?? null;
+  const curBrand = useMemo(() => {
+    if (projectBrandId) {
+      const found = allDisplayBrands.find((b) => b.id === projectBrandId);
+      if (found) return found;
+    }
+    if (config.brand) return config.brand;
+    return allDisplayBrands[0]; // "No brand"
+  }, [allDisplayBrands, projectBrandId, config.brand]);
+
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [workspaceBrand, setWorkspaceBrand] = useState(curBrand);
+
+  // Sync workspaceBrand when the computed curBrand changes (e.g. on project load).
+  useEffect(() => {
+    setWorkspaceBrand(curBrand);
+  }, [curBrand.id]);
+
+  const brandHandle = '@' + workspaceBrand.name.toLowerCase().replace(/[^a-z]+/g,'.').replace(/^\.|\.$/g,'');
+
+  // Switch or clear brand on a real project.
+  const handleSwitchBrand = useCallback(async (brandId: string | null) => {
+    const selected = allDisplayBrands.find((b) => b.id === brandId) ?? allDisplayBrands[0];
+    setWorkspaceBrand(selected);
+    setBrandOpen(false);
+    if (projectId) {
+      try {
+        await updateProject(projectId, {
+          brandSystemId: brandId === '__no-brand__' ? null : brandId,
+        });
+        flash(brandId && brandId !== '__no-brand__' ? 'Brand applied' : 'Brand cleared');
+      } catch (err) {
+        const msg = err instanceof ApiClientError ? err.message : 'Failed to update brand';
+        flash(msg);
+      }
+    } else {
+      flash(brandId && brandId !== '__no-brand__' ? 'Brand applied' : 'Brand cleared');
+    }
+  }, [allDisplayBrands, projectId, flash]);
 
   const {
     artifact,
@@ -198,8 +262,6 @@ export default function WorkspacePage() {
 
   const [exportOpen, setExportOpen] = useState(false);
   const [versOpen, setVersOpen] = useState(false);
-  const [brandOpen, setBrandOpen] = useState(false);
-  const [curBrand, setCurBrand] = useState(brand);
   const [chatWidth, setChatWidth] = useState(372);
   const resizing = useRef(false);
   const startXRef = useRef(0);
@@ -494,7 +556,7 @@ export default function WorkspacePage() {
       : `Ready to create a single post about ${pending.topic}.`,
     style: 'Calm · premium · focused',
     format: `Instagram ${ratio}`,
-    brand: curBrand.name,
+    brand: workspaceBrand.name,
     cta: 'Visit the link in bio',
   } : null;
 
@@ -662,17 +724,22 @@ export default function WorkspacePage() {
         <div className="top-divider" />
         <div style={{position:'relative'}}>
           <button className="top-sel" onClick={()=>setBrandOpen(v=>!v)}>
-            <span className="sw" style={{background:`conic-gradient(${curBrand.colors.join(',')})`}} />
-            {curBrand.name}<span className="caret">{<Icon.caret s={14} />}</span>
+            <span className="sw" style={{background:`conic-gradient(${workspaceBrand.colors.join(',')})`}} />
+            {workspaceBrand.name}<span className="caret">{<Icon.caret s={14} />}</span>
           </button>
           {brandOpen && <>
             <div className="backdrop" onClick={()=>setBrandOpen(false)} />
             <div className="menu-pop" style={{top:46,right:'auto',left:0,width:230,zIndex:26}}>
               <div className="mh">Brand system</div>
-              {BRANDS.map(b=>(
-                <button key={b.id} className="menu-item" onClick={()=>{setCurBrand(b);setBrandOpen(false);flash('Brand applied');}}>
+              {allDisplayBrands.map((b) => (
+                <button
+                  key={b.id}
+                  className="menu-item"
+                  onClick={() => handleSwitchBrand(b.id === '__no-brand__' ? null : b.id)}
+                >
                   <span className="ic" style={{background:b.logoBg,color:b.logoFg,fontFamily:'var(--font-display)'}}>{b.initial}</span>
-                  <span className="tx"><b>{b.name}</b><span>{b.tone.join(' · ')}</span></span>
+                  <span className="tx"><b>{b.name}</b><span>{b.tone.join(' · ') || 'No brand selected'}</span></span>
+                  {b.id === workspaceBrand.id && <span style={{marginLeft:'auto',color:'var(--primary)'}}>{<Icon.check s={16} />}</span>}
                 </button>
               ))}
             </div>
@@ -898,7 +965,7 @@ export default function WorkspacePage() {
               <div className="composer-bar">
                 <button className="attach" onClick={()=>flash('Asset upload — drop images or files')}>{<Icon.attach s={15} />} Add assets</button>
                 <span className="grow" />
-                <span style={{fontSize:11.5,color:'var(--muted)',marginRight:4}}>{curBrand.name}</span>
+                <span style={{fontSize:11.5,color:'var(--muted)',marginRight:4}}>{workspaceBrand.name}</span>
                 <button className="send-btn" aria-label="Send" disabled={!input.trim() || sendState === 'sending'} onClick={send}>
                   {sendState === 'sending' ? <span className="thinking"><span className="dots"><i/><i/><i/></span></span> : <Icon.send s={17} />}
                 </button>
@@ -980,7 +1047,7 @@ export default function WorkspacePage() {
                   })()}
                 </div>
                 <div className="canvas-caption">
-                  {isCarousel ? <>Card {activeCardIndex+1} of {artifact?.cards.length ?? 0} · {ratio} · {curBrand.name}</> : <>Single post · {ratio} · {curBrand.name}</>}
+                  {isCarousel ? <>Card {activeCardIndex+1} of {artifact?.cards.length ?? 0} · {ratio} · {workspaceBrand.name}</> : <>Single post · {ratio} · {workspaceBrand.name}</>}
                 </div>
               </div>
             )}
@@ -994,8 +1061,8 @@ export default function WorkspacePage() {
                 cardLayers={card.layers}
                 onAction={handleInspectorAction}
                 onClose={()=>clearSelection()}
-                brandColors={curBrand.colors}
-                brandFonts={curBrand.fonts}
+                brandColors={workspaceBrand.colors}
+                brandFonts={workspaceBrand.fonts}
               />
             )}
           </div>
