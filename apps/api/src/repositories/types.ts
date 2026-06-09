@@ -5,6 +5,8 @@ import type { ArtifactRepository } from './artifactRepository.js';
 import type { ChatRepository } from './chatRepository.js';
 import type { GenerationJobRepository } from './generationJobRepository.js';
 
+import type { CreditRepository } from './creditRepository.js';
+
 // ---------------------------------------------------------------------------
 // Repository context
 // ---------------------------------------------------------------------------
@@ -18,4 +20,5 @@ export interface Repositories {
   artifact: ArtifactRepository;
   chat: ChatRepository;
   generationJob: GenerationJobRepository;
+  credit: CreditRepository;
 }

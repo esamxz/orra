@@ -61,10 +61,228 @@ export function createFakeDbClient(initial: FakeDbState = {}): DbClient {
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Credit RPC simulation
+  // ---------------------------------------------------------------------------
+  function getOrCreateBalance(workspaceId: string) {
+    const balances = (tables['credit_balances'] ?? []) as Array<Record<string, unknown>>;
+    let bal = balances.find((b) => b.workspace_id === workspaceId);
+    if (!bal) {
+      bal = {
+        workspace_id: workspaceId,
+        subscription_available: 0,
+        topup_available: 0,
+        reserved: 0,
+        updated_at: new Date().toISOString(),
+      };
+      tables['credit_balances'] = [...balances, bal];
+    }
+    return bal;
+  }
+
+  function rpcGrantCredits(params: Record<string, unknown>) {
+    const workspaceId = params.p_workspace_id as string;
+    const bucket = params.p_bucket as string;
+    const amount = Number(params.p_amount ?? 0);
+    const metadata = (params.p_metadata ?? {}) as Record<string, unknown>;
+
+    if (amount <= 0) {
+      return Promise.resolve({ data: null, error: { message: 'Grant amount must be positive', code: '23514' } });
+    }
+
+    const ledgerId = `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const ledgerRow: Record<string, unknown> = {
+      id: ledgerId,
+      workspace_id: workspaceId,
+      entry_type: 'grant',
+      bucket,
+      amount,
+      job_id: null,
+      expires_at: null,
+      metadata,
+      created_at: new Date().toISOString(),
+    };
+    tables['credit_ledger'] = [...(tables['credit_ledger'] ?? []), ledgerRow];
+
+    const bal = getOrCreateBalance(workspaceId);
+    if (bucket === 'subscription') {
+      bal.subscription_available = Number(bal.subscription_available ?? 0) + amount;
+    } else {
+      bal.topup_available = Number(bal.topup_available ?? 0) + amount;
+    }
+    bal.updated_at = new Date().toISOString();
+
+    return Promise.resolve({ data: { ledger_id: ledgerId }, error: null });
+  }
+
+  function rpcReserveCredits(params: Record<string, unknown>) {
+    const workspaceId = params.p_workspace_id as string;
+    const amount = Number(params.p_amount ?? 0);
+    const jobId = params.p_job_id as string;
+    const metadata = (params.p_metadata ?? {}) as Record<string, unknown>;
+
+    if (amount <= 0) {
+      return Promise.resolve({ data: null, error: { message: 'Reserve amount must be positive', code: '23514' } });
+    }
+
+    const bal = getOrCreateBalance(workspaceId);
+    const subAvail = Number(bal.subscription_available ?? 0);
+    const topupAvail = Number(bal.topup_available ?? 0);
+
+    if (subAvail + topupAvail < amount) {
+      return Promise.resolve({ data: null, error: { message: 'Insufficient credits', code: 'P0001' } });
+    }
+
+    const subNeeded = Math.min(subAvail, amount);
+    const topupNeeded = amount - subNeeded;
+
+    if (subNeeded > 0) {
+      tables['credit_ledger'] = [...(tables['credit_ledger'] ?? []), {
+        id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        workspace_id: workspaceId,
+        entry_type: 'reserve',
+        bucket: 'subscription',
+        amount: -subNeeded,
+        job_id: jobId,
+        expires_at: null,
+        metadata,
+        created_at: new Date().toISOString(),
+      }];
+    }
+
+    if (topupNeeded > 0) {
+      tables['credit_ledger'] = [...(tables['credit_ledger'] ?? []), {
+        id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        workspace_id: workspaceId,
+        entry_type: 'reserve',
+        bucket: 'topup',
+        amount: -topupNeeded,
+        job_id: jobId,
+        expires_at: null,
+        metadata,
+        created_at: new Date().toISOString(),
+      }];
+    }
+
+    bal.subscription_available = subAvail - subNeeded;
+    bal.topup_available = topupAvail - topupNeeded;
+    bal.reserved = Number(bal.reserved ?? 0) + amount;
+    bal.updated_at = new Date().toISOString();
+
+    return Promise.resolve({ data: { reserved_amount: amount }, error: null });
+  }
+
+  function rpcCaptureCredits(params: Record<string, unknown>) {
+    const workspaceId = params.p_workspace_id as string;
+    const jobId = params.p_job_id as string;
+    const actualAmount = Number(params.p_actual_amount ?? 0);
+    const metadata = (params.p_metadata ?? {}) as Record<string, unknown>;
+
+    if (actualAmount < 0) {
+      return Promise.resolve({ data: null, error: { message: 'Capture amount cannot be negative', code: '23514' } });
+    }
+
+    const bal = getOrCreateBalance(workspaceId);
+    const ledger = (tables['credit_ledger'] ?? []) as Array<Record<string, unknown>>;
+    const reserves = ledger.filter(
+      (r) => r.workspace_id === workspaceId && r.job_id === jobId && r.entry_type === 'reserve'
+    );
+    const totalReserved = reserves.reduce((sum, r) => sum + Math.abs(Number(r.amount ?? 0)), 0);
+
+    if (totalReserved === 0) {
+      return Promise.resolve({ data: null, error: { message: 'No reservation found for job', code: 'P0002' } });
+    }
+
+    if (actualAmount > totalReserved) {
+      return Promise.resolve({ data: null, error: { message: 'Capture amount exceeds reservation', code: '23514' } });
+    }
+
+    const refundAmount = totalReserved - actualAmount;
+
+    tables['credit_ledger'] = [...ledger, {
+      id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      workspace_id: workspaceId,
+      entry_type: 'capture',
+      bucket: 'subscription',
+      amount: -actualAmount,
+      job_id: jobId,
+      expires_at: null,
+      metadata,
+      created_at: new Date().toISOString(),
+    }];
+
+    if (refundAmount > 0) {
+      tables['credit_ledger'] = [...(tables['credit_ledger'] ?? []), {
+        id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        workspace_id: workspaceId,
+        entry_type: 'refund',
+        bucket: 'subscription',
+        amount: refundAmount,
+        job_id: jobId,
+        expires_at: null,
+        metadata,
+        created_at: new Date().toISOString(),
+      }];
+    }
+
+    bal.reserved = Math.max(0, Number(bal.reserved ?? 0) - totalReserved);
+    bal.subscription_available = Number(bal.subscription_available ?? 0) + refundAmount;
+    bal.updated_at = new Date().toISOString();
+
+    return Promise.resolve({ data: { captured: actualAmount, refunded: refundAmount }, error: null });
+  }
+
+  function rpcRefundCredits(params: Record<string, unknown>) {
+    const workspaceId = params.p_workspace_id as string;
+    const jobId = params.p_job_id as string;
+    const metadata = (params.p_metadata ?? {}) as Record<string, unknown>;
+
+    const bal = getOrCreateBalance(workspaceId);
+    const ledger = (tables['credit_ledger'] ?? []) as Array<Record<string, unknown>>;
+    const reserves = ledger.filter(
+      (r) => r.workspace_id === workspaceId && r.job_id === jobId && r.entry_type === 'reserve'
+    );
+    const totalReserved = reserves.reduce((sum, r) => sum + Math.abs(Number(r.amount ?? 0)), 0);
+
+    if (totalReserved === 0) {
+      return Promise.resolve({ data: null, error: { message: 'No reservation found for job', code: 'P0002' } });
+    }
+
+    tables['credit_ledger'] = [...ledger, {
+      id: `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      workspace_id: workspaceId,
+      entry_type: 'refund',
+      bucket: 'subscription',
+      amount: totalReserved,
+      job_id: jobId,
+      expires_at: null,
+      metadata,
+      created_at: new Date().toISOString(),
+    }];
+
+    bal.reserved = Math.max(0, Number(bal.reserved ?? 0) - totalReserved);
+    bal.subscription_available = Number(bal.subscription_available ?? 0) + totalReserved;
+    bal.updated_at = new Date().toISOString();
+
+    return Promise.resolve({ data: { refunded: totalReserved }, error: null });
+  }
+
   return {
     rpc: (fn: string, params?: Record<string, unknown>) => {
       if (fn === 'commit_artifact_version') {
         return rpcCommitArtifactVersion(params ?? {});
+      }
+      if (fn === 'grant_credits') {
+        return rpcGrantCredits(params ?? {});
+      }
+      if (fn === 'reserve_credits') {
+        return rpcReserveCredits(params ?? {});
+      }
+      if (fn === 'capture_credits') {
+        return rpcCaptureCredits(params ?? {});
+      }
+      if (fn === 'refund_credits') {
+        return rpcRefundCredits(params ?? {});
       }
       return Promise.resolve({ data: null, error: { message: `Unknown RPC: ${fn}` } });
     },

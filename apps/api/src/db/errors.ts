@@ -22,6 +22,10 @@ const PostgresErrorCodes = {
   FOREIGN_KEY_VIOLATION: '23503',
   CHECK_VIOLATION: '23514',
   NOT_NULL_VIOLATION: '23502',
+  /** Custom raise code used by credit RPCs for insufficient balance. */
+  INSUFFICIENT_CREDITS: 'P0001',
+  /** Custom raise code used by credit RPCs when a reservation is missing. */
+  MISSING_RESERVATION: 'P0002',
 } as const;
 
 /** PostgREST-specific error codes. */
@@ -71,6 +75,16 @@ export function mapDbError(err: unknown): ApiError {
     case PostgresErrorCodes.CHECK_VIOLATION:
     case PostgresErrorCodes.NOT_NULL_VIOLATION:
       return new ApiError('VALIDATION', 'Constraint violation.', {
+        originalMessage: message,
+      });
+
+    case PostgresErrorCodes.INSUFFICIENT_CREDITS:
+      return new ApiError('INSUFFICIENT_CREDITS', 'Insufficient credits.', {
+        originalMessage: message,
+      });
+
+    case PostgresErrorCodes.MISSING_RESERVATION:
+      return new ApiError('NOT_FOUND', 'Reservation not found.', {
         originalMessage: message,
       });
 

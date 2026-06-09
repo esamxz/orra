@@ -631,3 +631,52 @@ describe('circular FK resolution: artifacts ↔ artifact_versions', () => {
     ).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Credit ledger RPC migration
+// ---------------------------------------------------------------------------
+
+const CREDIT_RPC = join(MIGRATIONS_DIR, '20260609000001_orra_credit_ledger_rpc.sql');
+let creditRpc: string;
+
+beforeAll(() => {
+  creditRpc = readFileSync(CREDIT_RPC, 'utf-8').toLowerCase();
+});
+
+describe('credit ledger RPC migration', () => {
+  it('migration file is readable', () => {
+    expect(creditRpc.length).toBeGreaterThan(0);
+  });
+
+  it('defines grant_credits function', () => {
+    expect(has(creditRpc, 'create or replace function grant_credits')).toBe(true);
+  });
+
+  it('defines reserve_credits function', () => {
+    expect(has(creditRpc, 'create or replace function reserve_credits')).toBe(true);
+  });
+
+  it('defines capture_credits function', () => {
+    expect(has(creditRpc, 'create or replace function capture_credits')).toBe(true);
+  });
+
+  it('defines refund_credits function', () => {
+    expect(has(creditRpc, 'create or replace function refund_credits')).toBe(true);
+  });
+
+  it('reserve_credits checks for insufficient credits', () => {
+    expect(has(creditRpc, 'insufficient credits')).toBe(true);
+  });
+
+  it('reserve_credits uses for update row lock', () => {
+    expect(has(creditRpc, 'for update')).toBe(true);
+  });
+
+  it('capture_credits looks up reserve entries by job_id', () => {
+    expect(has(creditRpc, "entry_type = 'reserve'")).toBe(true);
+  });
+
+  it('refund_credits looks up reserve entries by job_id', () => {
+    expect(has(creditRpc, 'no reservation found for job')).toBe(true);
+  });
+});
