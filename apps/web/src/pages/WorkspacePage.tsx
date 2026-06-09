@@ -7,6 +7,7 @@ import { useProjectMessages } from '../hooks/useProjectMessages';
 import { useGenerationJobPolling } from '../hooks/useGenerationJobPolling';
 import { useCreditStatus } from '../hooks/useCreditStatus';
 import { useBrandSystems } from '../hooks/useBrandSystems';
+import { useAssetUpload } from '../hooks/useAssetUpload';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { updateProject } from '../api/projects';
@@ -130,6 +131,9 @@ export default function WorkspacePage() {
   const [actingMessageId, setActingMessageId] = useState<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | undefined>(undefined);
   const lastIntentRef = useRef<DirectorIntentResult | null>(null);
+
+  const projectAssetUpload = useAssetUpload();
+  const projectAssetInputRef = useRef<HTMLInputElement>(null);
 
   const { theme, toggle: toggleTheme } = useTheme();
   const [toast, setToast] = useState<string | null>(null);
@@ -673,6 +677,23 @@ export default function WorkspacePage() {
     setEditingLayerId(null);
   }, []);
 
+  const handleProjectAssetSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    if (!file || !projectId) return;
+    const uploaded = await projectAssetUpload.upload(file, {
+      type: 'project',
+      projectId,
+      kind: 'upload',
+    });
+    if (uploaded) {
+      flash(`Asset uploaded: ${uploaded.fileName}`);
+    } else {
+      flash(projectAssetUpload.error ?? 'Asset upload failed');
+    }
+    // Reset input so the same file can be selected again
+    e.target.value = '';
+  }, [projectId, projectAssetUpload, flash]);
+
   // Cancel edit on card switch; TextEditOverlay cleanup commits pending text first
   useEffect(() => {
     setEditingLayerId(null);
@@ -838,6 +859,14 @@ export default function WorkspacePage() {
         </div>
       </div>
 
+      <input
+        ref={projectAssetInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        style={{ display: 'none' }}
+        onChange={handleProjectAssetSelect}
+      />
+
       {/* BODY */}
       <div className="work-body">
         {/* CHAT */}
@@ -963,7 +992,7 @@ export default function WorkspacePage() {
                 onChange={e=>{ setInput(e.target.value); e.target.style.height='auto'; e.target.style.height=Math.min(e.target.scrollHeight,120)+'px'; }}
                 onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } }} />
               <div className="composer-bar">
-                <button className="attach" onClick={()=>flash('Asset upload — drop images or files')}>{<Icon.attach s={15} />} Add assets</button>
+                <button className="attach" onClick={()=> projectAssetInputRef.current?.click()}>{<Icon.attach s={15} />} Add assets</button>
                 <span className="grow" />
                 <span style={{fontSize:11.5,color:'var(--muted)',marginRight:4}}>{workspaceBrand.name}</span>
                 <button className="send-btn" aria-label="Send" disabled={!input.trim() || sendState === 'sending'} onClick={send}>
@@ -1010,7 +1039,7 @@ export default function WorkspacePage() {
                 <p>Start with a prompt, upload assets, or choose a trend template. Orra will plan the direction, then lay out editable text over your visuals.</p>
                 <div className="opts">
                   <button className="btn btn-ghost" onClick={()=>{ taRef.current&&taRef.current.focus(); }}>{<Icon.message s={16} />} Write a prompt</button>
-                  <button className="btn btn-soft" onClick={()=>flash('Asset upload — drop images or files')}>{<Icon.assets s={16} />} Upload assets</button>
+                  <button className="btn btn-soft" onClick={()=> projectAssetInputRef.current?.click()}>{<Icon.assets s={16} />} Upload assets</button>
                 </div>
               </div>
             ) : (

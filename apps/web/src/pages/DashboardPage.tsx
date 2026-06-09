@@ -7,6 +7,7 @@ import { CardBg } from '../data/cards';
 import CreateBrandSystemModal from '../components/brand/CreateBrandSystemModal';
 import { useTheme } from '../hooks/useTheme';
 import { useCreditStatus } from '../hooks/useCreditStatus';
+import { useAssetUpload } from '../hooks/useAssetUpload';
 import UsageStatus from '../components/workspace/UsageStatus';
 import { useProjects } from '../hooks/useProjects';
 import { useBrandSystems } from '../hooks/useBrandSystems';
@@ -51,6 +52,9 @@ export default function DashboardPage() {
 
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [brandUploadStatus, setBrandUploadStatus] = useState<string | null>(null);
+
+  const brandUpload = useAssetUpload();
 
   // ---------------------------------------------------------------------------
   // Brand systems from API
@@ -471,8 +475,12 @@ export default function DashboardPage() {
 
       <CreateBrandSystemModal
         open={brandModalOpen}
-        onClose={() => setBrandModalOpen(false)}
-        onCreate={async (formData) => {
+        onClose={() => {
+          setBrandModalOpen(false);
+          setBrandUploadStatus(null);
+          brandUpload.reset();
+        }}
+        onCreate={async (formData, logoFile) => {
           const input = {
             name: formData.name,
             description: formData.description || undefined,
@@ -484,9 +492,51 @@ export default function DashboardPage() {
           const brand = await createBrand(input);
           if (brand) {
             setSelectedBrandId(brand.id);
+
+            // Upload logo as a brand asset if a file was selected.
+            if (logoFile) {
+              setBrandUploadStatus('Uploading logo…');
+              const uploaded = await brandUpload.upload(logoFile, {
+                type: 'brand',
+                brandSystemId: brand.id,
+                kind: 'logo',
+              });
+              if (uploaded) {
+                // The asset is stored and linked to the brand system via the
+                // asset row. The brand system record does not yet reference it
+                // as a logo (logoAssetId persistence is not implemented).
+                setBrandUploadStatus('Logo uploaded as brand asset. Logo display comes later.');
+              } else {
+                setBrandUploadStatus(brandUpload.error ?? 'Logo upload failed');
+              }
+            }
           }
         }}
       />
+      {brandUploadStatus && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
+            zIndex: 50,
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: 'var(--panel)',
+            border: '1px solid var(--line-soft)',
+            fontSize: 13,
+            color:
+              brandUpload.status === 'failed'
+                ? 'var(--danger, #c44)'
+                : brandUpload.status === 'succeeded'
+                  ? 'var(--success, #5b9279)'
+                  : 'var(--muted)',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+          }}
+        >
+          {brandUploadStatus}
+        </div>
+      )}
     </div>
   );
 }

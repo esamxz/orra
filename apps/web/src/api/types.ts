@@ -231,3 +231,43 @@ export interface CreditStatusResponse {
 export interface ListCreditLedgerParams {
   limit?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Asset upload types
+// ---------------------------------------------------------------------------
+
+export interface AssetDto {
+  id: string;
+  workspaceId: string;
+  projectId: string | null;
+  brandSystemId: string | null;
+  kind: string;
+  fileName: string;
+  contentType: string | null;
+  sizeBytes: number | null;
+  r2Key: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface UploadIntentInput {
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  kind: string;
+}
+
+export interface UploadIntentResponse {
+  asset: AssetDto;
+  upload: {
+    method: 'PUT';
+    url: string;
+    headers: Record<string, string>;
+    expiresAt: string;
+  };
+}
+
+export interface ConfirmAssetUploadInput {
+  expectedSizeBytes?: number;
+  expectedContentType?: string;
+}

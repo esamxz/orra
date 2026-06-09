@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { Upload, X } from 'lucide-react';
 import Modal from '../ui/Modal';
 import {
@@ -20,7 +20,7 @@ export interface BrandSystemFormData {
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreate: (brand: BrandSystemFormData) => void;
+  onCreate: (brand: BrandSystemFormData, logoFile: File | null) => void;
 }
 
 const PRESETS = BRAND_TYPOGRAPHY_PRESETS;
@@ -141,6 +141,9 @@ function RoleRow({
   );
 }
 
+const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const MAX_LOGO_SIZE = 10 * 1024 * 1024;
+
 export default function CreateBrandSystemModal({ open, onClose, onCreate }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -157,6 +160,10 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
   const [captionFont, setCaptionFont] = useState(PRESETS['editorial-calm'].captionFont);
   const [captionWeight, setCaptionWeight] = useState(PRESETS['editorial-calm'].captionWeight);
   const [notes, setNotes] = useState('');
+
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const applyPreset = useCallback((key: BrandPresetKey) => {
     setPreset(key);
@@ -188,17 +195,35 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
     [preset, titleFont, titleWeight, bodyFont, bodyWeight, accentFont, accentWeight, captionFont, captionWeight, notes],
   );
 
+  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setLogoError(null);
+    if (!file) return;
+    if (!ALLOWED_LOGO_TYPES.includes(file.type)) {
+      setLogoError('Unsupported file type. Please use PNG, JPEG, or WebP.');
+      return;
+    }
+    if (file.size > MAX_LOGO_SIZE) {
+      setLogoError('File is too large. Maximum size is 10 MB.');
+      return;
+    }
+    setLogoFile(file);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onCreate({
-      name: name.trim(),
-      description: description.trim(),
-      palette,
-      toneOfVoice: tone.trim(),
-      visualDirection: visual.trim(),
-      typography,
-    });
+    onCreate(
+      {
+        name: name.trim(),
+        description: description.trim(),
+        palette,
+        toneOfVoice: tone.trim(),
+        visualDirection: visual.trim(),
+        typography,
+      },
+      logoFile,
+    );
     // Reset
     setName('');
     setDescription('');
@@ -216,6 +241,8 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
     setCaptionFont(p.captionFont);
     setCaptionWeight(p.captionWeight);
     setNotes('');
+    setLogoFile(null);
+    setLogoError(null);
     onClose();
   };
 
@@ -260,25 +287,46 @@ export default function CreateBrandSystemModal({ open, onClose, onCreate }: Prop
 
           <div>
             <SectionLabel>Logo</SectionLabel>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: 'none' }}
+              onChange={handleLogoSelect}
+            />
             <div
+              onClick={() => logoInputRef.current?.click()}
               style={{
                 width: '100%',
                 height: '120px',
-                border: '2px dashed var(--line-soft)',
+                border: `2px dashed ${logoError ? 'var(--danger, #c44)' : 'var(--line-soft)'}`,
                 borderRadius: '9px',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '0.5rem',
-                color: 'var(--muted)',
+                color: logoError ? 'var(--danger, #c44)' : 'var(--muted)',
                 fontSize: '0.85rem',
                 cursor: 'pointer',
+                background: logoFile ? 'var(--primary-06, rgba(93,138,155,0.06))' : undefined,
               }}
             >
               <Upload size={20} />
-              <span>Upload logo image</span>
+              {logoFile ? (
+                <span style={{ fontWeight: 500 }}>{logoFile.name}</span>
+              ) : (
+                <span>Upload logo image</span>
+              )}
             </div>
+            {logoError && (
+              <p style={{ marginTop: 6, fontSize: 12, color: 'var(--danger, #c44)' }}>{logoError}</p>
+            )}
+            {logoFile && !logoError && (
+              <p style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+                Logo will be uploaded after the brand system is created.
+              </p>
+            )}
           </div>
 
           <div>
