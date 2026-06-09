@@ -431,6 +431,48 @@ describe('MockGenerationConsumer', () => {
     expect(job!.status).toBe('failed');
   });
 
+  it('generated document validation failure marks job failed', async () => {
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+
+    // Simulate the generator producing an invalid document by intercepting schema validation
+    const parseSpy = vi.spyOn(ArtifactDocumentSchema, 'safeParse').mockReturnValue({
+      success: false,
+      error: {
+        issues: [{ path: ['cards'], message: 'Array must contain at least 1 element(s)' }],
+      } as unknown as import('zod').ZodError,
+    } as import('zod').SafeParseReturnType<unknown, ArtifactDocument>);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    errorSpy.mockRestore();
+    parseSpy.mockRestore();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
+  });
+
   it('artifact commit conflict marks job failed', async () => {
     const artifact: ArtifactRow = {
       id: '11111111-1111-1111-1111-111111111111',

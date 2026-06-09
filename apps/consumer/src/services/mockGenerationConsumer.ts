@@ -126,6 +126,16 @@ export class MockGenerationConsumer {
         topic,
       });
 
+      // 8b. Belt-and-suspenders: validate generated document before committing.
+      // The generator already self-validates; this guards against future bugs.
+      const generatedValidation = ArtifactDocumentSchema.safeParse(mockDocument);
+      if (!generatedValidation.success) {
+        const issues = generatedValidation.error.issues
+          .map((issue: { path: (string | number)[]; message: string }) => `${issue.path.join('.')}: ${issue.message}`)
+          .join('; ');
+        throw new Error(`Generated artifact document failed schema validation: ${issues}`);
+      }
+
       // 9. Commit new artifact version atomically
       const nextVersionNumber = current.version.version + 1;
       const committedVersion = await this.artifactRepo.commitVersion({

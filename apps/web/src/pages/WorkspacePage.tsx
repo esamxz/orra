@@ -171,8 +171,10 @@ export default function WorkspacePage() {
 
   const {
     job: polledJob,
+    artifact: polledArtifact,
+    artifactError: pollArtifactError,
     // state: pollingState, // reserved for future UI states
-  } = useGenerationJobPolling(activeJobId);
+  } = useGenerationJobPolling(activeJobId, serverArtifactId ?? undefined);
 
   // Selection state from workspace store
   const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
@@ -232,7 +234,7 @@ export default function WorkspacePage() {
         updated[generatingIdx] = {
           ...updated[generatingIdx],
           type: 'done',
-          text: 'Generation completed. Result writing comes next.',
+          text: 'Generation completed. The updated design is loading.',
         };
         flash('Generation completed');
       } else if (status === 'failed') {
@@ -247,6 +249,21 @@ export default function WorkspacePage() {
       return updated;
     });
   }, [polledJob, activeJobId, flash]);
+
+  // Phase 9H: when polling hook loads a new artifact after job success,
+  // hydrate the editor with the updated document.
+  useEffect(() => {
+    if (!polledArtifact) return;
+    resetArtifact(polledArtifact.document);
+    setPhase('generated');
+    flash('Updated design loaded');
+  }, [polledArtifact, resetArtifact, flash]);
+
+  // Phase 9H: surface calm error when artifact reload fails after success.
+  useEffect(() => {
+    if (!pollArtifactError) return;
+    flash(pollArtifactError);
+  }, [pollArtifactError, flash]);
 
   const displayMessages = useMemo(() => {
     return projectId ? realMessages : messages;

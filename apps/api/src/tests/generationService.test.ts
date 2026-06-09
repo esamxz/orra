@@ -243,6 +243,59 @@ describe('GenerationService', () => {
     ).rejects.toThrow('approved');
   });
 
+  it('rejects cancelled approval', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready to create a post.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready to create a post.' },
+        approvalState: { status: 'cancelled', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      createFakeGenerationJobRepository(),
+      chatRepo,
+      projectRepo
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' })
+    ).rejects.toThrow('approved');
+  });
+
   it('rejects non-approval message', async () => {
     const projectRepo = createFakeProjectRepository([
       {
