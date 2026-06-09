@@ -583,7 +583,11 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
         {(layer.type === 'logo' || layer.type === 'image' || layer.type === 'object') && (
           <Section>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--muted)' }}>
-              <div>Asset: {(layer as { assetId?: string }).assetId ? 'Loaded' : 'None'}</div>
+              <div>
+                {(layer as { assetId?: string }).assetId
+                  ? (layer.type === 'image' ? 'Project asset' : 'Loaded')
+                  : 'None'}
+              </div>
               {layer.type === 'logo' && <div style={{ fontSize: '11.5px', opacity: 0.7 }}>Logo asset cannot be changed</div>}
             </div>
           </Section>

@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import Konva from 'konva';
 import type { ArtifactDocument } from '@orra/shared';
 import { buildCardRenderData, type RenderLayer } from '@orra/renderer';
@@ -16,6 +16,7 @@ interface Props {
   onDblClick?: (layerId: string) => void;
   editingLayerId?: string | null;
   onResizeEnd?: (layerId: string, x: number, y: number, w: number, h: number) => void;
+  previewUrls?: Record<string, string>;
 }
 
 function buildBackgroundGradient(baseColor: string): [string, string] {
@@ -44,6 +45,7 @@ export default function KonvaStage({
   onDblClick,
   editingLayerId,
   onResizeEnd,
+  previewUrls = {},
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -59,6 +61,12 @@ export default function KonvaStage({
     onResizeEnd,
   });
 
+  // Image loading cache for canvas asset layers
+  const loadedImagesRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const loadingImagesRef = useRef<Set<string>>(new Set());
+  const failedImagesRef = useRef<Set<string>>(new Set());
+  const [imageTick, setImageTick] = useState(0);
+
   useEffect(() => {
     stateRef.current = {
       document,
@@ -72,6 +80,38 @@ export default function KonvaStage({
       onResizeEnd,
     };
   });
+
+  // Load images for visible image layers when preview URLs arrive
+  useEffect(() => {
+    const card = document.cards[activeCardIndex];
+    if (!card) return;
+    const imageLayers = card.layers.filter(
+      (l) => l.type === 'image' && !l.hidden,
+    );
+    for (const layer of imageLayers) {
+      const assetId = (layer as { assetId?: string }).assetId;
+      if (!assetId) continue;
+      const url = previewUrls[assetId];
+      if (!url) continue;
+      if (loadedImagesRef.current.has(assetId)) continue;
+      if (loadingImagesRef.current.has(assetId)) continue;
+
+      loadingImagesRef.current.add(assetId);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        loadedImagesRef.current.set(assetId, img);
+        loadingImagesRef.current.delete(assetId);
+        setImageTick((t) => t + 1);
+      };
+      img.onerror = () => {
+        failedImagesRef.current.add(assetId);
+        loadingImagesRef.current.delete(assetId);
+        setImageTick((t) => t + 1);
+      };
+      img.src = url;
+    }
+  }, [document, activeCardIndex, previewUrls]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -110,7 +150,7 @@ export default function KonvaStage({
 
   useEffect(() => {
     draw(document, activeCardIndex, selectedLayerId, editingLayerId ?? null);
-  }, [document, activeCardIndex, selectedLayerId, editingLayerId]);
+  }, [document, activeCardIndex, selectedLayerId, editingLayerId, imageTick]);
 
   function createResizeTransformer(
     group: Konva.Group,
@@ -283,7 +323,47 @@ export default function KonvaStage({
         return null;
       }
 
-      case 'image':
+      case 'image': {
+        const loadedImg = loadedImagesRef.current.get(layer.assetId);
+        if (loadedImg) {
+          const konvaImg = new Konva.Image({
+            x: 0,
+            y: 0,
+            width: layer.w,
+            height: layer.h,
+            image: loadedImg,
+            listening: true,
+          });
+          group.add(konvaImg);
+        } else {
+          const isFailed = failedImagesRef.current.has(layer.assetId);
+          const placeholder = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: layer.w,
+            height: layer.h,
+            fill: isFailed ? '#e6eaeb' : '#c8d1d8',
+            stroke: isSelected ? '#354e53' : '#a4b7bd',
+            strokeWidth: isSelected ? 2 : 1,
+            dash: [4, 4],
+            listening: true,
+          });
+          const label = new Konva.Text({
+            x: 0,
+            y: layer.h / 2 - 8,
+            width: layer.w,
+            text: isFailed ? 'Image unavailable' : 'Image',
+            fontSize: 14,
+            fontFamily: 'Hanken Grotesk, system-ui, sans-serif',
+            fill: '#5e7680',
+            align: 'center',
+            listening: false,
+          });
+          group.add(placeholder, label);
+        }
+        break;
+      }
+
       case 'object':
       case 'logo': {
         const placeholder = new Konva.Rect({

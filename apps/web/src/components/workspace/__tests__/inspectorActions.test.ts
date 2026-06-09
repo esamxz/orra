@@ -6,6 +6,7 @@ import {
   buildRemoveLayerAction,
   buildAddLayerAction,
   buildReorderLayersAction,
+  buildInsertImageLayerAction,
 } from '../inspectorActions';
 import {
   applyAction,
@@ -166,6 +167,22 @@ describe('inspector action builders', () => {
       cardId: 'card-1',
       layer,
     });
+  });
+
+  it('builds insertImageLayer action with centered geometry', () => {
+    const action = buildInsertImageLayerAction('card-1', 'asset-123', 1080, 1350);
+    expect(action.type).toBe('addLayer');
+    const addAction = action as Extract<typeof action, { type: 'addLayer' }>;
+    expect(addAction.cardId).toBe('card-1');
+    expect(addAction.layer.type).toBe('image');
+    expect((addAction.layer as { assetId?: string }).assetId).toBe('asset-123');
+    expect(addAction.layer.x).toBeGreaterThan(0);
+    expect(addAction.layer.y).toBeGreaterThan(0);
+    expect(addAction.layer.w).toBeLessThanOrEqual(1080);
+    expect(addAction.layer.h).toBeLessThanOrEqual(1350);
+    expect(addAction.layer.x).toBe(Math.round((1080 - addAction.layer.w) / 2));
+    expect(addAction.layer.y).toBe(Math.round((1350 - addAction.layer.h) / 2));
+    expect((addAction.layer as { fit?: string }).fit).toBe('contain');
   });
 });
 

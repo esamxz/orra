@@ -9,6 +9,7 @@ import { useCreditStatus } from '../hooks/useCreditStatus';
 import { useBrandSystems } from '../hooks/useBrandSystems';
 import { useAssetUpload } from '../hooks/useAssetUpload';
 import { useProjectAssets } from '../hooks/useProjectAssets';
+import { useAssetPreviewUrls } from '../hooks/useAssetPreviewUrls';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { updateProject } from '../api/projects';
@@ -36,7 +37,7 @@ import ExportMenu from '../components/workspace/ExportMenu';
 import VersionHistoryPopover from '../components/workspace/VersionHistoryPopover';
 import UsageStatus from '../components/workspace/UsageStatus';
 import { useWorkspaceStore } from '../stores/workspaceStore';
-import { buildUpdateLayerPropsAction, buildSetTextContentAction } from '../components/workspace/inspectorActions';
+import { buildUpdateLayerPropsAction, buildSetTextContentAction, buildInsertImageLayerAction } from '../components/workspace/inspectorActions';
 import { shouldEnterEditMode } from '../components/workspace/textEditHelpers';
 import TextEditOverlay from '../components/workspace/TextEditOverlay';
 import { exportCardAsPng, exportCarouselAsZip, waitForFonts } from '../export/exportCard';
@@ -290,6 +291,17 @@ export default function WorkspacePage() {
   }, [dispatch]);
 
   const card = artifact ? artifact.cards[activeCardIndex] : null;
+
+  // Preview URLs for image layers on the active card
+  const activeImageAssetIds = useMemo(() => {
+    if (!card) return [];
+    return card.layers
+      .filter((l) => l.type === 'image' && !l.hidden)
+      .map((l) => (l as { assetId: string }).assetId);
+  }, [card]);
+
+  const canvasPreviewUrls = useAssetPreviewUrls(projectId ?? undefined, activeImageAssetIds);
+
   const fr = frameSize(ratio, isCarousel?500:548);
 
   // Sync real messages from API when projectId or apiMessages change
@@ -704,6 +716,23 @@ export default function WorkspacePage() {
     e.target.value = '';
   }, [projectId, projectAssetUpload, flash]);
 
+  const handleInsertAsset = useCallback((assetId: string) => {
+    if (!artifact || !card) {
+      flash('Open a card before inserting');
+      return;
+    }
+    const action = buildInsertImageLayerAction(card.id, assetId, artifact.ratio.w, artifact.ratio.h);
+    if (dispatch(action)) {
+      flash('Image inserted');
+      // Attempt to select the new layer after a tick
+      if (action.type === 'addLayer') {
+        setTimeout(() => selectLayer(action.layer.id, 'image'), 0);
+      }
+    } else {
+      flash('Could not insert image');
+    }
+  }, [artifact, card, dispatch, flash, selectLayer]);
+
   // Cancel edit on card switch; TextEditOverlay cleanup commits pending text first
   useEffect(() => {
     setEditingLayerId(null);
@@ -990,18 +1019,18 @@ export default function WorkspacePage() {
               </div>
               <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
                 {projectAssets.assets.map((asset) => (
-                  <div key={asset.id} style={{ flex: 'none', width: 56, textAlign: 'center' }}>
+                  <div key={asset.id} style={{ flex: 'none', width: 72, textAlign: 'center' }}>
                     {projectAssets.previewUrls[asset.id] ? (
                       <img
                         src={projectAssets.previewUrls[asset.id]}
                         alt={asset.fileName}
-                        style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'cover', display: 'block' }}
+                        style={{ width: 72, height: 56, borderRadius: 6, objectFit: 'cover', display: 'block' }}
                       />
                     ) : (
                       <button
                         className="btn-icon"
                         style={{
-                          width: 56,
+                          width: 72,
                           height: 56,
                           borderRadius: 6,
                           background: 'var(--inset)',
@@ -1019,9 +1048,19 @@ export default function WorkspacePage() {
                         {asset.status === 'uploaded' ? 'IMG' : '…'}
                       </button>
                     )}
-                    <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 56 }}>
+                    <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 72 }}>
                       {asset.fileName}
                     </div>
+                    {asset.status === 'uploaded' && (
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        style={{ marginTop: 4, fontSize: 10, height: 22, padding: '0 6px' }}
+                        onClick={() => handleInsertAsset(asset.id)}
+                        title="Insert into canvas"
+                      >
+                        Insert
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1112,6 +1151,7 @@ export default function WorkspacePage() {
                       onDblClick={handleDblClick}
                       editingLayerId={editingLayerId}
                       onResizeEnd={handleResizeEnd}
+                      previewUrls={canvasPreviewUrls.urls}
                     />
                   )}
                   {editingLayerId && artifact && card && (() => {

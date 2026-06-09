@@ -27,6 +27,9 @@ function buildExportNode(layer: RenderLayer): Konva.Group | null {
       return null;
 
     case 'image':
+      // KNOWN LIMITATION: asset-backed image layers render as placeholders in export.
+      // Export renderer does not resolve signed preview URLs or load external images.
+      // Real image export will require passing a preloaded Image or data URL.
     case 'object':
     case 'logo': {
       const placeholder = new Konva.Rect({
