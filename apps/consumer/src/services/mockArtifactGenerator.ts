@@ -1,11 +1,15 @@
-import type { ArtifactDocument, Card, Layer, TextLayer, ShapeLayer, OverlayLayer } from '@orra/shared';
-import { ArtifactDocumentSchema } from '@orra/shared';
+import type { ArtifactDocument, Card, Layer, TextLayer, ShapeLayer, OverlayLayer, BrandContextDto } from '@orra/shared';
+import { ArtifactDocumentSchema, isSupportedFontFamily } from '@orra/shared';
 
 // ---------------------------------------------------------------------------
 // Mock artifact generator
 // ---------------------------------------------------------------------------
-// Phase 9H: produces a deterministic, valid ArtifactDocument using only
+// Phase 11C: produces a deterministic, valid ArtifactDocument using only
 // text, shape, overlay, and baseColor layers. No external image assets.
+//
+// When brandContext is provided, brand colors and fonts are used where valid.
+// Invalid brand colors fall back to the Orra default palette.
+// Invalid brand fonts fall back to the Orra default catalog fonts.
 //
 // The output is visually simple but schema-valid:
 //   - one gradient overlay (bottom scrim)
@@ -25,23 +29,116 @@ export interface MockGenerationInput {
   targetCardCount?: number;
   /** Optional topic extracted from the approval plan for mock copy. */
   topic?: string | null;
+  /** Optional brand context to influence colors and fonts. */
+  brandContext?: BrandContextDto | null;
 }
 
 const ORRA_PALETTE = ['#1d2a30', '#354e53', '#5e7680', '#a4b7bd', '#c8d1d8'];
 
-const TITLE_FONT = 'Newsreader';
-const BODY_FONT = 'Inter';
-const ACCENT_FONT = 'Space Grotesk';
+const DEFAULT_TITLE_FONT = 'Newsreader';
+const DEFAULT_BODY_FONT = 'Inter';
+const DEFAULT_ACCENT_FONT = 'Space Grotesk';
 
-function pickBaseColor(index: number): string {
+const DEFAULT_TITLE_COLOR = '#c8d1d8';
+const DEFAULT_BODY_COLOR = '#a4b7bd';
+const DEFAULT_SHAPE_COLOR = '#a4b7bd';
+const DEFAULT_OVERLAY_START = '#1d2a30';
+const DEFAULT_OVERLAY_END = '#354e53';
+
+// ---------------------------------------------------------------------------
+// Color helpers
+// ---------------------------------------------------------------------------
+
+function isValidHexColor(color: string | undefined): color is string {
+  return typeof color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(color);
+}
+
+function pickBaseColor(index: number, brandContext?: BrandContextDto | null): string {
+  if (brandContext?.colors?.background && isValidHexColor(brandContext.colors.background)) {
+    return brandContext.colors.background;
+  }
+  if (brandContext?.colors?.primary && isValidHexColor(brandContext.colors.primary)) {
+    return brandContext.colors.primary;
+  }
   return ORRA_PALETTE[index % ORRA_PALETTE.length];
 }
+
+function pickTitleColor(brandContext?: BrandContextDto | null): string {
+  if (brandContext?.colors?.text && isValidHexColor(brandContext.colors.text)) {
+    return brandContext.colors.text;
+  }
+  return DEFAULT_TITLE_COLOR;
+}
+
+function pickBodyColor(brandContext?: BrandContextDto | null): string {
+  if (brandContext?.colors?.text && isValidHexColor(brandContext.colors.text)) {
+    // Slightly muted version of text color for body
+    return brandContext.colors.text;
+  }
+  return DEFAULT_BODY_COLOR;
+}
+
+function pickShapeColor(brandContext?: BrandContextDto | null): string {
+  if (brandContext?.colors?.accent && isValidHexColor(brandContext.colors.accent)) {
+    return brandContext.colors.accent;
+  }
+  if (brandContext?.colors?.secondary && isValidHexColor(brandContext.colors.secondary)) {
+    return brandContext.colors.secondary;
+  }
+  return DEFAULT_SHAPE_COLOR;
+}
+
+function pickOverlayStops(brandContext?: BrandContextDto | null): [string, string] {
+  const start =
+    brandContext?.colors?.background && isValidHexColor(brandContext.colors.background)
+      ? brandContext.colors.background
+      : DEFAULT_OVERLAY_START;
+  const end =
+    brandContext?.colors?.primary && isValidHexColor(brandContext.colors.primary)
+      ? brandContext.colors.primary
+      : DEFAULT_OVERLAY_END;
+  return [start, end];
+}
+
+// ---------------------------------------------------------------------------
+// Font helpers
+// ---------------------------------------------------------------------------
+
+function pickTitleFont(brandContext?: BrandContextDto | null): string {
+  const font = brandContext?.typography?.headingFont;
+  if (font && isSupportedFontFamily(font)) {
+    return font;
+  }
+  return DEFAULT_TITLE_FONT;
+}
+
+function pickBodyFont(brandContext?: BrandContextDto | null): string {
+  const font = brandContext?.typography?.bodyFont;
+  if (font && isSupportedFontFamily(font)) {
+    return font;
+  }
+  return DEFAULT_BODY_FONT;
+}
+
+function pickAccentFont(brandContext?: BrandContextDto | null): string {
+  // Accent font falls back to heading font if valid, then default accent
+  const font = brandContext?.typography?.headingFont;
+  if (font && isSupportedFontFamily(font)) {
+    return font;
+  }
+  return DEFAULT_ACCENT_FONT;
+}
+
+// ---------------------------------------------------------------------------
+// Layer builders
+// ---------------------------------------------------------------------------
 
 function randomUUID(): string {
   return crypto.randomUUID();
 }
 
-function makeOverlayLayer(z: number, cardH: number): OverlayLayer {
+function makeOverlayLayer(z: number, cardH: number, brandContext?: BrandContextDto | null): OverlayLayer {
+  const [start, end] = pickOverlayStops(brandContext);
   return {
     id: randomUUID(),
     type: 'overlay',
@@ -57,15 +154,15 @@ function makeOverlayLayer(z: number, cardH: number): OverlayLayer {
     overlayKind: 'linearGradient',
     params: {
       stops: [
-        { offset: 0, color: '#1d2a30' },
-        { offset: 1, color: '#354e53' },
+        { offset: 0, color: start },
+        { offset: 1, color: end },
       ],
       angle: 180,
     },
   };
 }
 
-function makeShapeAccent(z: number): ShapeLayer {
+function makeShapeAccent(z: number, brandContext?: BrandContextDto | null): ShapeLayer {
   return {
     id: randomUUID(),
     type: 'shape',
@@ -79,12 +176,12 @@ function makeShapeAccent(z: number): ShapeLayer {
     locked: false,
     hidden: false,
     shapeKind: 'rect',
-    fill: '#a4b7bd',
+    fill: pickShapeColor(brandContext),
     cornerRadius: 3,
   };
 }
 
-function makeTitleText(z: number, cardW: number, topic?: string | null): TextLayer {
+function makeTitleText(z: number, cardW: number, topic?: string | null, brandContext?: BrandContextDto | null): TextLayer {
   const content = topic ? `Mock: ${topic}` : 'Mock Generation';
   return {
     id: randomUUID(),
@@ -99,18 +196,18 @@ function makeTitleText(z: number, cardW: number, topic?: string | null): TextLay
     locked: false,
     hidden: false,
     content,
-    fontFamily: TITLE_FONT,
+    fontFamily: pickTitleFont(brandContext),
     fontSize: 72,
     fontWeight: 400,
     lineHeight: 1.15,
     letterSpacing: 0,
-    color: '#c8d1d8',
+    color: pickTitleColor(brandContext),
     align: 'left',
     role: 'title',
   };
 }
 
-function makeBodyText(z: number, cardW: number): TextLayer {
+function makeBodyText(z: number, cardW: number, brandContext?: BrandContextDto | null): TextLayer {
   return {
     id: randomUUID(),
     type: 'text',
@@ -124,18 +221,18 @@ function makeBodyText(z: number, cardW: number): TextLayer {
     locked: false,
     hidden: false,
     content: 'This is a placeholder generated by the mock consumer. No AI or image assets were used. Text remains fully editable.',
-    fontFamily: BODY_FONT,
+    fontFamily: pickBodyFont(brandContext),
     fontSize: 24,
     fontWeight: 400,
     lineHeight: 1.5,
     letterSpacing: 0.2,
-    color: '#a4b7bd',
+    color: pickBodyColor(brandContext),
     align: 'left',
     role: 'body',
   };
 }
 
-function makeIndexText(z: number, cardW: number, cardH: number, index: number, total: number): TextLayer {
+function makeIndexText(z: number, cardW: number, cardH: number, index: number, total: number, brandContext?: BrandContextDto | null): TextLayer {
   return {
     id: randomUUID(),
     type: 'text',
@@ -149,41 +246,48 @@ function makeIndexText(z: number, cardW: number, cardH: number, index: number, t
     locked: false,
     hidden: false,
     content: `${index + 1} / ${total}`,
-    fontFamily: ACCENT_FONT,
+    fontFamily: pickAccentFont(brandContext),
     fontSize: 18,
     fontWeight: 500,
     lineHeight: 1.2,
     letterSpacing: 1,
-    color: '#c8d1d8',
+    color: pickTitleColor(brandContext),
     align: 'right',
     role: 'caption',
   };
 }
 
-function buildMockCard(index: number, total: number, ratioW: number, ratioH: number, topic?: string | null): Card {
+function buildMockCard(
+  index: number,
+  total: number,
+  ratioW: number,
+  ratioH: number,
+  topic?: string | null,
+  brandContext?: BrandContextDto | null
+): Card {
   const layers: Layer[] = [];
 
   // z=0: gradient overlay scrim at bottom
-  layers.push(makeOverlayLayer(0, ratioH));
+  layers.push(makeOverlayLayer(0, ratioH, brandContext));
 
   // z=1: shape accent bar
-  layers.push(makeShapeAccent(1));
+  layers.push(makeShapeAccent(1, brandContext));
 
   // z=2: title text
-  layers.push(makeTitleText(2, ratioW, topic));
+  layers.push(makeTitleText(2, ratioW, topic, brandContext));
 
   // z=3: body text
-  layers.push(makeBodyText(3, ratioW));
+  layers.push(makeBodyText(3, ratioW, brandContext));
 
   // z=4: index text only for carousel with >1 card
   if (total > 1) {
-    layers.push(makeIndexText(4, ratioW, ratioH, index, total));
+    layers.push(makeIndexText(4, ratioW, ratioH, index, total, brandContext));
   }
 
   return {
     id: randomUUID(),
     index,
-    baseColor: pickBaseColor(index),
+    baseColor: pickBaseColor(index, brandContext),
     layers,
   };
 }
@@ -197,6 +301,7 @@ function buildMockCard(index: number, total: number, ratioW: number, ratioH: num
  * - Produces the target number of cards (default: keep current count, min 3 for carousel).
  * - Only text, shape, overlay layers. No image-backed layers.
  * - All fonts are catalog-valid.
+ * - Brand context influences colors and fonts when provided and valid.
  */
 export function generateMockArtifactDocument(input: MockGenerationInput): ArtifactDocument {
   const doc = input.currentDocument;
@@ -215,7 +320,7 @@ export function generateMockArtifactDocument(input: MockGenerationInput): Artifa
 
   const cards: Card[] = [];
   for (let i = 0; i < targetCount; i++) {
-    cards.push(buildMockCard(i, targetCount, doc.ratio.w, doc.ratio.h, input.topic));
+    cards.push(buildMockCard(i, targetCount, doc.ratio.w, doc.ratio.h, input.topic, input.brandContext));
   }
 
   const generated: ArtifactDocument = {

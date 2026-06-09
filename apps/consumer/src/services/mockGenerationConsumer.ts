@@ -119,6 +119,9 @@ export class MockGenerationConsumer {
       // Extract a simple topic from the summary line for mock copy
       const topic = summaryLine.replace(/^Ready to create\s*(a\s*)?/i, '').trim() || null;
 
+      // Read brand context from job plan (stored by GenerationService in Phase 11C)
+      const brandContext = plan.brandContext as import('@orra/shared').BrandContextDto | undefined ?? null;
+
       let targetCardCount: number | undefined;
       if (currentDocument.type === 'carousel') {
         // If the plan or generation hint included a card count, use it.
@@ -133,6 +136,7 @@ export class MockGenerationConsumer {
         currentDocument,
         targetCardCount,
         topic,
+        brandContext,
       });
 
       // 8b. Belt-and-suspenders: validate generated document before committing.

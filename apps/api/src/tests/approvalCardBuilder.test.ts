@@ -76,7 +76,7 @@ describe('buildApprovalCard', () => {
     expect(card16x9.format).toBe('16:9');
   });
 
-  it('brand text changes when project has brandSystemId', () => {
+  it('brand text shows brand name when brandContext is provided', () => {
     const intent = makeGenerationIntent();
 
     const withoutBrand = buildApprovalCard({
@@ -84,18 +84,58 @@ describe('buildApprovalCard', () => {
       intent,
       projectType: 'post',
       ratioName: '4:5',
-      brandSystemId: null,
+      brandContext: null,
     });
     expect(withoutBrand.brand).toBe('No brand selected');
+    expect(withoutBrand.assumptions).toContain("Using Orra's default creative direction.");
 
     const withBrand = buildApprovalCard({
       content: 'Create a post',
       intent,
       projectType: 'post',
       ratioName: '4:5',
-      brandSystemId: 'brand-123',
+      brandContext: {
+        brandSystemId: 'brand-123',
+        name: 'Serene Studio',
+      },
     });
-    expect(withBrand.brand).toBe('Selected brand system');
+    expect(withBrand.brand).toBe('Serene Studio');
+    expect(withBrand.assumptions).toContain('Using your selected brand direction.');
+  });
+
+  it('brand tone and visual direction influence assumptions when provided', () => {
+    const intent = makeGenerationIntent();
+
+    const withBrand = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandContext: {
+        brandSystemId: 'brand-123',
+        name: 'Serene Studio',
+        tone: 'Calm, reassuring, quietly confident.',
+        visualDirection: 'Soft natural light, muted earth tones.',
+      },
+    });
+
+    expect(withBrand.brand).toBe('Serene Studio');
+    expect(withBrand.assumptions).toContain('Using your selected brand direction.');
+    expect(withBrand.assumptions.some((a) => a.includes('Tone:'))).toBe(true);
+  });
+
+  it('no-brand project does not fail when brandContext is omitted', () => {
+    const intent = makeGenerationIntent();
+
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+    });
+
+    expect(card.brand).toBe('No brand selected');
+    expect(card.assumptions).toContain("Using Orra's default creative direction.");
   });
 
   it('CTA defaults to Not set', () => {

@@ -46,7 +46,8 @@ generationRoutes.post(
       repos.chat,
       repos.project,
       creditService,
-      c.env
+      c.env,
+      repos.brandSystem
     );
     const job = await service.createStubGenerationJob(ctx, {
       projectId: body.projectId,
@@ -73,7 +74,8 @@ generationRoutes.get(
       repos.chat,
       repos.project,
       creditService,
-      c.env
+      c.env,
+      repos.brandSystem
     );
     const job = await service.getJob(ctx, id);
     return c.json({ ok: true, data: job });

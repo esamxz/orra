@@ -4,9 +4,11 @@ import { ApiError } from '../errors.js';
 import type { GenerationJobRepository } from '../repositories/generationJobRepository.js';
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
+import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
 import type { CreditService } from './creditService.js';
 import type { GenerationJobRow } from '@orra/db';
 import type { Env } from '../env.js';
+import type { BrandContextDto } from '@orra/shared';
 
 // ---------------------------------------------------------------------------
 // Credit estimation policy (Phase 10B)
@@ -36,6 +38,80 @@ function estimateCredits(
   }
 
   return 10;
+}
+
+// ---------------------------------------------------------------------------
+// Brand context helper
+// ---------------------------------------------------------------------------
+// Maps a brand system row to the lightweight BrandContextDto used by
+// the approval card builder and mock generator. Returns null when
+// no brand is attached or the brand cannot be found.
+
+async function loadBrandContextForJob(
+  brandSystemRepo: BrandSystemRepository | undefined,
+  workspaceId: string,
+  brandSystemId: string | null
+): Promise<BrandContextDto | null> {
+  if (!brandSystemId || !brandSystemRepo) {
+    return null;
+  }
+
+  const brand = await brandSystemRepo.findByIdForWorkspace({
+    id: brandSystemId,
+    workspaceId,
+  });
+
+  if (!brand) {
+    return null;
+  }
+
+  const palette = brand.palette as Array<{ hex: string; role: string }> | undefined;
+  const colors: BrandContextDto['colors'] = {};
+  if (Array.isArray(palette)) {
+    for (const entry of palette) {
+      if (entry && typeof entry === 'object' && 'hex' in entry && 'role' in entry) {
+        const role = entry.role as string;
+        const hex = entry.hex as string;
+        if (role && hex && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
+          (colors as Record<string, string>)[role] = hex;
+        }
+      }
+    }
+  }
+
+  const typography =
+    brand.typography && typeof brand.typography === 'object'
+      ? (brand.typography as Record<string, unknown>)
+      : {};
+  const headingFont =
+    typeof typography.titleFont === 'string'
+      ? typography.titleFont
+      : typeof typography.headingFont === 'string'
+        ? typography.headingFont
+        : undefined;
+  const bodyFont =
+    typeof typography.bodyFont === 'string'
+      ? typography.bodyFont
+      : typeof typography.font === 'string'
+        ? typography.font
+        : undefined;
+
+  return {
+    brandSystemId: brand.id,
+    name: brand.name,
+    tone: brand.tone_of_voice,
+    colors: Object.keys(colors).length > 0 ? colors : undefined,
+    typography:
+      headingFont || bodyFont
+        ? {
+            headingFont,
+            bodyFont,
+            preset: typeof typography.preset === 'string' ? typography.preset : undefined,
+          }
+        : undefined,
+    visualDirection: brand.visual_direction,
+    rules: brand.rules,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +166,8 @@ export class GenerationService {
     private chatRepo: ChatRepository,
     private projectRepo: ProjectRepository,
     private creditService: CreditService,
-    private env?: Env
+    private env?: Env,
+    private brandSystemRepo?: BrandSystemRepository
   ) {}
 
   /**
@@ -155,7 +232,14 @@ export class GenerationService {
       | undefined;
     const estimatedCredits = estimateCredits(project.type, metadata);
 
-    // 6. Create the stub job row with reservation metadata.
+    // 6. Load brand context if the project has a brand system.
+    const brandContext = await loadBrandContextForJob(
+      this.brandSystemRepo,
+      workspaceId,
+      project.brand_system_id
+    );
+
+    // 7. Create the stub job row with reservation metadata.
     const row = await this.jobRepo.createStubJob({
       workspaceId,
       projectId: input.projectId,
@@ -168,6 +252,7 @@ export class GenerationService {
         approvalMessageId: input.approvalMessageId,
         estimatedCredits,
         summaryLine: approvalCard?.summaryLine ?? null,
+        brandContext,
       } as unknown as import('@orra/db').Json,
     });
 

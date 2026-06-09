@@ -1477,4 +1477,134 @@ describe('MockGenerationConsumer', () => {
     const job = await jobRepo.findById('job-1');
     expect(job!.status).toBe('failed');
   });
+
+  it('uses brand colors and fonts when brandContext is in job plan', async () => {
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobWithBrand = makeJob('queued', {
+      plan: {
+        approvalMessageId: 'msg-1',
+        summaryLine: 'Ready to create a post.',
+        brandContext: {
+          brandSystemId: 'brand-1',
+          name: 'Test Brand',
+          tone: 'calm',
+          colors: {
+            background: '#ff0000',
+            primary: '#00ff00',
+            text: '#0000ff',
+            accent: '#ffffff',
+          },
+          typography: {
+            headingFont: 'Newsreader',
+            bodyFont: 'Inter',
+          },
+        } as unknown as import('@orra/db').Json,
+      } as unknown as import('@orra/db').Json,
+    });
+
+    const jobRepo = createFakeJobRepository([jobWithBrand]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+
+    const committed = artifactRepo.getVersionById(job!.result_version_id!);
+    expect(committed).not.toBeNull();
+    const doc = committed!.document as unknown as ArtifactDocument;
+
+    // Card base color should use brand background
+    expect(doc.cards[0].baseColor).toBe('#ff0000');
+
+    // Find layers by type
+    const textLayers = doc.cards[0].layers.filter((l) => l.type === 'text') as Array<import('@orra/shared').TextLayer>;
+    const shapeLayers = doc.cards[0].layers.filter((l) => l.type === 'shape') as Array<import('@orra/shared').ShapeLayer>;
+    const overlayLayers = doc.cards[0].layers.filter((l) => l.type === 'overlay') as Array<import('@orra/shared').OverlayLayer>;
+
+    expect(textLayers.length).toBeGreaterThanOrEqual(2);
+    // Title text should use brand text color and heading font
+    const titleLayer = textLayers.find((l) => l.role === 'title')!;
+    expect(titleLayer.color).toBe('#0000ff');
+    expect(titleLayer.fontFamily).toBe('Newsreader');
+
+    // Body text should use brand text color and body font
+    const bodyLayer = textLayers.find((l) => l.role === 'body')!;
+    expect(bodyLayer.color).toBe('#0000ff');
+    expect(bodyLayer.fontFamily).toBe('Inter');
+
+    // Shape should use brand accent
+    expect(shapeLayers.length).toBeGreaterThanOrEqual(1);
+    expect(shapeLayers[0].fill).toBe('#ffffff');
+
+    // Overlay gradient should use brand background and primary
+    expect(overlayLayers.length).toBeGreaterThanOrEqual(1);
+    expect(overlayLayers[0].overlayKind).toBe('linearGradient');
+  });
+
+  it('falls back to Orra defaults when brandContext is missing', async () => {
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: 'art-1',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+
+    const committed = artifactRepo.getVersionById(job!.result_version_id!);
+    const doc = committed!.document as unknown as ArtifactDocument;
+
+    // Default base color from Orra palette
+    expect(doc.cards[0].baseColor).toBe('#1d2a30');
+
+    const textLayers = doc.cards[0].layers.filter((l) => l.type === 'text') as Array<import('@orra/shared').TextLayer>;
+    const titleLayer = textLayers.find((l) => l.role === 'title')!;
+    expect(titleLayer.color).toBe('#c8d1d8');
+    expect(titleLayer.fontFamily).toBe('Newsreader');
+
+    const bodyLayer = textLayers.find((l) => l.role === 'body')!;
+    expect(bodyLayer.color).toBe('#a4b7bd');
+    expect(bodyLayer.fontFamily).toBe('Inter');
+  });
 });

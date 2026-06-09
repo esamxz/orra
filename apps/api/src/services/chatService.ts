@@ -3,7 +3,9 @@ import { requireAuth } from './service-context.js';
 import { ApiError } from '../errors.js';
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
+import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
 import type { ChatMessageRow } from '@orra/db';
+import type { BrandContextDto } from '@orra/shared';
 import {
   classifyDirectorIntent,
   type DirectorIntentResult,
@@ -68,7 +70,8 @@ function mapMessageRow(
 export class ChatService {
   constructor(
     private chatRepo: ChatRepository,
-    private projectRepo: ProjectRepository
+    private projectRepo: ProjectRepository,
+    private brandSystemRepo?: BrandSystemRepository
   ) {}
 
   /**
@@ -153,12 +156,15 @@ export class ChatService {
     // No AI calls. No credits move. No generation job starts.
     let approvalMessage: MessageResponse | undefined;
     if (intent.mode === 'generation') {
+      // Load brand context if the project has a brand system attached.
+      const brandContext = await this.loadBrandContext(workspaceId, project.brand_system_id);
+
       const approvalCard = buildApprovalCard({
         content: input.content,
         intent,
         projectType: project.type,
         ratioName: (project.ratio as { name: string }).name ?? '4:5',
-        brandSystemId: project.brand_system_id,
+        brandContext,
         projectName: project.name,
       });
 
@@ -183,6 +189,79 @@ export class ChatService {
     }
 
     return { message, intent, approvalMessage };
+  }
+
+  /**
+   * Load brand context for the approval card builder.
+   * Returns null when no brand is attached or the brand cannot be found.
+   * Never blocks no-brand projects.
+   */
+  private async loadBrandContext(
+    workspaceId: string,
+    brandSystemId: string | null
+  ): Promise<BrandContextDto | null> {
+    if (!brandSystemId || !this.brandSystemRepo) {
+      return null;
+    }
+
+    const brand = await this.brandSystemRepo.findByIdForWorkspace({
+      id: brandSystemId,
+      workspaceId,
+    });
+
+    if (!brand) {
+      return null;
+    }
+
+    // Map palette array to color roles
+    const palette = brand.palette as Array<{ hex: string; role: string }> | undefined;
+    const colors: BrandContextDto['colors'] = {};
+    if (Array.isArray(palette)) {
+      for (const entry of palette) {
+        if (entry && typeof entry === 'object' && 'hex' in entry && 'role' in entry) {
+          const role = entry.role as string;
+          const hex = entry.hex as string;
+          if (role && hex && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
+            (colors as Record<string, string>)[role] = hex;
+          }
+        }
+      }
+    }
+
+    // Extract heading/body fonts from typography object if present
+    const typography =
+      brand.typography && typeof brand.typography === 'object'
+        ? (brand.typography as Record<string, unknown>)
+        : {};
+    const headingFont =
+      typeof typography.titleFont === 'string'
+        ? typography.titleFont
+        : typeof typography.headingFont === 'string'
+          ? typography.headingFont
+          : undefined;
+    const bodyFont =
+      typeof typography.bodyFont === 'string'
+        ? typography.bodyFont
+        : typeof typography.font === 'string'
+          ? typography.font
+          : undefined;
+
+    return {
+      brandSystemId: brand.id,
+      name: brand.name,
+      tone: brand.tone_of_voice,
+      colors: Object.keys(colors).length > 0 ? colors : undefined,
+      typography:
+        headingFont || bodyFont
+          ? {
+              headingFont,
+              bodyFont,
+              preset: typeof typography.preset === 'string' ? typography.preset : undefined,
+            }
+          : undefined,
+      visualDirection: brand.visual_direction,
+      rules: brand.rules,
+    };
   }
 
   /**

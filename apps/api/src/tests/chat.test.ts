@@ -211,7 +211,45 @@ function createFakeRepositories(
         return [];
       },
     },
-    brandSystem: {},
+    brandSystem: {
+      async findByIdForWorkspace(input: { id: string; workspaceId: string }) {
+        // Return a fake brand when queried for the known test brand ID
+        if (input.id === 'brand-fake-1' && input.workspaceId === 'ws-fake-1') {
+          return {
+            id: 'brand-fake-1',
+            workspace_id: 'ws-fake-1',
+            name: 'Test Brand',
+            description: null,
+            tone_of_voice: 'Calm and premium.',
+            visual_direction: 'Soft natural light.',
+            rules: null,
+            palette: [
+              { hex: '#1d2a30', role: 'primary' },
+              { hex: '#5e7680', role: 'secondary' },
+              { hex: '#a4b7bd', role: 'accent' },
+              { hex: '#f5f7f8', role: 'background' },
+              { hex: '#1d2a30', role: 'text' },
+            ],
+            typography: { titleFont: 'Newsreader', bodyFont: 'Inter' },
+            created_at: '2026-01-01',
+            updated_at: '2026-01-01',
+          };
+        }
+        return null;
+      },
+      async listByWorkspace() {
+        return [];
+      },
+      async create() {
+        throw new Error('not used');
+      },
+      async updateForWorkspace() {
+        return null;
+      },
+      async deleteForWorkspace() {
+        throw new Error('not used');
+      },
+    },
   } as unknown as Repositories;
 }
 
@@ -657,6 +695,50 @@ describe('POST /v1/projects/:id/messages', () => {
     const card = data.approvalMessage!.metadata.approvalCard as Record<string, unknown>;
     expect(card.brand).toBe('No brand selected');
     expect(card.cta).toBe('Not set');
+  });
+
+  it('POST generation on branded project shows brand name in approval card', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Branded Project',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: 'brand-fake-1',
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Create a post about focus' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      approvalMessage?: { metadata: Record<string, unknown> };
+    };
+    expect(data.approvalMessage).toBeDefined();
+    const card = data.approvalMessage!.metadata.approvalCard as Record<string, unknown>;
+    expect(card.brand).toBe('Test Brand');
+    expect(card.assumptions).toEqual(
+      expect.arrayContaining([expect.stringContaining('Using your selected brand direction.')])
+    );
   });
 
   it('POST conversation message returns message and intent without approvalMessage', async () => {

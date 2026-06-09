@@ -48,7 +48,7 @@ chatRoutes.get(
     const query = c.req.valid('query');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
-    const service = new ChatService(repos.chat, repos.project);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem);
     const messages = await service.listMessages(ctx, id, { limit: query.limit });
     return c.json({ ok: true, data: messages });
   }
@@ -70,7 +70,7 @@ chatRoutes.post(
     const body = c.req.valid('json');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
-    const service = new ChatService(repos.chat, repos.project);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem);
     const result = await service.appendUserMessage(ctx, id, { content: body.content });
     return c.json({ ok: true, data: result }, 201);
   }
@@ -95,7 +95,7 @@ chatRoutes.post(
     const body = c.req.valid('json');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
-    const service = new ChatService(repos.chat, repos.project);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem);
     const updatedMessage = await service.handleApprovalAction(ctx, id, messageId, {
       action: body.action,
       value: body.value,

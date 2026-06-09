@@ -212,6 +212,32 @@ export const ApprovalStateSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Brand context (lightweight context for approval and generation)
+// ---------------------------------------------------------------------------
+// Carries deterministic brand fields used by the approval card builder and
+// mock generator. No logo/assets, no AI-derived fields, no secrets.
+
+export const BrandContextSchema = z.object({
+  brandSystemId: z.string().uuid(),
+  name: z.string().min(1),
+  tone: z.string().nullable().optional(),
+  colors: z.object({
+    primary: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    secondary: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    accent: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    background: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+    text: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  }).optional(),
+  typography: z.object({
+    headingFont: z.string().optional(),
+    bodyFont: z.string().optional(),
+    preset: z.string().optional(),
+  }).optional(),
+  visualDirection: z.string().nullable().optional(),
+  rules: z.string().nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 
@@ -235,3 +261,4 @@ export type OverlayLayer = z.infer<typeof OverlayLayerSchema>;
 export type Layer = z.infer<typeof LayerSchema>;
 export type Card = z.infer<typeof CardSchema>;
 export type ArtifactDocument = z.infer<typeof ArtifactDocumentSchema>;
+export type BrandContextDto = z.infer<typeof BrandContextSchema>;

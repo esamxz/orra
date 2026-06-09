@@ -14,7 +14,7 @@
 //   - CTA defaults to "Not set". Missing CTA never blocks generation.
 // ---------------------------------------------------------------------------
 
-import type { ApprovalCardDto, ApprovalAction } from '@orra/shared';
+import type { ApprovalCardDto, ApprovalAction, BrandContextDto } from '@orra/shared';
 import type { DirectorIntentResult } from './directorIntentService.js';
 
 export interface BuildApprovalCardInput {
@@ -26,8 +26,8 @@ export interface BuildApprovalCardInput {
   projectType: string;
   /** Project ratio name (e.g. "4:5"). */
   ratioName: string;
-  /** Optional brand system id attached to the project. */
-  brandSystemId?: string | null;
+  /** Optional brand context attached to the project. */
+  brandContext?: BrandContextDto | null;
   /** Project name, used for fallback topic extraction. */
   projectName?: string;
 }
@@ -85,11 +85,27 @@ function extractTopicFallback(content: string, projectName?: string): string {
   return projectName && projectName.length > 1 ? projectName : 'your topic';
 }
 
-function buildBrandLabel(brandSystemId: string | null | undefined): string {
-  if (brandSystemId) {
-    return 'Selected brand system';
+function buildBrandLabel(brandContext: BrandContextDto | null | undefined): string {
+  if (brandContext?.name) {
+    return brandContext.name;
   }
   return 'No brand selected';
+}
+
+function buildAssumptions(
+  brandContext: BrandContextDto | null | undefined,
+  baseAssumptions: string[]
+): string[] {
+  const assumptions = [...baseAssumptions];
+  if (brandContext?.name) {
+    assumptions.push('Using your selected brand direction.');
+    if (brandContext.tone) {
+      assumptions.push(`Tone: ${brandContext.tone.slice(0, 60)}`);
+    }
+  } else {
+    assumptions.push("Using Orra's default creative direction.");
+  }
+  return assumptions;
 }
 
 /**
@@ -101,9 +117,9 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
   const summaryLine = buildSummaryLine(input);
   const style = DEFAULT_STYLE;
   const format = input.ratioName;
-  const brand = buildBrandLabel(input.brandSystemId);
+  const brand = buildBrandLabel(input.brandContext);
   const cta = 'Not set';
-  const assumptions = [...DEFAULT_ASSUMPTIONS];
+  const assumptions = buildAssumptions(input.brandContext, DEFAULT_ASSUMPTIONS);
   const actions = [...ALL_ACTIONS];
 
   return {

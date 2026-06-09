@@ -8,6 +8,9 @@ import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { CreditRepository } from '../repositories/creditRepository.js';
 import type { GenerationJobRow, ChatMessageRow, ChatThreadRow, ProjectRow, CreditBalanceRow, CreditLedgerRow, Json } from '@orra/db';
 
+import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
+import type { BrandContextDto } from '@orra/shared';
+
 // ---------------------------------------------------------------------------
 // Fake repositories
 // ---------------------------------------------------------------------------
@@ -296,6 +299,61 @@ function createFakeCreditRepository(
       }
       return { refunded: totalReserved };
     },
+  };
+}
+
+function createFakeBrandSystemRepository(
+  initialBrands: Array<{
+    id: string;
+    workspace_id: string;
+    name: string;
+    description?: string | null;
+    tone_of_voice: string | null;
+    visual_direction: string | null;
+    rules: string | null;
+    palette: Array<{ hex: string; role: string }>;
+    typography: Record<string, unknown>;
+  }> = []
+): BrandSystemRepository {
+  const brands: import('@orra/db').BrandSystemRow[] = initialBrands.map((b) => ({
+    ...b,
+    description: b.description ?? null,
+    palette: b.palette as unknown as import('@orra/db').Json,
+    typography: b.typography as unknown as import('@orra/db').Json,
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+  }));
+
+  return {
+    async create(input) {
+      const brand: import('@orra/db').BrandSystemRow = {
+        id: `brand-${Date.now()}`,
+        workspace_id: input.workspaceId,
+        name: input.name,
+        description: input.description ?? null,
+        tone_of_voice: input.toneOfVoice ?? null,
+        visual_direction: input.visualDirection ?? null,
+        rules: input.rules ?? null,
+        palette: input.palette as unknown as import('@orra/db').Json,
+        typography: input.typography as unknown as import('@orra/db').Json,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      };
+      brands.push(brand);
+      return brand;
+    },
+    async listByWorkspace() {
+      return [];
+    },
+    async findByIdForWorkspace(input) {
+      return (
+        brands.find((b) => b.id === input.id && b.workspace_id === input.workspaceId) ?? null
+      ) as import('@orra/db').BrandSystemRow | null;
+    },
+    async updateForWorkspace() {
+      return null;
+    },
+    async deleteForWorkspace() {},
   };
 }
 
@@ -1681,5 +1739,187 @@ describe('GenerationService', () => {
     await service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' });
 
     expect(creditRepo.ledger.some((l) => l.entry_type === 'capture')).toBe(false);
+  });
+
+  it('includes brandContext in job plan when project has a brand', async () => {
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: 'brand-fake-1',
+        workspace_id: 'ws-1',
+        name: 'Test Brand',
+        tone_of_voice: 'calm, premium',
+        visual_direction: 'minimal',
+        rules: null,
+        palette: [
+          { hex: '#ff0000', role: 'primary' },
+          { hex: '#00ff00', role: 'secondary' },
+        ],
+        typography: { headingFont: 'Newsreader', bodyFont: 'Inter' },
+      },
+    ]);
+
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: 'brand-fake-1',
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const fakeQueue = {
+      async send(_msg: { jobId: string }) {
+        /* noop */
+      },
+    };
+
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      new CreditService(createFakeCreditRepository([
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 50,
+          topup_available: 0,
+          reserved: 0,
+          updated_at: '2026-01-01',
+        },
+      ])),
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as import('../env.js').Env,
+      brandRepo
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+    });
+
+    const row = await jobRepo.findByIdForWorkspace({ id: result.id, workspaceId: 'ws-1' });
+    expect(row).not.toBeNull();
+    const plan = row!.plan as Record<string, unknown> | null;
+    expect(plan).not.toBeNull();
+    expect(plan!.brandContext).toBeDefined();
+    const brandCtx = plan!.brandContext as BrandContextDto;
+    expect(brandCtx.name).toBe('Test Brand');
+    expect(brandCtx.tone).toBe('calm, premium');
+    expect(brandCtx.colors).toMatchObject({ primary: '#ff0000', secondary: '#00ff00' });
+    expect(brandCtx.typography).toMatchObject({ headingFont: 'Newsreader', bodyFont: 'Inter' });
+  });
+
+  it('includes brandContext: null in job plan when project has no brand', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const fakeQueue = {
+      async send(_msg: { jobId: string }) {
+        /* noop */
+      },
+    };
+
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      new CreditService(createFakeCreditRepository([
+        {
+          workspace_id: 'ws-1',
+          subscription_available: 50,
+          topup_available: 0,
+          reserved: 0,
+          updated_at: '2026-01-01',
+        },
+      ])),
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as import('../env.js').Env
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+    });
+
+    const row = await jobRepo.findByIdForWorkspace({ id: result.id, workspaceId: 'ws-1' });
+    expect(row).not.toBeNull();
+    const plan = row!.plan as Record<string, unknown> | null;
+    expect(plan).not.toBeNull();
+    expect(plan!.brandContext).toBeNull();
   });
 });

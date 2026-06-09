@@ -333,7 +333,15 @@ function createFakeRepositories(
         return { refunded: 0 };
       },
     } as unknown as CreditRepository,
-    brandSystem: {},
+    brandSystem: {
+      async create() { throw new Error('not used'); },
+      async listByWorkspace() { return []; },
+      async findByIdForWorkspace(_input: { id: string; workspaceId: string }) {
+        return null;
+      },
+      async updateForWorkspace() { return null; },
+      async deleteForWorkspace() {},
+    },
   } as unknown as Repositories;
 }
 
@@ -755,6 +763,116 @@ describe('POST /v1/generate', () => {
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(true);
     expect((json.data as { status: string }).status).toBe('queued');
+  });
+
+  it('queued job plan includes brandContext when project has brand', async () => {
+    const brandRepo = {
+      async create() { throw new Error('not used'); },
+      async listByWorkspace() { return []; },
+      async findByIdForWorkspace(input: { id: string; workspaceId: string }) {
+        if (input.id === 'brand-fake-1' && input.workspaceId === 'ws-fake-1') {
+          return {
+            id: 'brand-fake-1',
+            workspace_id: 'ws-fake-1',
+            name: 'Test Brand',
+            description: null,
+            tone_of_voice: 'calm, premium',
+            visual_direction: 'minimal',
+            rules: null,
+            palette: [{ hex: '#ff0000', role: 'primary' }] as unknown as import('@orra/db').Json,
+            typography: { headingFont: 'Newsreader' } as unknown as import('@orra/db').Json,
+            created_at: '2026-01-01',
+            updated_at: '2026-01-01',
+          };
+        }
+        return null;
+      },
+      async updateForWorkspace() { return null; },
+      async deleteForWorkspace() {},
+    };
+
+    const repos = createFakeRepositories(
+      [
+        {
+          id: '11111111-1111-1111-1111-111111111111',
+          workspace_id: 'ws-fake-1',
+          name: 'Branded Project',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          brand_system_id: 'brand-fake-1',
+          source_template_id: null,
+          autosave_state: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      [
+        {
+          id: 'thread-1',
+          workspace_id: 'ws-fake-1',
+          project_id: '11111111-1111-1111-1111-111111111111',
+          title: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: '22222222-2222-2222-2222-222222222222',
+          workspace_id: 'ws-fake-1',
+          thread_id: 'thread-1',
+          role: 'assistant',
+          kind: 'approval_summary',
+          content: 'Ready to create a post.',
+          metadata: {
+            approvalCard: { summaryLine: 'Ready to create a post.' },
+            approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+          } as unknown as import('@orra/db').Json,
+          seq: null,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    repos.brandSystem = brandRepo as unknown as import('../repositories/types.js').Repositories['brandSystem'];
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/generate',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: '11111111-1111-1111-1111-111111111111',
+          approvalMessageId: '22222222-2222-2222-2222-222222222222',
+        }),
+      },
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: { async send() {} } as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+
+    const data = json.data as { id: string; status: string };
+    expect(data.status).toBe('queued');
+
+    // Verify the stored job plan includes brandContext
+    const job = repos.generationJob.findById
+      ? await repos.generationJob.findById(data.id)
+      : null;
+    expect(job).not.toBeNull();
+    const plan = job!.plan as Record<string, unknown> | null;
+    expect(plan).not.toBeNull();
+    expect(plan!.brandContext).toBeDefined();
+    const brandCtx = plan!.brandContext as Record<string, unknown>;
+    expect(brandCtx.name).toBe('Test Brand');
+    expect(brandCtx.tone).toBe('calm, premium');
   });
 });
 
