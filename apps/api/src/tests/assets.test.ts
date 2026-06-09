@@ -5,6 +5,7 @@ import { createAuthMiddleware } from '../middleware/auth.js';
 import { requestIdMiddleware } from '../middleware/request-id.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { createFakeVerifier } from '../auth/verifier.js';
+import { getFakeR2ObjectInspector } from '../r2/r2ObjectInspector.js';
 import projectRoutes from '../routes/projects.js';
 import brandRoutes from '../routes/brands.js';
 import type { Repositories } from '../repositories/types.js';
@@ -28,9 +29,17 @@ import type {
   CreateBrandAssetInput,
   ListProjectAssetsInput,
   ListBrandAssetsInput,
+  FindProjectAssetInput,
+  FindBrandAssetInput,
+  MarkProjectAssetUploadedInput,
+  MarkBrandAssetUploadedInput,
 } from '../repositories/assetRepository.js';
 
 const fakeVerifier = createFakeVerifier();
+
+function makeAssetUUID(seq: number): string {
+  return `00000000-0000-0000-0000-${seq.toString().padStart(12, '0')}`;
+}
 
 interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -177,7 +186,7 @@ function createFakeRepositories(
     asset: {
       async createProjectAsset(input: CreateProjectAssetInput) {
         const asset: ProjectAssetRow = {
-          id: `pa-${nextId++}`,
+          id: makeAssetUUID(nextId++),
           workspace_id: input.workspaceId,
           project_id: input.projectId,
           kind: input.kind,
@@ -189,6 +198,7 @@ function createFakeRepositories(
           size_bytes: input.sizeBytes,
           source_prompt: null,
           analysis: null,
+          status: 'pending_upload',
           created_at: '2026-01-01T00:00:00Z',
         };
         projectAssets.push(asset);
@@ -196,7 +206,7 @@ function createFakeRepositories(
       },
       async createBrandAsset(input: CreateBrandAssetInput) {
         const asset: BrandAssetRow = {
-          id: `ba-${nextId++}`,
+          id: makeAssetUUID(nextId++),
           workspace_id: input.workspaceId,
           brand_system_id: input.brandSystemId,
           kind: input.kind,
@@ -205,6 +215,7 @@ function createFakeRepositories(
           width: null,
           height: null,
           size_bytes: input.sizeBytes,
+          status: 'pending_upload',
           created_at: '2026-01-01T00:00:00Z',
         };
         brandAssets.push(asset);
@@ -219,6 +230,58 @@ function createFakeRepositories(
         return brandAssets.filter(
           (a) => a.brand_system_id === input.brandSystemId && a.workspace_id === input.workspaceId
         );
+      },
+      async findProjectAssetForWorkspace(input: FindProjectAssetInput) {
+        return (
+          projectAssets.find(
+            (a) =>
+              a.id === input.id &&
+              a.project_id === input.projectId &&
+              a.workspace_id === input.workspaceId
+          ) ?? null
+        );
+      },
+      async findBrandAssetForWorkspace(input: FindBrandAssetInput) {
+        return (
+          brandAssets.find(
+            (a) =>
+              a.id === input.id &&
+              a.brand_system_id === input.brandSystemId &&
+              a.workspace_id === input.workspaceId
+          ) ?? null
+        );
+      },
+      async markProjectAssetUploaded(input: MarkProjectAssetUploadedInput) {
+        const idx = projectAssets.findIndex(
+          (a) =>
+            a.id === input.id &&
+            a.project_id === input.projectId &&
+            a.workspace_id === input.workspaceId
+        );
+        if (idx === -1) return null;
+        projectAssets[idx] = {
+          ...projectAssets[idx],
+          status: 'uploaded',
+          size_bytes: input.sizeBytes ?? projectAssets[idx].size_bytes,
+          content_type: input.contentType ?? projectAssets[idx].content_type,
+        };
+        return projectAssets[idx];
+      },
+      async markBrandAssetUploaded(input: MarkBrandAssetUploadedInput) {
+        const idx = brandAssets.findIndex(
+          (a) =>
+            a.id === input.id &&
+            a.brand_system_id === input.brandSystemId &&
+            a.workspace_id === input.workspaceId
+        );
+        if (idx === -1) return null;
+        brandAssets[idx] = {
+          ...brandAssets[idx],
+          status: 'uploaded',
+          size_bytes: input.sizeBytes ?? brandAssets[idx].size_bytes,
+          content_type: input.contentType ?? brandAssets[idx].content_type,
+        };
+        return brandAssets[idx];
       },
     },
   } as unknown as Repositories;
@@ -740,5 +803,267 @@ describe('POST /v1/brand-systems/:id/assets/upload-intent', () => {
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(false);
     expect(json.error!.code).toBe('VALIDATION');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/projects/:projectId/assets/:assetId/confirm
+// ---------------------------------------------------------------------------
+
+describe('POST /v1/projects/:projectId/assets/:assetId/confirm', () => {
+  it('confirms a project asset upload', async () => {
+    getFakeR2ObjectInspector().clear();
+
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildProjectApp(repos);
+
+    // Step 1: get upload intent
+    const intentRes = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets/upload-intent',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: 'hero.png',
+          contentType: 'image/png',
+          sizeBytes: 1024,
+          kind: 'upload',
+        }),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    const intentJson = (await intentRes.json()) as ApiResponse;
+    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
+    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+
+    // Step 2: simulate browser upload by registering the object
+    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 1024, contentType: 'image/png' });
+
+    // Step 3: confirm
+    const confirmRes = await app.request(
+      `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(confirmRes.status).toBe(200);
+    const confirmJson = (await confirmRes.json()) as ApiResponse;
+    expect(confirmJson.ok).toBe(true);
+
+    const data = confirmJson.data as { id: string; status: string; sizeBytes: number | null };
+    expect(data.status).toBe('uploaded');
+    expect(data.id).toBe(assetId);
+  });
+
+  it('rejects confirmation when R2 object is missing', async () => {
+    getFakeR2ObjectInspector().clear();
+
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildProjectApp(repos);
+
+    const intentRes = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/assets/upload-intent',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: 'hero.png',
+          contentType: 'image/png',
+          sizeBytes: 1024,
+          kind: 'upload',
+        }),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    const intentJson = (await intentRes.json()) as ApiResponse;
+    const assetId = (intentJson.data as { asset: { id: string } }).asset.id;
+
+    // Do NOT register the object
+
+    const confirmRes = await app.request(
+      `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(confirmRes.status).toBe(400);
+    const confirmJson = (await confirmRes.json()) as ApiResponse;
+    expect(confirmJson.ok).toBe(false);
+    expect(confirmJson.error!.code).toBe('VALIDATION');
+    expect(confirmJson.error!.message).toContain('Upload not found');
+  });
+
+  it('rejects confirmation for cross-workspace asset', async () => {
+    getFakeR2ObjectInspector().clear();
+
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildProjectApp(repos);
+
+    // Create intent as ws-other (auth middleware maps test_valid to ws-fake-1, so this
+    // creates in ws-other by injecting workspace context manually in the fake repos
+    // — but actually the fake verifier always returns ws-fake-1. So we create the
+    // asset directly in the repo to simulate it belonging to another workspace.)
+    const otherAsset = await repos.asset.createProjectAsset({
+      workspaceId: 'ws-other',
+      projectId: '11111111-1111-1111-1111-111111111111',
+      kind: 'upload',
+      r2Key: 'workspace/ws-other/projects/11111111-1111-1111-1111-111111111111/assets/hero.png',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const confirmRes = await app.request(
+      `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${otherAsset.id}/confirm`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(confirmRes.status).toBe(404);
+    const confirmJson = (await confirmRes.json()) as ApiResponse;
+    expect(confirmJson.ok).toBe(false);
+    expect(confirmJson.error!.code).toBe('NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/brand-systems/:brandSystemId/assets/:assetId/confirm
+// ---------------------------------------------------------------------------
+
+describe('POST /v1/brand-systems/:brandSystemId/assets/:assetId/confirm', () => {
+  it('confirms a brand asset upload', async () => {
+    getFakeR2ObjectInspector().clear();
+
+    const repos = createFakeRepositories([], [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Brand One',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildBrandApp(repos);
+
+    const intentRes = await app.request(
+      '/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/upload-intent',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: 'logo.png',
+          contentType: 'image/png',
+          sizeBytes: 2048,
+          kind: 'logo',
+        }),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    const intentJson = (await intentRes.json()) as ApiResponse;
+    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
+    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+
+    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 2048, contentType: 'image/png' });
+
+    const confirmRes = await app.request(
+      `/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+
+    expect(confirmRes.status).toBe(200);
+    const confirmJson = (await confirmRes.json()) as ApiResponse;
+    expect(confirmJson.ok).toBe(true);
+
+    const data = confirmJson.data as { id: string; status: string };
+    expect(data.status).toBe('uploaded');
   });
 });

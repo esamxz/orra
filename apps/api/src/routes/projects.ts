@@ -9,6 +9,8 @@ import {
 } from '../schemas/project.js';
 import {
   ProjectUploadIntentBodySchema,
+  ProjectAssetConfirmParamSchema,
+  AssetConfirmBodySchema,
 } from '../schemas/asset.js';
 import { validateJson, validateQuery, validateParam } from '../middleware/validate.js';
 import { ProjectService } from '../services/projectService.js';
@@ -18,6 +20,7 @@ import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
 import type { Repositories } from '../repositories/types.js';
 import { createR2Signer } from '../r2/r2Signer.js';
+import { createR2ObjectInspector } from '../r2/r2ObjectInspector.js';
 
 // ---------------------------------------------------------------------------
 // Project routes — protected
@@ -107,6 +110,27 @@ projectRoutes.post(
       kind: body.kind,
     });
     return c.json({ ok: true, data: result }, 201);
+  }
+);
+
+// POST /v1/projects/:projectId/assets/:assetId/confirm — confirm a project asset upload
+projectRoutes.post(
+  '/:projectId/assets/:assetId/confirm',
+  validateParam(ProjectAssetConfirmParamSchema),
+  validateJson(AssetConfirmBodySchema),
+  async (c) => {
+    const { projectId, assetId } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const ctx = buildServiceContext(c);
+    const repos = getRepositories(ctx);
+    const signer = createR2Signer(c.env);
+    const inspector = createR2ObjectInspector(c.env);
+    const service = new AssetUploadService(repos.asset, repos.project, repos.brandSystem, signer, inspector);
+    const result = await service.confirmProjectAssetUpload(ctx, projectId, assetId, {
+      expectedSizeBytes: body.expectedSizeBytes,
+      expectedContentType: body.expectedContentType,
+    });
+    return c.json({ ok: true, data: result });
   }
 );
 

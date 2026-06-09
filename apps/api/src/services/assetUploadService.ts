@@ -5,6 +5,7 @@ import type { AssetRepository } from '../repositories/assetRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
 import type { R2Signer } from '../r2/r2Signer.js';
+import type { R2ObjectInspector } from '../r2/r2ObjectInspector.js';
 import type { ProjectAssetKind, BrandAssetKind } from '@orra/db';
 
 // ---------------------------------------------------------------------------
@@ -47,6 +48,7 @@ export interface AssetDto {
   contentType: string | null;
   sizeBytes: number | null;
   r2Key: string;
+  status: string;
   createdAt: string;
 }
 
@@ -127,6 +129,7 @@ function mapProjectAssetRowToDto(
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     r2Key: row.r2_key,
+    status: row.status,
     createdAt: row.created_at,
   };
 }
@@ -145,8 +148,14 @@ function mapBrandAssetRowToDto(
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     r2Key: row.r2_key,
+    status: row.status,
     createdAt: row.created_at,
   };
+}
+
+export interface AssetConfirmInput {
+  expectedSizeBytes?: number;
+  expectedContentType?: string;
 }
 
 export class AssetUploadService {
@@ -154,7 +163,8 @@ export class AssetUploadService {
     private assetRepo: AssetRepository,
     private projectRepo: ProjectRepository,
     private brandSystemRepo: BrandSystemRepository,
-    private r2Signer: R2Signer
+    private r2Signer: R2Signer,
+    private r2Inspector?: R2ObjectInspector
   ) {}
 
   async createProjectUploadIntent(
@@ -248,4 +258,143 @@ export class AssetUploadService {
       },
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // Upload confirmation
+  // ---------------------------------------------------------------------------
+
+  async confirmProjectAssetUpload(
+    ctx: ServiceContext,
+    projectId: string,
+    assetId: string,
+    input: AssetConfirmInput
+  ): Promise<AssetDto> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    const asset = await this.assetRepo.findProjectAssetForWorkspace({
+      id: assetId,
+      projectId,
+      workspaceId,
+    });
+
+    if (!asset) {
+      throw new ApiError('NOT_FOUND', 'Asset not found.');
+    }
+
+    // Idempotent: already uploaded
+    if (asset.status === 'uploaded') {
+      return mapProjectAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key));
+    }
+
+    // Verify object exists in R2
+    if (this.r2Inspector) {
+      const meta = await this.r2Inspector.headObject(asset.r2_key);
+      if (!meta.exists) {
+        throw new ApiError('VALIDATION', 'Upload not found in storage. Please upload the file first.');
+      }
+
+      if (input.expectedSizeBytes !== undefined && meta.sizeBytes !== undefined) {
+        if (meta.sizeBytes !== input.expectedSizeBytes) {
+          throw new ApiError(
+            'VALIDATION',
+            `Size mismatch: expected ${input.expectedSizeBytes} bytes, but storage reports ${meta.sizeBytes} bytes.`
+          );
+        }
+      }
+
+      if (input.expectedContentType !== undefined && meta.contentType !== undefined) {
+        if (meta.contentType !== input.expectedContentType) {
+          throw new ApiError(
+            'VALIDATION',
+            `Content type mismatch: expected ${input.expectedContentType}, but storage reports ${meta.contentType}.`
+          );
+        }
+      }
+    }
+
+    const updated = await this.assetRepo.markProjectAssetUploaded({
+      id: assetId,
+      projectId,
+      workspaceId,
+      sizeBytes: input.expectedSizeBytes ?? asset.size_bytes,
+      contentType: input.expectedContentType ?? asset.content_type,
+    });
+
+    if (!updated) {
+      throw new ApiError('NOT_FOUND', 'Asset not found during confirmation.');
+    }
+
+    return mapProjectAssetRowToDto(updated, extractFileNameFromR2Key(updated.r2_key));
+  }
+
+  async confirmBrandAssetUpload(
+    ctx: ServiceContext,
+    brandSystemId: string,
+    assetId: string,
+    input: AssetConfirmInput
+  ): Promise<AssetDto> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    const asset = await this.assetRepo.findBrandAssetForWorkspace({
+      id: assetId,
+      brandSystemId,
+      workspaceId,
+    });
+
+    if (!asset) {
+      throw new ApiError('NOT_FOUND', 'Asset not found.');
+    }
+
+    // Idempotent: already uploaded
+    if (asset.status === 'uploaded') {
+      return mapBrandAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key));
+    }
+
+    // Verify object exists in R2
+    if (this.r2Inspector) {
+      const meta = await this.r2Inspector.headObject(asset.r2_key);
+      if (!meta.exists) {
+        throw new ApiError('VALIDATION', 'Upload not found in storage. Please upload the file first.');
+      }
+
+      if (input.expectedSizeBytes !== undefined && meta.sizeBytes !== undefined) {
+        if (meta.sizeBytes !== input.expectedSizeBytes) {
+          throw new ApiError(
+            'VALIDATION',
+            `Size mismatch: expected ${input.expectedSizeBytes} bytes, but storage reports ${meta.sizeBytes} bytes.`
+          );
+        }
+      }
+
+      if (input.expectedContentType !== undefined && meta.contentType !== undefined) {
+        if (meta.contentType !== input.expectedContentType) {
+          throw new ApiError(
+            'VALIDATION',
+            `Content type mismatch: expected ${input.expectedContentType}, but storage reports ${meta.contentType}.`
+          );
+        }
+      }
+    }
+
+    const updated = await this.assetRepo.markBrandAssetUploaded({
+      id: assetId,
+      brandSystemId,
+      workspaceId,
+      sizeBytes: input.expectedSizeBytes ?? asset.size_bytes,
+      contentType: input.expectedContentType ?? asset.content_type,
+    });
+
+    if (!updated) {
+      throw new ApiError('NOT_FOUND', 'Asset not found during confirmation.');
+    }
+
+    return mapBrandAssetRowToDto(updated, extractFileNameFromR2Key(updated.r2_key));
+  }
+}
+
+function extractFileNameFromR2Key(r2Key: string): string {
+  const lastSlash = r2Key.lastIndexOf('/');
+  return lastSlash >= 0 ? r2Key.slice(lastSlash + 1) : r2Key;
 }

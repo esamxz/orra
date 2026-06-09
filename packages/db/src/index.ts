@@ -112,6 +112,8 @@ export interface BrandSystemRow {
   updated_at: string;
 }
 
+export type AssetStatus = 'pending_upload' | 'uploaded' | 'failed';
+
 export interface BrandAssetRow {
   id: string;
   workspace_id: string;
@@ -122,6 +124,7 @@ export interface BrandAssetRow {
   width: number | null;
   height: number | null;
   size_bytes: number | null;
+  status: AssetStatus;
   created_at: string;
 }
 
@@ -172,6 +175,7 @@ export interface ProjectAssetRow {
   size_bytes: number | null;
   source_prompt: string | null;
   analysis: Json | null;
+  status: AssetStatus;
   created_at: string;
 }
 

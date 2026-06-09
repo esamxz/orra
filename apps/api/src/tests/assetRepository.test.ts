@@ -160,4 +160,202 @@ describe('SupabaseAssetRepository', () => {
 
     expect(row.r2_key).toBe(customKey);
   });
+
+  // ---------------------------------------------------------------------------
+  // Find scoped by workspace + project/brand
+  // ---------------------------------------------------------------------------
+
+  it('finds a project asset scoped by workspace and project', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const found = await repo.findProjectAssetForWorkspace({
+      id: created.id,
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+    });
+
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(created.id);
+    expect(found!.status).toBe('pending_upload');
+  });
+
+  it('returns null for cross-workspace project asset', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const found = await repo.findProjectAssetForWorkspace({
+      id: created.id,
+      projectId: 'proj-1',
+      workspaceId: 'ws-other',
+    });
+
+    expect(found).toBeNull();
+  });
+
+  it('finds a brand asset scoped by workspace and brand system', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createBrandAsset({
+      workspaceId: 'ws-1',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const found = await repo.findBrandAssetForWorkspace({
+      id: created.id,
+      brandSystemId: 'brand-1',
+      workspaceId: 'ws-1',
+    });
+
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(created.id);
+    expect(found!.status).toBe('pending_upload');
+  });
+
+  it('returns null for cross-workspace brand asset', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createBrandAsset({
+      workspaceId: 'ws-1',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const found = await repo.findBrandAssetForWorkspace({
+      id: created.id,
+      brandSystemId: 'brand-1',
+      workspaceId: 'ws-other',
+    });
+
+    expect(found).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Mark uploaded
+  // ---------------------------------------------------------------------------
+
+  it('marks a project asset as uploaded', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const updated = await repo.markProjectAssetUploaded({
+      id: created.id,
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      sizeBytes: 2048,
+      contentType: 'image/jpeg',
+    });
+
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('uploaded');
+    expect(updated!.size_bytes).toBe(2048);
+    expect(updated!.content_type).toBe('image/jpeg');
+  });
+
+  it('markProjectAssetUploaded returns null for cross-workscope asset', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createProjectAsset({
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      kind: 'upload',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const updated = await repo.markProjectAssetUploaded({
+      id: created.id,
+      projectId: 'proj-1',
+      workspaceId: 'ws-other',
+    });
+
+    expect(updated).toBeNull();
+  });
+
+  it('marks a brand asset as uploaded', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createBrandAsset({
+      workspaceId: 'ws-1',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const updated = await repo.markBrandAssetUploaded({
+      id: created.id,
+      brandSystemId: 'brand-1',
+      workspaceId: 'ws-1',
+      sizeBytes: 2048,
+      contentType: 'image/webp',
+    });
+
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('uploaded');
+    expect(updated!.size_bytes).toBe(2048);
+    expect(updated!.content_type).toBe('image/webp');
+  });
+
+  it('markBrandAssetUploaded returns null for cross-workspace asset', async () => {
+    const db = createFakeDbClient();
+    const repo = new SupabaseAssetRepository(db);
+
+    const created = await repo.createBrandAsset({
+      workspaceId: 'ws-1',
+      brandSystemId: 'brand-1',
+      kind: 'logo',
+      r2Key: 'key-1',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const updated = await repo.markBrandAssetUploaded({
+      id: created.id,
+      brandSystemId: 'brand-1',
+      workspaceId: 'ws-other',
+    });
+
+    expect(updated).toBeNull();
+  });
 });

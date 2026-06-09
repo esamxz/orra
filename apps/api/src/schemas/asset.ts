@@ -63,6 +63,25 @@ export const BrandUploadIntentBodySchema = z.object({
   kind: BrandAssetUploadKindSchema,
 });
 
+// ---------------------------------------------------------------------------
+// Upload confirmation schemas
+// ---------------------------------------------------------------------------
+
+export const ProjectAssetConfirmParamSchema = z.object({
+  projectId: z.string().uuid(),
+  assetId: z.string().uuid(),
+});
+
+export const BrandAssetConfirmParamSchema = z.object({
+  brandSystemId: z.string().uuid(),
+  assetId: z.string().uuid(),
+});
+
+export const AssetConfirmBodySchema = z.object({
+  expectedSizeBytes: z.number().int().positive().optional(),
+  expectedContentType: ContentTypeSchema.optional(),
+});
+
 export const ProjectIdParamSchema = z.object({
   id: z.string().uuid(),
 });
