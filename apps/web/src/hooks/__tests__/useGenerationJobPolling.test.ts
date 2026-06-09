@@ -2,15 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useGenerationJobPolling } from '../useGenerationJobPolling.js';
 import * as generationApi from '../../api/generation.js';
-import type { GenerationJobDto } from '../../api/types.js';
+import * as artifactsApi from '../../api/artifacts.js';
+import type { GenerationJobDto, ArtifactApiResponse } from '../../api/types.js';
 
 vi.mock('../../api/generation.js', () => ({
   getGenerationJob: vi.fn(),
 }));
 
+vi.mock('../../api/artifacts.js', () => ({
+  getArtifact: vi.fn(),
+}));
+
 describe('useGenerationJobPolling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(generationApi.getGenerationJob).mockReset();
+    vi.mocked(artifactsApi.getArtifact).mockReset();
   });
 
   const mockQueuedJob: GenerationJobDto = {
@@ -29,16 +36,48 @@ describe('useGenerationJobPolling', () => {
     status: 'succeeded',
   };
 
+  const mockSucceededWithResultJob: GenerationJobDto = {
+    ...mockQueuedJob,
+    status: 'succeeded',
+    resultVersionId: 'ver-99',
+  };
+
   const mockFailedJob: GenerationJobDto = {
     ...mockQueuedJob,
     status: 'failed',
     error: { message: 'timeout' },
   };
 
+  const mockArtifact: ArtifactApiResponse = {
+    artifactId: 'art-1',
+    projectId: 'proj-1',
+    currentVersionId: 'ver-99',
+    version: 2,
+    document: {
+      schemaVersion: 1,
+      artifactId: 'art-1',
+      type: 'post',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      cards: [
+        {
+          id: 'card-1',
+          index: 0,
+          baseColor: '#1d2a30',
+          layers: [],
+        },
+      ],
+      version: 2,
+    },
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  };
+
   it('returns idle when no jobId', () => {
     const { result } = renderHook(() => useGenerationJobPolling(undefined));
     expect(result.current.state).toBe('idle');
     expect(result.current.job).toBeNull();
+    expect(result.current.artifact).toBeNull();
+    expect(result.current.artifactError).toBeNull();
   });
 
   it('polls and stops on succeeded', async () => {
@@ -91,18 +130,64 @@ describe('useGenerationJobPolling', () => {
     expect(generationApi.getGenerationJob).toHaveBeenCalledTimes(2);
   }, 10000);
 
-  it('does not load artifact on succeeded', async () => {
-    // The hook only calls getGenerationJob and never touches artifact APIs.
-    // This test documents that invariant.
+  it('reloads artifact on succeeded with resultVersionId when artifactId provided', async () => {
+    vi.mocked(generationApi.getGenerationJob)
+      .mockResolvedValueOnce(mockQueuedJob)
+      .mockResolvedValueOnce(mockSucceededWithResultJob);
+    vi.mocked(artifactsApi.getArtifact).mockResolvedValueOnce(mockArtifact);
+
+    const { result } = renderHook(() => useGenerationJobPolling('job-1', 'art-1'));
+
+    await waitFor(() => expect(result.current.state).toBe('succeeded'), { timeout: 5000 });
+    expect(result.current.job!.status).toBe('succeeded');
+
+    await waitFor(() => expect(result.current.artifact).not.toBeNull(), { timeout: 3000 });
+    expect(result.current.artifact!.artifactId).toBe('art-1');
+    expect(result.current.artifactError).toBeNull();
+    expect(artifactsApi.getArtifact).toHaveBeenCalledTimes(1);
+    expect(artifactsApi.getArtifact).toHaveBeenCalledWith('art-1');
+  }, 10000);
+
+  it('does not reload artifact before job succeeds', async () => {
+    vi.mocked(generationApi.getGenerationJob)
+      .mockResolvedValueOnce(mockQueuedJob)
+      .mockResolvedValueOnce(mockQueuedJob);
+
+    const { result } = renderHook(() => useGenerationJobPolling('job-1', 'art-1'));
+
+    await waitFor(() => expect(result.current.job).not.toBeNull(), { timeout: 2000 });
+    expect(result.current.state).toBe('polling');
+    expect(artifactsApi.getArtifact).not.toHaveBeenCalled();
+  }, 10000);
+
+  it('sets artifactError when succeeded has no resultVersionId', async () => {
     vi.mocked(generationApi.getGenerationJob)
       .mockResolvedValueOnce(mockQueuedJob)
       .mockResolvedValueOnce(mockSucceededJob);
 
-    const { result } = renderHook(() => useGenerationJobPolling('job-1'));
+    const { result } = renderHook(() => useGenerationJobPolling('job-1', 'art-1'));
 
     await waitFor(() => expect(result.current.state).toBe('succeeded'), { timeout: 5000 });
-    expect(generationApi.getGenerationJob).toHaveBeenCalledTimes(2);
-    // Any artifact fetch would require an import not present in the hook.
-    // Structural proof: the hook file has no artifact API imports.
+    expect(result.current.artifact).toBeNull();
+    expect(result.current.artifactError).toBe(
+      'Generation completed but the result is not yet available.'
+    );
+    expect(artifactsApi.getArtifact).not.toHaveBeenCalled();
+  }, 10000);
+
+  it('sets artifactError when artifact reload fails after success', async () => {
+    vi.mocked(generationApi.getGenerationJob)
+      .mockResolvedValueOnce(mockQueuedJob)
+      .mockResolvedValueOnce(mockSucceededWithResultJob);
+    vi.mocked(artifactsApi.getArtifact).mockRejectedValueOnce(new Error('Artifact not found'));
+
+    const { result } = renderHook(() => useGenerationJobPolling('job-1', 'art-1'));
+
+    await waitFor(() => expect(result.current.state).toBe('succeeded'), { timeout: 5000 });
+    await waitFor(() => expect(result.current.artifactError).not.toBeNull(), { timeout: 3000 });
+    expect(result.current.artifact).toBeNull();
+    expect(result.current.artifactError).toBe(
+      'Could not load the generated design. Please refresh the page.'
+    );
   }, 10000);
 });

@@ -364,4 +364,81 @@ describe('SupabaseGenerationJobRepository guarded transitions', () => {
     const result = await repo.markFailedGuarded('job-1', { message: 'late error' });
     expect(result).toBeNull();
   });
+
+  it('markSucceededWithResultGuarded succeeds from running and stores result_version_id', async () => {
+    const { db, jobs } = createFakeDbClient([
+      {
+        id: 'job-1',
+        workspace_id: 'ws-1',
+        project_id: 'proj-1',
+        kind: 'full_generate',
+        status: 'running',
+        idempotency_key: null,
+        reserved_credits: 0,
+        captured_credits: 0,
+        plan: null,
+        error: null,
+        result_version_id: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const repo = new SupabaseGenerationJobRepository(db as unknown as DbClient);
+    const result = await repo.markSucceededWithResultGuarded('job-1', 'ver-99');
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('succeeded');
+    expect(result!.result_version_id).toBe('ver-99');
+    expect(jobs[0].status).toBe('succeeded');
+    expect(jobs[0].result_version_id).toBe('ver-99');
+  });
+
+  it('markSucceededWithResultGuarded fails from queued', async () => {
+    const { db } = createFakeDbClient([
+      {
+        id: 'job-1',
+        workspace_id: 'ws-1',
+        project_id: 'proj-1',
+        kind: 'full_generate',
+        status: 'queued',
+        idempotency_key: null,
+        reserved_credits: 0,
+        captured_credits: 0,
+        plan: null,
+        error: null,
+        result_version_id: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const repo = new SupabaseGenerationJobRepository(db as unknown as DbClient);
+    const result = await repo.markSucceededWithResultGuarded('job-1', 'ver-99');
+    expect(result).toBeNull();
+  });
+
+  it('markSucceededWithResultGuarded fails from succeeded', async () => {
+    const { db } = createFakeDbClient([
+      {
+        id: 'job-1',
+        workspace_id: 'ws-1',
+        project_id: 'proj-1',
+        kind: 'full_generate',
+        status: 'succeeded',
+        idempotency_key: null,
+        reserved_credits: 0,
+        captured_credits: 0,
+        plan: null,
+        error: null,
+        result_version_id: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const repo = new SupabaseGenerationJobRepository(db as unknown as DbClient);
+    const result = await repo.markSucceededWithResultGuarded('job-1', 'ver-99');
+    expect(result).toBeNull();
+  });
 });

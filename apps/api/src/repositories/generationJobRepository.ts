@@ -45,6 +45,12 @@ export interface GenerationJobRepository {
    */
   markRunningGuarded(id: string): Promise<GenerationJobRow | null>;
   /**
+   * Transition running -> succeeded with a result_version_id.
+   * Only succeeds when status = running.
+   * Returns the updated row on success, null if no rows matched.
+   */
+  markSucceededWithResultGuarded(id: string, resultVersionId: string): Promise<GenerationJobRow | null>;
+  /**
    * Transition running -> succeeded. Only succeeds when status = running.
    * Returns the updated row on success, null if no rows matched.
    */
@@ -84,6 +90,11 @@ export class StubGenerationJobRepository implements GenerationJobRepository {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async markRunningGuarded(_id: string): Promise<GenerationJobRow | null> {
     throw new Error('GenerationJobRepository.markRunningGuarded is not implemented yet.');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async markSucceededWithResultGuarded(_id: string, _resultVersionId: string): Promise<GenerationJobRow | null> {
+    throw new Error('GenerationJobRepository.markSucceededWithResultGuarded is not implemented yet.');
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -179,6 +190,22 @@ export class SupabaseGenerationJobRepository implements GenerationJobRepository 
       .update({ status: 'running', updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('status', 'queued')
+      .select()
+      .single();
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    return data ?? null;
+  }
+
+  async markSucceededWithResultGuarded(id: string, resultVersionId: string): Promise<GenerationJobRow | null> {
+    const { data, error } = await this.db
+      .from('generation_jobs')
+      .update({ status: 'succeeded', result_version_id: resultVersionId, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', 'running')
       .select()
       .single();
 

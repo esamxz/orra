@@ -60,6 +60,9 @@ importers:
       '@orra/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@orra/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@supabase/supabase-js':
         specifier: ^2.49.4
         version: 2.107.0

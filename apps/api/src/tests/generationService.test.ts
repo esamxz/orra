@@ -96,6 +96,14 @@ function createFakeGenerationJobRepository(): GenerationJobRepository {
       job.updated_at = new Date().toISOString();
       return job;
     },
+    async markSucceededWithResultGuarded(id, resultVersionId) {
+      const job = jobs.find((j) => j.id === id && j.status === 'running');
+      if (!job) return null;
+      job.status = 'succeeded';
+      job.result_version_id = resultVersionId;
+      job.updated_at = new Date().toISOString();
+      return job;
+    },
     async markSucceededGuarded(id) {
       const job = jobs.find((j) => j.id === id && j.status === 'running');
       if (!job) return null;

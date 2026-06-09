@@ -12,6 +12,7 @@
   "dependencies": {
     "@orra/api": "workspace:*",
     "@orra/db": "workspace:*",
+    "@orra/shared": "workspace:*",
     "@supabase/supabase-js": "^2.49.4",
     "zod": "^3.25.72"
   },

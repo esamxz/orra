@@ -239,6 +239,14 @@ function createFakeRepositories(
         job.updated_at = new Date().toISOString();
         return job;
       },
+      async markSucceededWithResultGuarded(id: string, resultVersionId: string) {
+        const job = jobs.find((j) => j.id === id && j.status === 'running');
+        if (!job) return null;
+        job.status = 'succeeded';
+        job.result_version_id = resultVersionId;
+        job.updated_at = new Date().toISOString();
+        return job;
+      },
       async markSucceededGuarded(id: string) {
         const job = jobs.find((j) => j.id === id && j.status === 'running');
         if (!job) return null;
@@ -667,5 +675,42 @@ describe('GET /v1/jobs/:id', () => {
     const json = (await res.json()) as ApiResponse;
     expect(json.ok).toBe(false);
     expect(json.error!.code).toBe('NOT_FOUND');
+  });
+
+  it('returns resultVersionId for succeeded job', async () => {
+    const repos = createFakeRepositories(
+      [], [], [],
+      [
+        {
+          id: '11111111-1111-1111-1111-111111111111',
+          workspace_id: 'ws-fake-1',
+          project_id: 'proj-1',
+          kind: 'full_generate',
+          status: 'succeeded',
+          idempotency_key: null,
+          reserved_credits: 0,
+          captured_credits: 0,
+          plan: null,
+          error: null,
+          result_version_id: 'ver-99',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/jobs/11111111-1111-1111-1111-111111111111',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as { id: string; status: string; resultVersionId: string | null };
+    expect(data.status).toBe('succeeded');
+    expect(data.resultVersionId).toBe('ver-99');
   });
 });
