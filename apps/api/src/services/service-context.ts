@@ -10,6 +10,7 @@ import { SupabaseChatRepository } from '../repositories/chatRepository.js';
 import { SupabaseGenerationJobRepository } from '../repositories/generationJobRepository.js';
 import { SupabaseCreditRepository } from '../repositories/creditRepository.js';
 import { SupabaseBrandSystemRepository } from '../repositories/brandSystemRepository.js';
+import { SupabaseAssetRepository } from '../repositories/assetRepository.js';
 
 // ---------------------------------------------------------------------------
 // Service context
@@ -132,6 +133,7 @@ export function getRepositories(ctx: ServiceContext): Repositories {
     generationJob: new SupabaseGenerationJobRepository(db),
     credit: new SupabaseCreditRepository(db),
     brandSystem: new SupabaseBrandSystemRepository(db),
+    asset: new SupabaseAssetRepository(db),
   };
 
   ctx.repositories = repos;

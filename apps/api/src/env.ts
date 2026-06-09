@@ -16,6 +16,9 @@ export const EnvSchema = z.object({
   CLERK_JWT_ISSUER: z.string().optional(),
   CLERK_AUDIENCE: z.string().optional(),
   R2_BUCKET_NAME: z.string().optional(),
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
   QUEUE_NAME: z.string().optional(),
   ENVIRONMENT: z.enum(['development', 'staging', 'production']).default('development'),
   ALLOWED_ORIGINS: z.string().optional(), // comma-separated list

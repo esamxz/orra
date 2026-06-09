@@ -7,12 +7,17 @@ import {
   ListBrandSystemsQuerySchema,
   BrandSystemIdParamSchema,
 } from '../schemas/brand.js';
+import {
+  BrandUploadIntentBodySchema,
+} from '../schemas/asset.js';
 import { validateJson, validateQuery, validateParam } from '../middleware/validate.js';
 import { BrandSystemService } from '../services/brandSystemService.js';
+import { AssetUploadService } from '../services/assetUploadService.js';
 import { createServiceContext, getRepositories } from '../services/service-context.js';
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
 import type { Repositories } from '../repositories/types.js';
+import { createR2Signer } from '../r2/r2Signer.js';
 
 // ---------------------------------------------------------------------------
 // Brand system routes — protected
@@ -82,5 +87,27 @@ brandRoutes.delete('/:id', validateParam(BrandSystemIdParamSchema), async (c) =>
   await service.deleteBrandSystem(ctx, id);
   return c.json({ ok: true, data: { deleted: true } });
 });
+
+// POST /v1/brand-systems/:id/assets/upload-intent — request an upload URL for a brand asset
+brandRoutes.post(
+  '/:id/assets/upload-intent',
+  validateParam(BrandSystemIdParamSchema),
+  validateJson(BrandUploadIntentBodySchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const ctx = buildServiceContext(c);
+    const repos = getRepositories(ctx);
+    const signer = createR2Signer(c.env);
+    const service = new AssetUploadService(repos.asset, repos.project, repos.brandSystem, signer);
+    const result = await service.createBrandUploadIntent(ctx, id, {
+      fileName: body.fileName,
+      contentType: body.contentType,
+      sizeBytes: body.sizeBytes,
+      kind: body.kind,
+    });
+    return c.json({ ok: true, data: result }, 201);
+  }
+);
 
 export default brandRoutes;

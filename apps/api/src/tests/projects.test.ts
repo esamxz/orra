@@ -272,6 +272,7 @@ function createFakeRepositories(
         if (idx !== -1) brandList.splice(idx, 1);
       },
     },
+    asset: {} as unknown as Repositories['asset'],
   } as unknown as Repositories;
 }
 

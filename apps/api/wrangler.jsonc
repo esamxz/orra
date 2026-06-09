@@ -9,5 +9,11 @@
         "queue": "orra-generation-queue"
       }
     ]
-  }
+  },
+  "r2_buckets": [
+    {
+      "binding": "ORRA_ASSETS",
+      "bucket_name": "orra-assets"
+    }
+  ]
 }

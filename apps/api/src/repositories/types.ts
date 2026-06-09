@@ -7,6 +7,7 @@ import type { GenerationJobRepository } from './generationJobRepository.js';
 
 import type { CreditRepository } from './creditRepository.js';
 import type { BrandSystemRepository } from './brandSystemRepository.js';
+import type { AssetRepository } from './assetRepository.js';
 
 // ---------------------------------------------------------------------------
 // Repository context
@@ -23,4 +24,5 @@ export interface Repositories {
   generationJob: GenerationJobRepository;
   credit: CreditRepository;
   brandSystem: BrandSystemRepository;
+  asset: AssetRepository;
 }
