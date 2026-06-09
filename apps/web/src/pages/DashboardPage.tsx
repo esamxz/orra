@@ -7,6 +7,7 @@ import { CardBg } from '../data/cards';
 import CreateBrandSystemModal from '../components/brand/CreateBrandSystemModal';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { useTheme } from '../hooks/useTheme';
+import { useCreditStatus } from '../hooks/useCreditStatus';
 import UsageStatus from '../components/workspace/UsageStatus';
 import { useProjects } from '../hooks/useProjects';
 import { createProject } from '../api/projects';
@@ -52,6 +53,15 @@ export default function DashboardPage() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const brand = BRANDS[brandIdx];
+
+  // ---------------------------------------------------------------------------
+  // Credit status from API (Phase 10D)
+  // ---------------------------------------------------------------------------
+  const {
+    data: creditData,
+    loading: creditLoading,
+    error: creditError,
+  } = useCreditStatus();
 
   // ---------------------------------------------------------------------------
   // Project list from API
@@ -210,7 +220,11 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <UsageStatus />
+        <UsageStatus
+          status={creditData}
+          loading={creditLoading}
+          error={creditError}
+        />
 
         <div className="rail-foot">
           <p className="note">Only you can see your projects by default.</p>

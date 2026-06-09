@@ -28,32 +28,6 @@ export interface MockBrandSystem {
   typography?: BrandTypography;
 }
 
-export interface MockUsage {
-  plan: string;
-  monthlyTotal: number;
-  monthlyUsed: number;
-  topupCredits: number;
-  resetDate: string;
-  recentUsage: { action: string; credits: number; date: string }[];
-}
-
-// ---------------------------------------------------------------------------
-// Mock data — single source of truth for usage
-// ---------------------------------------------------------------------------
-const mockUsage: MockUsage = {
-  plan: 'Creator',
-  monthlyTotal: 800,
-  monthlyUsed: 620,
-  topupCredits: 150,
-  resetDate: '2026-07-01',
-  recentUsage: [
-    { action: 'Carousel generation', credits: 45, date: '2026-06-05' },
-    { action: 'Background generation', credits: 12, date: '2026-06-04' },
-    { action: 'Region edit', credits: 18, date: '2026-06-03' },
-    { action: 'Object generation', credits: 15, date: '2026-06-02' },
-    { action: 'Premium generation', credits: 30, date: '2026-06-01' },
-  ],
-};
 
 const initialBrandSystems: MockBrandSystem[] = [
   {
@@ -129,7 +103,6 @@ export type DashboardTab = 'recent' | 'projects' | 'trends' | 'brands';
 export interface DashboardState {
   activeTab: DashboardTab;
   brandSystems: MockBrandSystem[];
-  usage: MockUsage;
 
   setActiveTab: (tab: DashboardTab) => void;
   addBrandSystem: (brand: MockBrandSystem) => void;
@@ -140,7 +113,6 @@ export interface DashboardState {
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   activeTab: 'recent',
   brandSystems: initialBrandSystems,
-  usage: mockUsage,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 

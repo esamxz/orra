@@ -155,3 +155,36 @@ export interface CreateGenerationJobInput {
   approvalMessageId: string;
   idempotencyKey?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Credit types
+// ---------------------------------------------------------------------------
+
+export interface CreditBalanceDto {
+  workspaceId: string;
+  monthlyRemaining: number;
+  topupRemaining: number;
+  totalRemaining: number;
+  reserved: number;
+  resetAt: string | null;
+}
+
+export interface CreditLedgerEntryDto {
+  id: string;
+  workspaceId: string;
+  entryType: string;
+  bucket: string;
+  amount: number;
+  jobId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CreditStatusResponse {
+  balance: CreditBalanceDto;
+  recentLedger: CreditLedgerEntryDto[];
+}
+
+export interface ListCreditLedgerParams {
+  limit?: number;
+}

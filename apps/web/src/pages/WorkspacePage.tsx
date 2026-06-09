@@ -5,6 +5,7 @@ import { usePersistedActionDispatch } from '../hooks/usePersistedActionDispatch'
 import { useArtifactLoader } from '../hooks/useArtifactLoader';
 import { useProjectMessages } from '../hooks/useProjectMessages';
 import { useGenerationJobPolling } from '../hooks/useGenerationJobPolling';
+import { useCreditStatus } from '../hooks/useCreditStatus';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { ApiClientError } from '../api/errors';
@@ -176,6 +177,14 @@ export default function WorkspacePage() {
     // state: pollingState, // reserved for future UI states
   } = useGenerationJobPolling(activeJobId, serverArtifactId ?? undefined);
 
+  // Phase 10D: credit status for workspace usage bar
+  const {
+    data: creditData,
+    loading: creditLoading,
+    error: creditError,
+    reload: reloadCreditStatus,
+  } = useCreditStatus(!!projectId);
+
   // Selection state from workspace store
   const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
   const selectedLayerId = useWorkspaceStore((s) => s.selectedLayerId);
@@ -264,6 +273,14 @@ export default function WorkspacePage() {
     if (!pollArtifactError) return;
     flash(pollArtifactError);
   }, [pollArtifactError, flash]);
+
+  // Phase 10D: refresh credit status when a generation job finishes
+  useEffect(() => {
+    if (!polledJob) return;
+    if (polledJob.status === 'succeeded' || polledJob.status === 'failed') {
+      reloadCreditStatus();
+    }
+  }, [polledJob, reloadCreditStatus]);
 
   const displayMessages = useMemo(() => {
     return projectId ? realMessages : messages;
@@ -721,7 +738,12 @@ export default function WorkspacePage() {
                     ? 'Reloaded latest'
                     : 'Saved'}
           </div>
-          <UsageStatus compact />
+          <UsageStatus
+            compact
+            status={creditData}
+            loading={creditLoading}
+            error={creditError}
+          />
           <div style={{position:'relative'}}>
             <button className="btn btn-primary btn-sm" style={{height:36}} onClick={()=>{setExportOpen(v=>!v);setVersOpen(false);}}>{<Icon.download s={16} />} Export</button>
             {exportOpen && <>
