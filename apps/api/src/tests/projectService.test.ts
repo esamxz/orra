@@ -4,7 +4,8 @@ import { ProjectService } from '../services/projectService.js';
 import { ApiError } from '../errors.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { ArtifactRepository } from '../repositories/artifactRepository.js';
-import type { ProjectRow, ArtifactRow, ArtifactVersionRow } from '@orra/db';
+import type { ProjectRow, ArtifactRow, ArtifactVersionRow, BrandSystemRow } from '@orra/db';
+import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
 
 // ---------------------------------------------------------------------------
 // Fake project repository
@@ -498,5 +499,248 @@ describe('ProjectService', () => {
         ratio: { name: '4:5', w: 1080, h: 1350 },
       })
     ).rejects.toThrow(ApiError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Brand system validation
+// ---------------------------------------------------------------------------
+
+function createFakeBrandSystemRepository(initial: BrandSystemRow[] = []): BrandSystemRepository {
+  const brands = [...initial];
+  let nextId = 1;
+
+  return {
+    async create(input) {
+      const brand: BrandSystemRow = {
+        id: `brand-${nextId++}`,
+        workspace_id: input.workspaceId,
+        name: input.name,
+        description: input.description ?? null,
+        tone_of_voice: input.toneOfVoice ?? null,
+        visual_direction: input.visualDirection ?? null,
+        rules: input.rules ?? null,
+        palette: input.palette as unknown as BrandSystemRow['palette'],
+        typography: input.typography as unknown as BrandSystemRow['typography'],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      brands.push(brand);
+      return brand;
+    },
+    async listByWorkspace(input) {
+      return brands.filter((b) => b.workspace_id === input.workspaceId).slice(0, input.limit);
+    },
+    async findByIdForWorkspace(input) {
+      return brands.find((b) => b.id === input.id && b.workspace_id === input.workspaceId) ?? null;
+    },
+    async updateForWorkspace(input) {
+      const idx = brands.findIndex((b) => b.id === input.id && b.workspace_id === input.workspaceId);
+      if (idx === -1) return null;
+      brands[idx] = { ...brands[idx], ...input.updates };
+      return brands[idx];
+    },
+    async deleteForWorkspace(input) {
+      const idx = brands.findIndex((b) => b.id === input.id && b.workspace_id === input.workspaceId);
+      if (idx !== -1) brands.splice(idx, 1);
+    },
+  };
+}
+
+describe('ProjectService brand validation', () => {
+  it('createProject without brandSystemId succeeds', async () => {
+    const repo = createFakeProjectRepository();
+    const service = new ProjectService(repo, createFakeArtifactRepository());
+    const ctx = fakeAuthContext('ws-1');
+
+    const project = await service.createProject(ctx, {
+      name: 'No Brand Post',
+      type: 'post',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+    });
+
+    expect(project.brandSystemId).toBeNull();
+  });
+
+  it('createProject with valid brandSystemId in same workspace succeeds', async () => {
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-1',
+        name: 'My Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const repo = createFakeProjectRepository();
+    const service = new ProjectService(repo, createFakeArtifactRepository(), brandRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const project = await service.createProject(ctx, {
+      name: 'Branded Post',
+      type: 'post',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      brandSystemId: '11111111-1111-1111-1111-111111111111',
+    });
+
+    expect(project.brandSystemId).toBe('11111111-1111-1111-1111-111111111111');
+  });
+
+  it('createProject with invalid brandSystemId throws NOT_FOUND', async () => {
+    const brandRepo = createFakeBrandSystemRepository();
+    const repo = createFakeProjectRepository();
+    const service = new ProjectService(repo, createFakeArtifactRepository(), brandRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createProject(ctx, {
+        name: 'Bad Brand Post',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brandSystemId: '00000000-0000-0000-0000-000000000000',
+      })
+    ).rejects.toThrow(ApiError);
+    await expect(
+      service.createProject(ctx, {
+        name: 'Bad Brand Post',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brandSystemId: '00000000-0000-0000-0000-000000000000',
+      })
+    ).rejects.toThrow('Brand system not found');
+  });
+
+  it('createProject with brandSystemId from another workspace throws NOT_FOUND', async () => {
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Other Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const repo = createFakeProjectRepository();
+    const service = new ProjectService(repo, createFakeArtifactRepository(), brandRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createProject(ctx, {
+        name: 'Wrong Workspace Brand',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brandSystemId: '11111111-1111-1111-1111-111111111111',
+      })
+    ).rejects.toThrow(ApiError);
+  });
+
+  it('updateProject with valid brandSystemId succeeds', async () => {
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-1',
+        name: 'My Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const repo = createFakeProjectRepository([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-1',
+        name: 'Old Name',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ProjectService(repo, createFakeArtifactRepository(), brandRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const project = await service.updateProject(ctx, '11111111-1111-1111-1111-111111111111', {
+      brandSystemId: '11111111-1111-1111-1111-111111111111',
+    });
+
+    expect(project.brandSystemId).toBe('11111111-1111-1111-1111-111111111111');
+  });
+
+  it('updateProject with invalid brandSystemId throws NOT_FOUND', async () => {
+    const brandRepo = createFakeBrandSystemRepository();
+    const repo = createFakeProjectRepository([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-1',
+        name: 'Old Name',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ProjectService(repo, createFakeArtifactRepository(), brandRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.updateProject(ctx, '11111111-1111-1111-1111-111111111111', {
+        brandSystemId: '00000000-0000-0000-0000-000000000000',
+      })
+    ).rejects.toThrow(ApiError);
+  });
+
+  it('updateProject to remove brand by passing null succeeds', async () => {
+    const brandRepo = createFakeBrandSystemRepository();
+    const repo = createFakeProjectRepository([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-1',
+        name: 'Old Name',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: 'brand-was-here',
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const service = new ProjectService(repo, createFakeArtifactRepository(), brandRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const project = await service.updateProject(ctx, '11111111-1111-1111-1111-111111111111', {
+      brandSystemId: null,
+    });
+
+    expect(project.brandSystemId).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import artifactRoutes from './artifacts.js';
 import chatRoutes from './chat.js';
 import generationRoutes from './generation.js';
 import creditRoutes from './credits.js';
+import brandRoutes from './brands.js';
 
 // ---------------------------------------------------------------------------
 // V1 protected route mount point
@@ -13,10 +14,8 @@ import creditRoutes from './credits.js';
 // to /v1/* before this router is reached.
 //
 // Future phases add:
-//   - brandRoutes
 //   - assetRoutes
 //   - exportRoutes
-//   - creditRoutes
 //   - billingRoutes
 
 const v1 = new Hono<{ Bindings: Env }>();
@@ -37,8 +36,10 @@ v1.route('/', generationRoutes);
 // Credits (Phase 10A — read-only balance + ledger)
 v1.route('/credits', creditRoutes);
 
+// Brand systems (Phase 11A)
+v1.route('/brand-systems', brandRoutes);
+
 // Future route modules (commented placeholders)
-// v1.route('/brand-systems', brandRoutes);
 // v1.route('/assets', assetRoutes);
 // v1.route('/export', exportRoutes);
 // v1.route('/billing', billingRoutes);

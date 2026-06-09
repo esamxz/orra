@@ -42,6 +42,7 @@ describe('service context', () => {
       user: { findByClerkId: async () => null, createFromClerkIdentity: async () => ({ id: 'u1' }) },
       workspace: { findPersonalWorkspaceForUser: async () => null, createPersonalWorkspace: async () => ({ id: 'w1' }) },
       project: {},
+      brandSystem: {},
     } as unknown as Repositories;
 
     const ctx = createServiceContext(env, requestId, undefined, { repositories: fakeRepos });

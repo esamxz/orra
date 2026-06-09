@@ -181,6 +181,7 @@ function createFakeRepositories(
         throw new Error('not used');
       },
     },
+    brandSystem: {},
   } as unknown as Repositories;
 }
 

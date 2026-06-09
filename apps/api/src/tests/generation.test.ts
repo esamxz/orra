@@ -333,6 +333,7 @@ function createFakeRepositories(
         return { refunded: 0 };
       },
     } as unknown as CreditRepository,
+    brandSystem: {},
   } as unknown as Repositories;
 }
 

@@ -211,6 +211,7 @@ function createFakeRepositories(
         return [];
       },
     },
+    brandSystem: {},
   } as unknown as Repositories;
 }
 

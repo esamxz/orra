@@ -250,6 +250,7 @@ function createFakeRepositories(
         return { refunded: totalReserved };
       },
     },
+    brandSystem: {},
   } as unknown as Repositories;
 }
 

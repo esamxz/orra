@@ -8,7 +8,14 @@ import { errorHandler } from '../middleware/error-handler.js';
 import { createFakeVerifier } from '../auth/verifier.js';
 import projectRoutes from '../routes/projects.js';
 import type { Repositories } from '../repositories/types.js';
-import type { ProjectRow, ArtifactRow, ArtifactVersionRow } from '@orra/db';
+import type { ProjectRow, ArtifactRow, ArtifactVersionRow, BrandSystemRow } from '@orra/db';
+import type {
+  CreateBrandSystemInput,
+  ListBrandSystemsInput,
+  FindBrandSystemInput,
+  UpdateBrandSystemInput,
+  DeleteBrandSystemInput,
+} from '../repositories/brandSystemRepository.js';
 import type {
   CreateProjectInput,
   ListProjectsInput,
@@ -30,8 +37,12 @@ interface ApiResponse<T = unknown> {
   };
 }
 
-function createFakeRepositories(projects: ProjectRow[] = []): Repositories {
+function createFakeRepositories(
+  projects: ProjectRow[] = [],
+  brands: BrandSystemRow[] = []
+): Repositories {
   const projectList = [...projects];
+  const brandList = [...brands];
   const artifacts: ArtifactRow[] = [];
   const versions: ArtifactVersionRow[] = [];
   let nextId = 1;
@@ -216,6 +227,51 @@ function createFakeRepositories(projects: ProjectRow[] = []): Repositories {
         };
       },
     },
+    brandSystem: {
+      async create(input: CreateBrandSystemInput) {
+        const brand: BrandSystemRow = {
+          id: `brand-${nextId++}`,
+          workspace_id: input.workspaceId,
+          name: input.name,
+          description: input.description ?? null,
+          tone_of_voice: input.toneOfVoice ?? null,
+          visual_direction: input.visualDirection ?? null,
+          rules: input.rules ?? null,
+          palette: input.palette as unknown as BrandSystemRow['palette'],
+          typography: input.typography as unknown as BrandSystemRow['typography'],
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        };
+        brandList.push(brand);
+        return brand;
+      },
+      async listByWorkspace(input: ListBrandSystemsInput) {
+        return brandList
+          .filter((b) => b.workspace_id === input.workspaceId)
+          .slice(0, input.limit);
+      },
+      async findByIdForWorkspace(input: FindBrandSystemInput) {
+        return (
+          brandList.find(
+            (b) => b.id === input.id && b.workspace_id === input.workspaceId
+          ) ?? null
+        );
+      },
+      async updateForWorkspace(input: UpdateBrandSystemInput) {
+        const idx = brandList.findIndex(
+          (b) => b.id === input.id && b.workspace_id === input.workspaceId
+        );
+        if (idx === -1) return null;
+        brandList[idx] = { ...brandList[idx], ...input.updates };
+        return brandList[idx];
+      },
+      async deleteForWorkspace(input: DeleteBrandSystemInput) {
+        const idx = brandList.findIndex(
+          (b) => b.id === input.id && b.workspace_id === input.workspaceId
+        );
+        if (idx !== -1) brandList.splice(idx, 1);
+      },
+    },
   } as unknown as Repositories;
 }
 
@@ -333,6 +389,75 @@ describe('POST /v1/projects', () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as ApiResponse;
     expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('returns NOT_FOUND for invalid brandSystemId', async () => {
+    const app = buildApp(createFakeRepositories());
+    const res = await app.request(
+      '/v1/projects',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Branded Post',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          brandSystemId: '00000000-0000-0000-0000-000000000000',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('NOT_FOUND');
+    expect(json.error!.message).toContain('Brand system not found');
+  });
+
+  it('creates project with valid brandSystemId', async () => {
+    const repos = createFakeRepositories([], [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'My Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Branded Post',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          brandSystemId: '11111111-1111-1111-1111-111111111111',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    expect((json.data as { brandSystemId: string | null }).brandSystemId).toBe('11111111-1111-1111-1111-111111111111');
   });
 });
 

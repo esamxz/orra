@@ -3,6 +3,7 @@ import { requireAuth } from './service-context.js';
 import { ApiError } from '../errors.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { ArtifactRepository } from '../repositories/artifactRepository.js';
+import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
 import { ArtifactService } from './artifactService.js';
 import type { ProjectRow } from '@orra/db';
 
@@ -66,7 +67,8 @@ export class ProjectService {
 
   constructor(
     private projectRepo: ProjectRepository,
-    artifactRepo: ArtifactRepository
+    artifactRepo: ArtifactRepository,
+    private brandSystemRepo?: BrandSystemRepository
   ) {
     this.artifactService = new ArtifactService(artifactRepo);
   }
@@ -78,10 +80,16 @@ export class ProjectService {
     const auth = requireAuth(ctx);
     const workspaceId = auth.workspaceId;
 
-    // TODO(Phase 8A): Verify brandSystemId belongs to the same workspace.
-    // BrandRepository does not exist yet; deferring to prevent FK violations
-    // from mis-scoped brand_system_id values. When Brand CRUD is implemented,
-    // add a workspace-scoped existence check here.
+    // Phase 11A: Validate brandSystemId belongs to the same workspace when provided.
+    if (input.brandSystemId && this.brandSystemRepo) {
+      const brand = await this.brandSystemRepo.findByIdForWorkspace({
+        id: input.brandSystemId,
+        workspaceId,
+      });
+      if (!brand) {
+        throw new ApiError('NOT_FOUND', 'Brand system not found.');
+      }
+    }
 
     const row = await this.projectRepo.create({
       workspaceId,
@@ -168,6 +176,17 @@ export class ProjectService {
 
     if (!existing) {
       throw new ApiError('NOT_FOUND', 'Project not found.');
+    }
+
+    // Phase 11A: Validate brandSystemId belongs to the same workspace when provided.
+    if (input.brandSystemId && this.brandSystemRepo) {
+      const brand = await this.brandSystemRepo.findByIdForWorkspace({
+        id: input.brandSystemId,
+        workspaceId,
+      });
+      if (!brand) {
+        throw new ApiError('NOT_FOUND', 'Brand system not found.');
+      }
     }
 
     const updates: Partial<Pick<ProjectRow, 'name' | 'ratio' | 'brand_system_id'>> = {};
