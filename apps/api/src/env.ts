@@ -20,6 +20,7 @@ export const EnvSchema = z.object({
   ENVIRONMENT: z.enum(['development', 'staging', 'production']).default('development'),
   ALLOWED_ORIGINS: z.string().optional(), // comma-separated list
   DEV_AUTH_ENABLED: z.literal('true').optional(), // explicit opt-in for dev auth fallback
+  DEV_GENERATION_QUEUE_DISABLED: z.literal('true').optional(), // explicit opt-in for local dev without queue
 });
 
 export type Env = z.infer<typeof EnvSchema> & {

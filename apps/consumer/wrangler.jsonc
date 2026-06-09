@@ -1,0 +1,15 @@
+{
+  "name": "@orra/consumer",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-11-11",
+  "queues": {
+    "consumers": [
+      {
+        "queue": "orra-generation-queue",
+        "max_batch_size": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "orra-generation-dlq"
+      }
+    ]
+  }
+}

@@ -94,6 +94,30 @@ describe('MockGenerationConsumer', () => {
     expect(job!.status).toBe('running');
   });
 
+  it('skips already succeeded job as duplicate', async () => {
+    const repo = createFakeJobRepository([makeJob('succeeded')]);
+    const consumer = new MockGenerationConsumer(repo);
+
+    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    consoleSpy.mockRestore();
+
+    const job = await repo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+  });
+
+  it('skips already failed job as duplicate', async () => {
+    const repo = createFakeJobRepository([makeJob('failed')]);
+    const consumer = new MockGenerationConsumer(repo);
+
+    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    consoleSpy.mockRestore();
+
+    const job = await repo.findById('job-1');
+    expect(job!.status).toBe('failed');
+  });
+
   it('skips safely when job is missing', async () => {
     const repo = createFakeJobRepository([]);
     const consumer = new MockGenerationConsumer(repo);

@@ -1,0 +1,13 @@
+{
+  "name": "@orra/api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-11-11",
+  "queues": {
+    "producers": [
+      {
+        "binding": "GENERATION_QUEUE",
+        "queue": "orra-generation-queue"
+      }
+    ]
+  }
+}

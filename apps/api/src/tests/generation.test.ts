@@ -345,6 +345,11 @@ describe('POST /v1/generate', () => {
 
   it('creates a queued stub job', async () => {
     const { app } = await setupWithApprovedMessage();
+    const fakeQueue = {
+      async send(_msg: { jobId: string }) {
+        /* noop */
+      },
+    };
     const res = await app.request(
       '/v1/generate',
       {
@@ -358,7 +363,7 @@ describe('POST /v1/generate', () => {
           approvalMessageId: '22222222-2222-2222-2222-222222222222',
         }),
       },
-      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+      { ENVIRONMENT: 'production', GENERATION_QUEUE: fakeQueue } as unknown as Record<string, unknown>
     );
 
     expect(res.status).toBe(201);
@@ -490,6 +495,86 @@ describe('POST /v1/generate', () => {
     expect(sent).toHaveLength(1);
     const json = (await res.json()) as ApiResponse;
     expect(sent[0].jobId).toBe((json.data as { id: string }).id);
+  });
+
+  it('returns PROVIDER_FAILURE when GENERATION_QUEUE is missing in production', async () => {
+    const { app } = await setupWithApprovedMessage();
+    const res = await app.request(
+      '/v1/generate',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: '11111111-1111-1111-1111-111111111111',
+          approvalMessageId: '22222222-2222-2222-2222-222222222222',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(502);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('PROVIDER_FAILURE');
+  });
+
+  it('returns PROVIDER_FAILURE when queue send fails', async () => {
+    const { app } = await setupWithApprovedMessage();
+    const failingQueue = {
+      async send() {
+        throw new Error('Queue overloaded');
+      },
+    };
+    const res = await app.request(
+      '/v1/generate',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: '11111111-1111-1111-1111-111111111111',
+          approvalMessageId: '22222222-2222-2222-2222-222222222222',
+        }),
+      },
+      { ENVIRONMENT: 'production', GENERATION_QUEUE: failingQueue } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(502);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('PROVIDER_FAILURE');
+  });
+
+  it('allows missing queue in development when DEV_GENERATION_QUEUE_DISABLED=true', async () => {
+    const { app } = await setupWithApprovedMessage();
+    const res = await app.request(
+      '/v1/generate',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: '11111111-1111-1111-1111-111111111111',
+          approvalMessageId: '22222222-2222-2222-2222-222222222222',
+        }),
+      },
+      {
+        ENVIRONMENT: 'development',
+        DEV_GENERATION_QUEUE_DISABLED: 'true',
+      } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    expect((json.data as { status: string }).status).toBe('queued');
   });
 });
 

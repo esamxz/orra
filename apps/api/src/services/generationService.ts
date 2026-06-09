@@ -118,19 +118,42 @@ export class GenerationService {
     });
 
     // 6. Enqueue a small message to the generation queue.
-    // The consumer picks this up and transitions the job lifecycle.
-    // If enqueue fails, the queued row remains in the database and can be
-    // retried manually or by a recovery process later. This is acceptable
-    // for the skeleton phase; production would likely mark the job failed
-    // or implement an outbox pattern.
+    // Production safety: missing queue binding or send failure must not create
+    // a dead queued job. In development, an explicit bypass flag allows
+    // local testing without a bound queue.
     const queue = this.env?.GENERATION_QUEUE;
-    if (queue) {
+    const environment = this.env?.ENVIRONMENT ?? 'development';
+    const devBypass = this.env?.DEV_GENERATION_QUEUE_DISABLED === 'true';
+
+    if (!queue) {
+      if (environment === 'development' && devBypass) {
+        console.warn(
+          'GENERATION_QUEUE not bound; DEV_GENERATION_QUEUE_DISABLED=true so continuing without enqueue. ' +
+            'Job row remains queued but will not be processed by a consumer.'
+        );
+      } else {
+        await this.jobRepo.markFailedGuarded(row.id, {
+          code: 'QUEUE_UNAVAILABLE',
+          message: 'Generation queue binding is missing. Job cannot be enqueued.',
+        } as unknown as import('@orra/db').Json);
+        throw new ApiError(
+          'PROVIDER_FAILURE',
+          'Generation queue is unavailable. The job has been marked failed.'
+        );
+      }
+    } else {
       try {
         await queue.send({ jobId: row.id });
       } catch (enqueueErr) {
-        // Intentionally not failing the request; the job row exists and
-        // represents recoverable state. Log for observability.
-        console.error('Generation queue enqueue failed:', enqueueErr);
+        const errMsg = enqueueErr instanceof Error ? enqueueErr.message : String(enqueueErr);
+        await this.jobRepo.markFailedGuarded(row.id, {
+          code: 'QUEUE_SEND_FAILED',
+          message: `Failed to enqueue job: ${errMsg}`,
+        } as unknown as import('@orra/db').Json);
+        throw new ApiError(
+          'PROVIDER_FAILURE',
+          'Failed to enqueue generation job. The job has been marked failed.'
+        );
       }
     }
 

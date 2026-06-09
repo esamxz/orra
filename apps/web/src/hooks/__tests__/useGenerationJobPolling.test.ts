@@ -73,4 +73,36 @@ describe('useGenerationJobPolling', () => {
     renderHook(() => useGenerationJobPolling(undefined));
     expect(generationApi.getGenerationJob).not.toHaveBeenCalled();
   });
+
+  it('stops polling and surfaces error on API failure', async () => {
+    vi.mocked(generationApi.getGenerationJob)
+      .mockResolvedValueOnce(mockQueuedJob)
+      .mockRejectedValueOnce(new Error('Network error'));
+
+    const { result } = renderHook(() => useGenerationJobPolling('job-1'));
+
+    await waitFor(() => expect(result.current.error).not.toBeNull(), { timeout: 5000 });
+    expect(result.current.state).toBe('polling'); // state stays polling until terminal; error is set
+    expect(result.current.error).toBe('Failed to check job status.');
+
+    // After error, timer should be cleared. Wait one more interval and ensure
+    // no additional calls happened beyond the initial two polls.
+    await new Promise((r) => setTimeout(r, 3500));
+    expect(generationApi.getGenerationJob).toHaveBeenCalledTimes(2);
+  }, 10000);
+
+  it('does not load artifact on succeeded', async () => {
+    // The hook only calls getGenerationJob and never touches artifact APIs.
+    // This test documents that invariant.
+    vi.mocked(generationApi.getGenerationJob)
+      .mockResolvedValueOnce(mockQueuedJob)
+      .mockResolvedValueOnce(mockSucceededJob);
+
+    const { result } = renderHook(() => useGenerationJobPolling('job-1'));
+
+    await waitFor(() => expect(result.current.state).toBe('succeeded'), { timeout: 5000 });
+    expect(generationApi.getGenerationJob).toHaveBeenCalledTimes(2);
+    // Any artifact fetch would require an import not present in the hook.
+    // Structural proof: the hook file has no artifact API imports.
+  }, 10000);
 });

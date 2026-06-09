@@ -325,9 +325,23 @@ describe('GenerationService', () => {
       created_at: '2026-01-01T00:00:00Z',
     };
 
+    const fakeQueue = {
+      async send(_msg: { jobId: string }) {
+        /* noop */
+      },
+    };
+
     const jobRepo = createFakeGenerationJobRepository();
     const chatRepo = createFakeChatRepository([thread], [message]);
-    const service = new GenerationService(jobRepo, chatRepo, projectRepo);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as import('../env.js').Env
+    );
     const ctx = fakeAuthContext('ws-1');
 
     const result = await service.createStubGenerationJob(ctx, {
@@ -381,9 +395,23 @@ describe('GenerationService', () => {
       created_at: '2026-01-01T00:00:00Z',
     };
 
+    const fakeQueue = {
+      async send(_msg: { jobId: string }) {
+        /* noop */
+      },
+    };
+
     const jobRepo = createFakeGenerationJobRepository();
     const chatRepo = createFakeChatRepository([thread], [message]);
-    const service = new GenerationService(jobRepo, chatRepo, projectRepo);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as import('../env.js').Env
+    );
     const ctx = fakeAuthContext('ws-1');
 
     const result = await service.createStubGenerationJob(ctx, {
@@ -472,9 +500,23 @@ describe('GenerationService', () => {
       created_at: '2026-01-01T00:00:00Z',
     };
 
+    const fakeQueue = {
+      async send(_msg: { jobId: string }) {
+        /* noop */
+      },
+    };
+
     const jobRepo = createFakeGenerationJobRepository();
     const chatRepo = createFakeChatRepository([thread], [message]);
-    const service = new GenerationService(jobRepo, chatRepo, projectRepo);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as import('../env.js').Env
+    );
     const ctx = fakeAuthContext('ws-1');
 
     await service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' });
@@ -546,7 +588,7 @@ describe('GenerationService', () => {
     expect(sentMessages[0]).toEqual({ jobId: result.id });
   });
 
-  it('does not fail when GENERATION_QUEUE is missing', async () => {
+  it('fails safely when GENERATION_QUEUE is missing in production', async () => {
     const projectRepo = createFakeProjectRepository([
       {
         id: 'proj-1',
@@ -588,10 +630,219 @@ describe('GenerationService', () => {
 
     const jobRepo = createFakeGenerationJobRepository();
     const chatRepo = createFakeChatRepository([thread], [message]);
-    const service = new GenerationService(jobRepo, chatRepo, projectRepo, {} as unknown as import('../env.js').Env);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      { ENVIRONMENT: 'production' } as unknown as import('../env.js').Env
+    );
     const ctx = fakeAuthContext('ws-1');
 
-    const result = await service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' });
+    await expect(
+      service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' })
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof ApiError)) return false;
+      return err.code === 'PROVIDER_FAILURE' && err.message.includes('unavailable');
+    });
+
+    const jobs = await jobRepo.listByProject({ workspaceId: 'ws-1', projectId: 'proj-1' });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].status).toBe('failed');
+  });
+
+  it('fails safely when GENERATION_QUEUE is missing in development without bypass', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      { ENVIRONMENT: 'development' } as unknown as import('../env.js').Env
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' })
+    ).rejects.toThrow(ApiError);
+
+    const jobs = await jobRepo.listByProject({ workspaceId: 'ws-1', projectId: 'proj-1' });
+    expect(jobs[0].status).toBe('failed');
+  });
+
+  it('allows missing GENERATION_QUEUE in development when DEV_GENERATION_QUEUE_DISABLED=true', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      {
+        ENVIRONMENT: 'development',
+        DEV_GENERATION_QUEUE_DISABLED: 'true',
+      } as unknown as import('../env.js').Env
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+    });
     expect(result.status).toBe('queued');
+
+    const jobs = await jobRepo.listByProject({ workspaceId: 'ws-1', projectId: 'proj-1' });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].status).toBe('queued');
+  });
+
+  it('marks job failed and throws when queue send fails', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+      } as unknown as import('@orra/db').Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const failingQueue = {
+      async send() {
+        throw new Error('Queue service unreachable');
+      },
+    };
+
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: failingQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as import('../env.js').Env
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' })
+    ).rejects.toThrow(ApiError);
+    await expect(
+      service.createStubGenerationJob(ctx, { projectId: 'proj-1', approvalMessageId: 'msg-1' })
+    ).rejects.toThrow('marked failed');
+
+    const jobs = await jobRepo.listByProject({ workspaceId: 'ws-1', projectId: 'proj-1' });
+    expect(jobs[0].status).toBe('failed');
+    expect(jobs[0].error).toEqual({
+      code: 'QUEUE_SEND_FAILED',
+      message: 'Failed to enqueue job: Queue service unreachable',
+    });
   });
 });
