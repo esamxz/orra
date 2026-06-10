@@ -40,7 +40,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { buildUpdateLayerPropsAction, buildSetTextContentAction, buildInsertImageLayerAction } from '../components/workspace/inspectorActions';
 import { shouldEnterEditMode } from '../components/workspace/textEditHelpers';
 import TextEditOverlay from '../components/workspace/TextEditOverlay';
-import { exportCardAsPng, exportCarouselAsZip, waitForFonts } from '../export/exportCard';
+import { exportCardAsPng, exportCarouselAsZip, waitForFonts, createProjectAssetResolver } from '../export/exportCard';
 
 const RATIO_DIM: Record<string, [number, number]> = { '1:1':[1,1], '4:5':[4,5], '9:16':[9,16], '16:9':[16,9] };
 
@@ -883,12 +883,22 @@ export default function WorkspacePage() {
                 onFlash={flash}
                 onExportPng={artifact ? async () => {
                   await waitForFonts();
-                  await exportCardAsPng(artifact, activeCardIndex, { projectName: config.projectName });
+                  const assetUrlResolver = projectId
+                    ? createProjectAssetResolver(projectId)
+                    : undefined;
+                  await exportCardAsPng(artifact, activeCardIndex, {
+                    projectName: config.projectName,
+                    assetUrlResolver,
+                  });
                 } : undefined}
                 onExportZip={artifact && artifact.cards.length > 1 ? async () => {
                   await waitForFonts();
+                  const assetUrlResolver = projectId
+                    ? createProjectAssetResolver(projectId)
+                    : undefined;
                   await exportCarouselAsZip(artifact, {
                     projectName: config.projectName,
+                    assetUrlResolver,
                     onProgress: (current, total) => flash(`Exporting ${current} of ${total}…`),
                   });
                 } : undefined}

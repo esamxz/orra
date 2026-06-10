@@ -41,3 +41,53 @@ export function assertCarouselExportReady(doc: ArtifactDocument): void {
     throw new Error('ZIP export requires at least 2 cards');
   }
 }
+
+const IMAGE_LOAD_TIMEOUT_MS = 15_000;
+
+/**
+ * Loads an HTMLImageElement for export rendering.
+ *
+ * Sets crossOrigin = 'anonymous' so the canvas is not tainted when Konva calls
+ * toDataURL(). R2 must allow GET requests from the app origin via CORS headers,
+ * otherwise the image load will succeed but the canvas will be tainted and export
+ * will throw a security error.
+ *
+ * @throws if the image fails to load or the optional timeout expires.
+ */
+export function loadImageForExport(
+  url: string,
+  timeoutMs = IMAGE_LOAD_TIMEOUT_MS,
+): Promise<HTMLImageElement> {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    img.onload = () => {
+      cleanup();
+      resolve(img);
+    };
+
+    img.onerror = () => {
+      cleanup();
+      reject(new Error(`Failed to load image: ${url}`));
+    };
+
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        img.src = '';
+        reject(new Error(`Image load timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }
+
+    img.src = url;
+  });
+}

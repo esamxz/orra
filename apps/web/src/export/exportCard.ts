@@ -1,19 +1,86 @@
 import Konva from 'konva';
 import JSZip from 'jszip';
 import type { ArtifactDocument } from '@orra/shared';
-import { buildCardRenderData, type RenderLayer } from '@orra/renderer';
-import { buildExportFilename, buildZipFilename, assertCarouselExportReady } from './exportHelpers.js';
+import { buildCardRenderData, type RenderLayer, type RenderImageLayer } from '@orra/renderer';
+import { buildExportFilename, buildZipFilename, assertCarouselExportReady, loadImageForExport } from './exportHelpers.js';
 import { fontStyleFromWeight, hexToRgba } from '../utils/renderUtils.js';
+import type { AssetUrlResolver } from './assetResolver.js';
 
 export { buildExportFilename, buildZipFilename, assertCarouselExportReady, waitForFonts } from './exportHelpers.js';
+export type { AssetUrlResolver } from './assetResolver.js';
+export { createProjectAssetResolver } from './assetResolver.js';
 
 const EXPORT_PIXEL_RATIO = 2;
+
+// ---------------------------------------------------------------------------
+// Export error
+// ---------------------------------------------------------------------------
+
+export class ExportError extends Error {
+  constructor(
+    message: string,
+    public readonly code: 'IMAGE_URL_FAILED' | 'IMAGE_LOAD_FAILED' | 'RENDER_FAILED',
+  ) {
+    super(message);
+    this.name = 'ExportError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-load all image assets before building export nodes.
+// Exported for testing.
+// ---------------------------------------------------------------------------
+
+export async function preloadImageAssets(
+  layers: RenderLayer[],
+  resolver: AssetUrlResolver | undefined,
+): Promise<Map<string, HTMLImageElement>> {
+  const preloaded = new Map<string, HTMLImageElement>();
+
+  const imageLayers = layers.filter((l): l is RenderImageLayer => l.kind === 'image');
+  if (imageLayers.length === 0) return preloaded;
+
+  if (!resolver) {
+    throw new ExportError(
+      'Export failed: this design contains image layers but no asset resolver was provided.',
+      'IMAGE_URL_FAILED',
+    );
+  }
+
+  for (const layer of imageLayers) {
+    const { assetId } = layer;
+    if (preloaded.has(assetId)) continue; // dedupe: same asset on multiple layers
+
+    const url = await resolver(assetId);
+    if (!url) {
+      throw new ExportError(
+        'Export failed: one or more images could not be prepared. Please reload and try again.',
+        'IMAGE_URL_FAILED',
+      );
+    }
+
+    try {
+      const img = await loadImageForExport(url);
+      preloaded.set(assetId, img);
+    } catch {
+      throw new ExportError(
+        'Export failed: an image could not be loaded. Check your connection and ensure R2 CORS allows GET from the app origin.',
+        'IMAGE_LOAD_FAILED',
+      );
+    }
+  }
+
+  return preloaded;
+}
 
 // ---------------------------------------------------------------------------
 // Per-layer export node — no editor chrome
 // ---------------------------------------------------------------------------
 
-function buildExportNode(layer: RenderLayer): Konva.Group | null {
+function buildExportNode(
+  layer: RenderLayer,
+  preloadedImages: Map<string, HTMLImageElement>,
+): Konva.Group | null {
   const group = new Konva.Group({
     x: layer.x,
     y: layer.y,
@@ -26,12 +93,26 @@ function buildExportNode(layer: RenderLayer): Konva.Group | null {
       // baseColor rect already fills the canvas; skip
       return null;
 
-    case 'image':
-      // KNOWN LIMITATION: asset-backed image layers render as placeholders in export.
-      // Export renderer does not resolve signed preview URLs or load external images.
-      // Real image export will require passing a preloaded Image or data URL.
+    case 'image': {
+      const img = preloadedImages.get(layer.assetId);
+      if (img) {
+        group.add(new Konva.Image({
+          x: 0,
+          y: 0,
+          width: layer.w,
+          height: layer.h,
+          image: img,
+          listening: false,
+        }));
+      }
+      // img will always be present here: preloadImageAssets throws before this
+      // point if any image layer URL could not be resolved or loaded.
+      break;
+    }
+
     case 'object':
     case 'logo': {
+      // Phase 12G: object and logo layers remain as placeholders (no uploaded asset support yet).
       const placeholder = new Konva.Rect({
         x: 0,
         y: 0,
@@ -170,9 +251,13 @@ function buildExportNode(layer: RenderLayer): Konva.Group | null {
 export async function renderCardToPng(
   doc: ArtifactDocument,
   cardIndex: number,
+  opts: { assetUrlResolver?: AssetUrlResolver } = {},
 ): Promise<Blob> {
   const renderData = buildCardRenderData(doc, cardIndex);
   const { width: docW, height: docH, baseColor, layers } = renderData;
+
+  // Resolve and load all image assets before touching the canvas.
+  const preloadedImages = await preloadImageAssets(layers, opts.assetUrlResolver);
 
   const container = document.createElement('div');
   container.style.cssText = 'position:fixed;left:-99999px;top:-99999px;pointer-events:none;';
@@ -196,7 +281,7 @@ export async function renderCardToPng(
     }));
 
     for (const layer of layers) {
-      const node = buildExportNode(layer);
+      const node = buildExportNode(layer, preloadedImages);
       if (node) konvaLayer.add(node);
     }
 
@@ -207,7 +292,7 @@ export async function renderCardToPng(
         pixelRatio: EXPORT_PIXEL_RATIO,
         callback: (blob) => {
           if (blob) resolve(blob);
-          else reject(new Error('Export failed: canvas returned null'));
+          else reject(new ExportError('Export failed: canvas returned null', 'RENDER_FAILED'));
         },
       });
     });
@@ -239,9 +324,9 @@ function downloadBlob(blob: Blob, filename: string): void {
 export async function exportCardAsPng(
   doc: ArtifactDocument,
   cardIndex: number,
-  opts: { projectName?: string } = {},
+  opts: { projectName?: string; assetUrlResolver?: AssetUrlResolver } = {},
 ): Promise<void> {
-  const blob = await renderCardToPng(doc, cardIndex);
+  const blob = await renderCardToPng(doc, cardIndex, { assetUrlResolver: opts.assetUrlResolver });
   const filename = buildExportFilename(opts.projectName, cardIndex);
   downloadBlob(blob, filename);
 }
@@ -250,17 +335,18 @@ export async function exportCarouselAsZip(
   doc: ArtifactDocument,
   opts: {
     projectName?: string;
+    assetUrlResolver?: AssetUrlResolver;
     onProgress?: (current: number, total: number) => void;
   } = {},
 ): Promise<void> {
   assertCarouselExportReady(doc);
 
-  const { projectName, onProgress } = opts;
+  const { projectName, assetUrlResolver, onProgress } = opts;
   const total = doc.cards.length;
   const zip = new JSZip();
 
   for (let i = 0; i < total; i++) {
-    const blob = await renderCardToPng(doc, i);
+    const blob = await renderCardToPng(doc, i, { assetUrlResolver });
     const filename = buildExportFilename(projectName, i);
     zip.file(filename, blob);
     onProgress?.(i + 1, total);
