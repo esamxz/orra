@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { FakeAIProvider } from '../providers/fakeProvider.js';
+import { TextPlanResultSchema } from '../schemas.js';
 import type { TextPlanRequest, ImageGenerationRequest } from '../types.js';
 import type { BrandContextDto } from '@orra/shared';
 
@@ -80,6 +81,13 @@ describe('FakeAIProvider', () => {
       const provider = new FakeAIProvider();
       const result = await provider.planText(makeTextRequest({ brandContext: null }));
       expect(result.styleNotes).toEqual([]);
+    });
+
+    it('output validates with TextPlanResultSchema', async () => {
+      const provider = new FakeAIProvider();
+      const result = await provider.planText(makeTextRequest({ projectType: 'carousel' }));
+      const parsed = TextPlanResultSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
     });
   });
 

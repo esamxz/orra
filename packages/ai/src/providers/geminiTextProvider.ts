@@ -7,8 +7,9 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResult,
 } from '../types.js';
-import { TextPlanResultSchema } from '../schemas.js';
 import { AIProviderError } from '../errors.js';
+import { extractJsonObjectFromText } from '../json.js';
+import { normalizeTextPlanResult } from '../normalization.js';
 
 export interface GeminiTextProviderConfig {
   apiKey: string;
@@ -113,27 +114,8 @@ export class GeminiTextProvider implements AIProvider {
 
     const text = envelope.data.candidates[0].content.parts[0].text;
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new AIProviderError({
-        code: 'PROVIDER_INVALID_RESPONSE',
-        provider: 'gemini',
-        message: 'Gemini text part was not valid JSON',
-      });
-    }
-
-    const result = TextPlanResultSchema.safeParse(parsed);
-    if (!result.success) {
-      throw new AIProviderError({
-        code: 'PROVIDER_INVALID_RESPONSE',
-        provider: 'gemini',
-        message: 'Gemini plan result did not match expected schema',
-      });
-    }
-
-    return result.data;
+    const extracted = extractJsonObjectFromText(text, 'gemini');
+    return normalizeTextPlanResult(extracted, 'gemini');
   }
 
   async generateImageOrDocument(_input: ImageGenerationRequest): Promise<ImageGenerationResult> {

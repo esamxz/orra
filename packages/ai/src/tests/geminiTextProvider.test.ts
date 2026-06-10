@@ -116,6 +116,40 @@ describe('GeminiTextProvider', () => {
       );
     });
 
+    it('planText succeeds when Gemini returns fenced ```json block', async () => {
+      const plan = makeValidPlan();
+      const fencedText = `\`\`\`json\n${JSON.stringify(plan)}\n\`\`\``;
+      mockFetchOk({ candidates: [{ content: { parts: [{ text: fencedText }] } }] });
+      const provider = new GeminiTextProvider(makeConfig());
+      const result = await provider.planText(makeRequest());
+
+      expect(result.title).toBe(plan.title);
+      expect(result.cardCount).toBe(plan.cardCount);
+    });
+
+    it('planText succeeds when Gemini returns generic ``` fenced block', async () => {
+      const plan = makeValidPlan();
+      const fencedText = `\`\`\`\n${JSON.stringify(plan)}\n\`\`\``;
+      mockFetchOk({ candidates: [{ content: { parts: [{ text: fencedText }] } }] });
+      const provider = new GeminiTextProvider(makeConfig());
+      const result = await provider.planText(makeRequest());
+
+      expect(result.title).toBe(plan.title);
+      expect(result.cardCount).toBe(plan.cardCount);
+    });
+
+    it('throws PROVIDER_INVALID_RESPONSE when Gemini returns prose response', async () => {
+      const plan = makeValidPlan();
+      const proseText = `Here is your plan: ${JSON.stringify(plan)}`;
+      mockFetchOk({ candidates: [{ content: { parts: [{ text: proseText }] } }] });
+      const provider = new GeminiTextProvider(makeConfig());
+
+      await expect(provider.planText(makeRequest())).rejects.toSatisfy(
+        (err: unknown) =>
+          err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_RESPONSE',
+      );
+    });
+
     it('throws PROVIDER_INVALID_RESPONSE when schema validation fails', async () => {
       const badPlan = { title: '', cardCount: 'not-a-number' };
       mockFetchOk(makeGeminiEnvelope(badPlan));

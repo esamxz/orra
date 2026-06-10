@@ -16,5 +16,8 @@ export type { AIProviderErrorCode } from './errors.js';
 
 export { TextPlanResultSchema } from './schemas.js';
 
+export { extractJsonObjectFromText } from './json.js';
+export { normalizeTextPlanResult } from './normalization.js';
+
 export type { AIProviderRouter, AIProviderRouterConfig } from './router.js';
 export { createAIProviderRouter } from './router.js';
