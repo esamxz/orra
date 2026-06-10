@@ -17,9 +17,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@orra/shared": "workspace:*"
+    "@orra/shared": "workspace:*",
+    "zod": "^3.25.72"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260603.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.3"
   }

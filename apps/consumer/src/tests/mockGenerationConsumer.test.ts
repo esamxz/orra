@@ -7,6 +7,7 @@ import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRo
 import type { ArtifactDocument } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import type { AIProviderRouter, AIProvider, TextPlanResult } from '@orra/ai';
+import { AIProviderError } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Fake repositories
@@ -1717,6 +1718,89 @@ describe('AI provider router integration', () => {
 
     // Reserved credits should be refunded
     const refundEntries = creditRepo.ledger.filter((e) => e.entry_type === 'refund' && e.job_id === 'job-1');
+    expect(refundEntries.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Gemini router integration', () => {
+  function makeMockGeminiRouter(planTextImpl?: () => Promise<TextPlanResult>): AIProviderRouter {
+    return {
+      getProvider: () => ({
+        name: 'gemini' as const,
+        async planText() {
+          if (planTextImpl) return planTextImpl();
+          return {
+            title: 'Gemini plan result',
+            summary: 'A plan from Gemini.',
+            cardCount: 1,
+            body: 'Body copy from Gemini.',
+            styleNotes: ['minimal', 'premium'],
+          };
+        },
+        async generateImageOrDocument() {
+          throw new AIProviderError({
+            code: 'PROVIDER_UNAVAILABLE',
+            provider: 'gemini',
+            message: 'no images',
+          });
+        },
+      }),
+    };
+  }
+
+  it('with mocked Gemini router success, job succeeds and commits valid ArtifactDocument', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 5 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 5, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -5, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }],
+    );
+
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, makeMockGeminiRouter());
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+    expect(job!.result_version_id).toBeTruthy();
+
+    const committed = artifactRepo.getVersionById(job!.result_version_id!);
+    expect(committed).not.toBeNull();
+    const parsed = ArtifactDocumentSchema.safeParse(committed!.document);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.cards).toHaveLength(1);
+    }
+  });
+
+  it('with mocked Gemini planText failure (AIProviderError), job fails and refunds credits', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 10, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -10, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }],
+    );
+
+    const failingRouter = makeMockGeminiRouter(async () => {
+      throw new AIProviderError({
+        code: 'PROVIDER_TIMEOUT',
+        provider: 'gemini',
+        message: 'Gemini request timed out after 30000ms',
+        retryable: true,
+      });
+    });
+
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, failingRouter);
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
+    expect(job!.result_version_id).toBeNull();
+
+    const refundEntries = creditRepo.ledger.filter(
+      (e) => e.entry_type === 'refund' && e.job_id === 'job-1',
+    );
     expect(refundEntries.length).toBeGreaterThan(0);
   });
 });

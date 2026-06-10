@@ -10,8 +10,12 @@ export const ConsumerEnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string(),
   ENVIRONMENT: z.enum(['development', 'staging', 'production']).default('development'),
-  // Reserved for future provider routing (Phase 13B/13C). Defaults to 'fake'.
   AI_PROVIDER: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_TEXT_MODEL: z.string().optional(),
+  GEMINI_BASE_URL: z.string().optional(),
+  // z.coerce.number() because Worker bindings are always strings at runtime
+  AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
 });
 
 export type ConsumerEnv = z.infer<typeof ConsumerEnvSchema>;

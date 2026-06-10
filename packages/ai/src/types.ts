@@ -6,7 +6,7 @@ import type { BrandContextDto, ApprovalCardDto } from '@orra/shared';
 // Phase 13A: provider abstraction layer. Only 'fake' is active. Real providers
 // (Gemini, FLUX, etc.) are added in Phase 13B/13C.
 
-export type AIProviderName = 'fake';
+export type AIProviderName = 'fake' | 'gemini';
 
 export interface TextPlanRequest {
   projectId: string;

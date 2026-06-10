@@ -23,7 +23,18 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
     const jobRepo = new SupabaseGenerationJobRepository(db);
     const artifactRepo = new SupabaseArtifactRepository(db);
     const creditRepo = new SupabaseCreditRepository(db);
-    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, createAIProviderRouter({ provider: env.AI_PROVIDER }));
+    const consumer = new MockGenerationConsumer(
+      jobRepo,
+      artifactRepo,
+      creditRepo,
+      createAIProviderRouter({
+        provider: env.AI_PROVIDER,
+        geminiApiKey: env.GEMINI_API_KEY,
+        geminiModel: env.GEMINI_TEXT_MODEL,
+        geminiBaseUrl: env.GEMINI_BASE_URL,
+        timeoutMs: env.AI_PROVIDER_TIMEOUT_MS,
+      }),
+    );
 
     for (const message of batch.messages) {
       try {
