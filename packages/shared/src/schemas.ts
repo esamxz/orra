@@ -191,6 +191,12 @@ export const ApprovalCardSchema = z.object({
   cta: z.string(),
   assumptions: z.array(z.string()),
   actions: z.array(ApprovalActionSchema).min(1),
+  // Phase 14D: optional direction hints surfaced from intent, brand, and memory.
+  // All fields are optional for backward compatibility with persisted approval cards.
+  cardCount: z.number().int().min(1).max(50).optional(),
+  visualDirection: z.string().max(80).optional(),
+  styleNotes: z.array(z.string().max(80)).max(5).optional(),
+  memorySummary: z.string().max(120).optional(),
 });
 
 // ---------------------------------------------------------------------------

@@ -1003,6 +1003,10 @@ export default function WorkspacePage() {
                   format: m.approvalCard.format,
                   brand: m.approvalCard.brand,
                   cta: m.approvalCard.cta,
+                  cardCount: m.approvalCard.cardCount,
+                  visualDirection: m.approvalCard.visualDirection,
+                  styleNotes: m.approvalCard.styleNotes,
+                  memorySummary: m.approvalCard.memorySummary,
                 } : specs;
                 const isReal = !!m.approvalCard;
                 const isActing = actingMessageId === m.id;

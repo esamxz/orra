@@ -6,6 +6,10 @@ interface Specs {
   format: string;
   brand: string;
   cta: string;
+  cardCount?: number;
+  visualDirection?: string;
+  styleNotes?: string[];
+  memorySummary?: string;
 }
 
 interface Props {
@@ -30,9 +34,25 @@ export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, ctaSe
         <div className="ap-specs">
           <div className="ap-spec"><span className="k">Style</span><span className="v">{specs.style}</span></div>
           <div className="ap-spec"><span className="k">Format</span><span className="v">{specs.format}</span></div>
+          {specs.cardCount != null && (
+            <div className="ap-spec"><span className="k">Cards</span><span className="v">{specs.cardCount}</span></div>
+          )}
           <div className="ap-spec"><span className="k">Brand</span><span className="v">{specs.brand}</span></div>
+          {specs.visualDirection && (
+            <div className="ap-spec"><span className="k">Visual</span><span className="v">{specs.visualDirection}</span></div>
+          )}
           <div className="ap-spec"><span className="k">CTA</span><span className={'v'+(ctaSet?'':' unset')}>{ctaSet ? specs.cta : 'not set'}</span></div>
+          {specs.memorySummary && (
+            <div className="ap-spec"><span className="k">Context</span><span className="v">{specs.memorySummary}</span></div>
+          )}
         </div>
+        {specs.styleNotes && specs.styleNotes.length > 0 && (
+          <div className="ap-notes">
+            {specs.styleNotes.map((note, i) => (
+              <span key={i} className="ap-note">{note}</span>
+            ))}
+          </div>
+        )}
       </div>
       <div className="ap-foot">
         <button className="btn btn-primary" disabled={disabled} onClick={onApprove}>{<Icon.check s={16} />} Approve & create</button>

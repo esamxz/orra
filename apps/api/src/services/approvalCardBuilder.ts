@@ -30,6 +30,8 @@ export interface BuildApprovalCardInput {
   brandContext?: BrandContextDto | null;
   /** Project name, used for fallback topic extraction. */
   projectName?: string;
+  /** Compact project memory summary (Phase 14D). Max 120 chars shown to user. */
+  memorySummary?: string | null;
 }
 
 const DEFAULT_STYLE = 'calm, premium, focused';
@@ -122,6 +124,26 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
   const assumptions = buildAssumptions(input.brandContext, DEFAULT_ASSUMPTIONS);
   const actions = [...ALL_ACTIONS];
 
+  // Phase 14D: surface direction hints from intent, brand, and memory.
+  // These fields are optional and deterministic — no AI calls.
+  const cardCount = input.intent.generationHint?.requestedCardCount ?? undefined;
+
+  const visualDirection = input.brandContext?.visualDirection
+    ? input.brandContext.visualDirection.slice(0, 80)
+    : undefined;
+
+  // brandContext.rules is a single string — wrap as one-item array if non-empty.
+  const styleNotesRaw = input.brandContext?.rules;
+  const styleNotes: string[] | undefined = (() => {
+    if (!styleNotesRaw) return undefined;
+    const trimmed = styleNotesRaw.trim().slice(0, 80);
+    return trimmed.length > 0 ? [trimmed] : undefined;
+  })();
+
+  const memorySummary = input.memorySummary
+    ? input.memorySummary.slice(0, 120)
+    : undefined;
+
   return {
     summaryLine,
     style,
@@ -130,5 +152,9 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
     cta,
     assumptions,
     actions,
+    ...(cardCount !== undefined && { cardCount }),
+    ...(visualDirection !== undefined && { visualDirection }),
+    ...(styleNotes !== undefined && { styleNotes }),
+    ...(memorySummary !== undefined && { memorySummary }),
   };
 }

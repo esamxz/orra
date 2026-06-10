@@ -222,3 +222,137 @@ describe('buildApprovalCard', () => {
     expect(card.summaryLine).toContain('your topic');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 14D: direction hints (cardCount, visualDirection, styleNotes, memorySummary)
+// ---------------------------------------------------------------------------
+
+describe('buildApprovalCard: Phase 14D direction hints', () => {
+  it('cardCount is set from requestedCardCount in intent hint', () => {
+    const intent = makeGenerationIntent({ artifactType: 'carousel', requestedCardCount: 7, rawTopic: 'finance' });
+    const card = buildApprovalCard({ content: 'Make 7 finance cards', intent, projectType: 'carousel', ratioName: '4:5' });
+    expect(card.cardCount).toBe(7);
+  });
+
+  it('cardCount is undefined when intent has no requestedCardCount', () => {
+    const intent = makeGenerationIntent({ artifactType: 'post', rawTopic: 'focus' });
+    const card = buildApprovalCard({ content: 'Create a post', intent, projectType: 'post', ratioName: '4:5' });
+    expect(card.cardCount).toBeUndefined();
+  });
+
+  it('visualDirection is set from brandContext.visualDirection', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandContext: { brandSystemId: 'b-1', name: 'Studio', visualDirection: 'soft natural light, muted earth tones' },
+    });
+    expect(card.visualDirection).toBe('soft natural light, muted earth tones');
+  });
+
+  it('visualDirection is undefined when brandContext has no visualDirection', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandContext: { brandSystemId: 'b-1', name: 'Studio' },
+    });
+    expect(card.visualDirection).toBeUndefined();
+  });
+
+  it('visualDirection is undefined when no brand context', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({ content: 'Create a post', intent, projectType: 'post', ratioName: '4:5' });
+    expect(card.visualDirection).toBeUndefined();
+  });
+
+  it('visualDirection is sliced to 80 chars if longer', () => {
+    const intent = makeGenerationIntent();
+    const longDirection = 'x'.repeat(100);
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandContext: { brandSystemId: 'b-1', name: 'Studio', visualDirection: longDirection },
+    });
+    expect(card.visualDirection).toHaveLength(80);
+  });
+
+  it('styleNotes is a one-item array from brandContext.rules when set', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandContext: { brandSystemId: 'b-1', name: 'Studio', rules: 'Keep backgrounds clean and minimal.' },
+    });
+    expect(card.styleNotes).toEqual(['Keep backgrounds clean and minimal.']);
+  });
+
+  it('styleNotes is undefined when brandContext.rules is null', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandContext: { brandSystemId: 'b-1', name: 'Studio', rules: null },
+    });
+    expect(card.styleNotes).toBeUndefined();
+  });
+
+  it('styleNotes is undefined when no brand context', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({ content: 'Create a post', intent, projectType: 'post', ratioName: '4:5' });
+    expect(card.styleNotes).toBeUndefined();
+  });
+
+  it('memorySummary is set from input.memorySummary', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      memorySummary: 'User focuses on wellness content for Instagram.',
+    });
+    expect(card.memorySummary).toBe('User focuses on wellness content for Instagram.');
+  });
+
+  it('memorySummary is undefined when not provided', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({ content: 'Create a post', intent, projectType: 'post', ratioName: '4:5' });
+    expect(card.memorySummary).toBeUndefined();
+  });
+
+  it('memorySummary is truncated to 120 chars if longer', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      memorySummary: 'x'.repeat(200),
+    });
+    expect(card.memorySummary).toHaveLength(120);
+  });
+
+  it('no-brand card has no visualDirection or styleNotes', () => {
+    const intent = makeGenerationIntent();
+    const card = buildApprovalCard({
+      content: 'Create a post',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+      brandContext: null,
+    });
+    expect(card.visualDirection).toBeUndefined();
+    expect(card.styleNotes).toBeUndefined();
+  });
+});

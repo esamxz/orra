@@ -670,3 +670,192 @@ describe('ChatService', () => {
     expect(kinds).toEqual(['text', 'approval_summary']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 14D: approval card direction hints
+// ---------------------------------------------------------------------------
+
+import { ProjectMemoryService } from '../services/projectMemoryService.js';
+import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
+import type { ProjectMemoryRepository } from '../repositories/projectMemoryRepository.js';
+import type { BrandSystemRow, ProjectContextMemoryRow } from '@orra/db';
+
+function makeProject(overrides: Partial<import('@orra/db').ProjectRow> = {}): import('@orra/db').ProjectRow {
+  return {
+    id: 'proj-1',
+    workspace_id: 'ws-1',
+    name: 'Phase 14D Test',
+    type: 'post',
+    ratio: { name: '4:5', w: 1080, h: 1350 },
+    brand_system_id: null,
+    source_template_id: null,
+    autosave_state: null,
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+    ...overrides,
+  };
+}
+
+function makeBrandSystemRow(overrides: Partial<BrandSystemRow> = {}): BrandSystemRow {
+  return {
+    id: 'brand-1',
+    workspace_id: 'ws-1',
+    name: 'Studio',
+    description: null,
+    tone_of_voice: null,
+    visual_direction: null,
+    rules: null,
+    palette: [],
+    typography: {},
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+    ...overrides,
+  };
+}
+
+function createFakeBrandRepo(row: BrandSystemRow | null): BrandSystemRepository {
+  return {
+    async create() { throw new Error('not used'); },
+    async listByWorkspace() { return []; },
+    async findByIdForWorkspace() { return row; },
+    async updateForWorkspace() { return null; },
+    async deleteForWorkspace() {},
+  };
+}
+
+function makeMemoryRow(summary: string): ProjectContextMemoryRow {
+  return {
+    id: 'mem-1',
+    workspace_id: 'ws-1',
+    project_id: 'proj-1',
+    summary,
+    topic: null,
+    audience: null,
+    tone: null,
+    platform: null,
+    format: null,
+    carousel_goal: null,
+    slide_count: null,
+    visual_direction: null,
+    approved_direction: null,
+    rejected_ideas: [],
+    user_preferences: [],
+    constraints: [],
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+  };
+}
+
+function createFakeMemoryRepo(row: ProjectContextMemoryRow | null = null): ProjectMemoryRepository {
+  return {
+    async getByProjectIdForWorkspace() { return row; },
+    async upsertForProject() { throw new Error('not used'); },
+    async patchForProject() { throw new Error('not used'); },
+    async ensureForProject() { throw new Error('not used'); },
+  };
+}
+
+describe('Phase 14D: approval card direction hints', () => {
+  it('approval card includes cardCount when intent has requestedCardCount', async () => {
+    const projectRepo = createFakeProjectRepository([makeProject()]);
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a 5-card carousel about sleep',
+    });
+
+    const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
+    expect(card.cardCount).toBe(5);
+  });
+
+  it('approval card cardCount is absent when intent has no requestedCardCount', async () => {
+    const projectRepo = createFakeProjectRepository([makeProject()]);
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a post about focus',
+    });
+
+    const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
+    expect(card.cardCount).toBeUndefined();
+  });
+
+  it('approval card includes visualDirection when brand has visual_direction', async () => {
+    const brandRow = makeBrandSystemRow({ visual_direction: 'soft natural light, muted earth tones' });
+    const projectRepo = createFakeProjectRepository([makeProject({ brand_system_id: 'brand-1' })]);
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo, createFakeBrandRepo(brandRow));
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a post about wellness',
+    });
+
+    const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
+    expect(card.visualDirection).toBe('soft natural light, muted earth tones');
+  });
+
+  it('approval card has no visualDirection when brand has no visual_direction', async () => {
+    const brandRow = makeBrandSystemRow({ visual_direction: null });
+    const projectRepo = createFakeProjectRepository([makeProject({ brand_system_id: 'brand-1' })]);
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo, createFakeBrandRepo(brandRow));
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a post',
+    });
+
+    const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
+    expect(card.visualDirection).toBeUndefined();
+  });
+
+  it('approval card includes memorySummary when memory service returns a summary', async () => {
+    const memoryRow = makeMemoryRow('User focuses on wellness content for Instagram.');
+    const memoryService = new ProjectMemoryService(createFakeMemoryRepo(memoryRow));
+    const projectRepo = createFakeProjectRepository([makeProject()]);
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo, undefined, memoryService);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a post about sleep',
+    });
+
+    const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
+    expect(card.memorySummary).toBe('User focuses on wellness content for Instagram.');
+  });
+
+  it('approval card has no memorySummary when memory service returns null', async () => {
+    const memoryService = new ProjectMemoryService(createFakeMemoryRepo(null));
+    const projectRepo = createFakeProjectRepository([makeProject()]);
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo, undefined, memoryService);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a post',
+    });
+
+    const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
+    expect(card.memorySummary).toBeUndefined();
+  });
+
+  it('memorySummary is absent when no memory service is provided', async () => {
+    const projectRepo = createFakeProjectRepository([makeProject()]);
+    const chatRepo = createFakeChatRepository();
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.appendUserMessage(ctx, 'proj-1', {
+      content: 'Create a post',
+    });
+
+    const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
+    expect(card.memorySummary).toBeUndefined();
+  });
+});

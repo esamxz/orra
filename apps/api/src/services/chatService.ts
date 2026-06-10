@@ -168,6 +168,18 @@ export class ChatService {
       // Load brand context if the project has a brand system attached.
       const brandContext = await this.loadBrandContext(workspaceId, project.brand_system_id);
 
+      // Phase 14D: load a compact memory summary for the approval card.
+      // Non-blocking — missing memory never prevents approval card creation.
+      let memorySummary: string | null = null;
+      if (this.projectMemoryService) {
+        try {
+          const mem = await this.projectMemoryService.getMemory(ctx, projectId);
+          if (mem?.summary) memorySummary = mem.summary.slice(0, 120);
+        } catch {
+          // intentionally silent
+        }
+      }
+
       const approvalCard = buildApprovalCard({
         content: input.content,
         intent,
@@ -175,6 +187,7 @@ export class ChatService {
         ratioName: (project.ratio as { name: string }).name ?? '4:5',
         brandContext,
         projectName: project.name,
+        memorySummary,
       });
 
       const approvalRow = await this.chatRepo.appendMessage({
