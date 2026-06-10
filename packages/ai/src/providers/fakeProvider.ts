@@ -14,7 +14,12 @@ export class FakeAIProvider implements AIProvider {
 
   async planText(input: TextPlanRequest): Promise<TextPlanResult> {
     const raw = input.approvalCard?.summaryLine ?? input.prompt;
-    const title = raw.replace(/^Ready to create\s*(a\s*)?/i, '').trim() || 'design';
+
+    // Memory topic wins as the title if available; otherwise parse the summary line
+    const titleFromMemory = input.projectMemory?.topic;
+    const title = titleFromMemory
+      ?? (raw.replace(/^Ready to create\s*(a\s*)?/i, '').trim() || 'design');
+
     const cardCount = input.projectType === 'carousel' ? 3 : 1;
 
     const styleNotes: string[] = [];
@@ -24,6 +29,16 @@ export class FakeAIProvider implements AIProvider {
       }
       if (input.brandContext.visualDirection) {
         styleNotes.push(`style: ${input.brandContext.visualDirection}`);
+      }
+    }
+
+    // Memory enrichment — memory tone only added when brandContext has no tone
+    if (input.projectMemory) {
+      if (input.projectMemory.platform) {
+        styleNotes.push(`Optimized for ${input.projectMemory.platform}`);
+      }
+      if (input.projectMemory.tone && !input.brandContext?.tone) {
+        styleNotes.push(`tone: ${input.projectMemory.tone}`);
       }
     }
 

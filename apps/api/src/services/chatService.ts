@@ -11,6 +11,7 @@ import {
   type DirectorIntentResult,
 } from './directorIntentService.js';
 import { buildApprovalCard } from './approvalCardBuilder.js';
+import type { ProjectMemoryService } from './projectMemoryService.js';
 
 // ---------------------------------------------------------------------------
 // Chat service
@@ -71,7 +72,8 @@ export class ChatService {
   constructor(
     private chatRepo: ChatRepository,
     private projectRepo: ProjectRepository,
-    private brandSystemRepo?: BrandSystemRepository
+    private brandSystemRepo?: BrandSystemRepository,
+    private projectMemoryService?: ProjectMemoryService
   ) {}
 
   /**
@@ -151,6 +153,13 @@ export class ChatService {
 
     const message = mapMessageRow(row, projectId);
     const intent = classifyDirectorIntent(input.content);
+
+    // Fire-and-forget: update project memory from this message.
+    if (this.projectMemoryService) {
+      void this.projectMemoryService
+        .updateFromUserMessage(ctx, projectId, input.content, intent)
+        .catch((err) => console.error('[memory] updateFromUserMessage failed:', err));
+    }
 
     // For generation intent, build and persist a lightweight approval card.
     // No AI calls. No credits move. No generation job starts.
@@ -432,6 +441,18 @@ export class ChatService {
       selectedAction: input.action,
       updatedAt: now,
     };
+
+    // Fire-and-forget: update project memory from this approval action.
+    if (this.projectMemoryService) {
+      void this.projectMemoryService
+        .updateFromApprovalAction(
+          ctx,
+          projectId,
+          input.action,
+          approvalCard as import('@orra/shared').ApprovalCardDto
+        )
+        .catch((err) => console.error('[memory] updateFromApprovalAction failed:', err));
+    }
 
     const updatedRow = await this.chatRepo.updateMessageMetadata({
       workspaceId,

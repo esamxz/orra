@@ -3,8 +3,9 @@ import { MockGenerationConsumer } from '../services/mockGenerationConsumer.js';
 import type { GenerationJobRepository } from '@orra/api/src/repositories/generationJobRepository.js';
 import type { CreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import type { ArtifactRepository, ArtifactWithVersion } from '@orra/api/src/repositories/artifactRepository.js';
+import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRow, CreditLedgerRow } from '@orra/db';
-import type { ArtifactDocument } from '@orra/shared';
+import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import type { AIProviderRouter, AIProvider, TextPlanResult } from '@orra/ai';
 import { AIProviderError } from '@orra/ai';
@@ -1719,6 +1720,159 @@ describe('AI provider router integration', () => {
     // Reserved credits should be refunded
     const refundEntries = creditRepo.ledger.filter((e) => e.entry_type === 'refund' && e.job_id === 'job-1');
     expect(refundEntries.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 13D: project memory integration tests
+// ---------------------------------------------------------------------------
+
+function makeMemoryRow(overrides: Partial<import('@orra/db').ProjectContextMemoryRow> = {}): import('@orra/db').ProjectContextMemoryRow {
+  return {
+    id: 'mem-1',
+    workspace_id: 'ws-1',
+    project_id: 'proj-1',
+    summary: 'Project about fitness.',
+    topic: 'fitness',
+    audience: 'founders',
+    tone: 'professional',
+    platform: 'LinkedIn',
+    format: null,
+    carousel_goal: null,
+    slide_count: 5,
+    visual_direction: null,
+    approved_direction: null,
+    rejected_ideas: [],
+    user_preferences: [],
+    constraints: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+function createFakeMemoryRepository(row: import('@orra/db').ProjectContextMemoryRow | null = null): ProjectMemoryRepository {
+  return {
+    async getByProjectIdForWorkspace(input) {
+      if (row && row.workspace_id === input.workspaceId && row.project_id === input.projectId) {
+        return row;
+      }
+      return null;
+    },
+    async upsertForProject() { throw new Error('not used'); },
+    async patchForProject() { throw new Error('not used'); },
+    async ensureForProject() { throw new Error('not used'); },
+  };
+}
+
+function createCapturingRouter(): {
+  router: AIProviderRouter;
+  planTextCalls: Array<{ projectMemory: ProjectContextMemory | null | undefined }>;
+} {
+  const planTextCalls: Array<{ projectMemory: ProjectContextMemory | null | undefined }> = [];
+
+  const router: AIProviderRouter = {
+    getProvider: () => ({
+      name: 'fake' as const,
+      async planText(input) {
+        planTextCalls.push({ projectMemory: input.projectMemory });
+        return {
+          title: 'test',
+          summary: input.prompt,
+          cardCount: 1,
+          body: 'body',
+          styleNotes: [],
+        };
+      },
+      async generateImageOrDocument() {
+        return { kind: 'mock_document' as const };
+      },
+    }),
+  };
+
+  return { router, planTextCalls };
+}
+
+describe('project memory integration', () => {
+  it('passes projectMemory to planText when repo returns a row', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createCapturingRouter();
+
+    const memoryRow = makeMemoryRow();
+    const memoryRepo = createFakeMemoryRepository(memoryRow);
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router, memoryRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    expect(planTextCalls).toHaveLength(1);
+    const mem = planTextCalls[0].projectMemory;
+    expect(mem).not.toBeNull();
+    expect(mem!.topic).toBe('fitness');
+    expect(mem!.platform).toBe('LinkedIn');
+    expect(mem!.slideCount).toBe(5);
+  });
+
+  it('passes null projectMemory when no memory row exists', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createCapturingRouter();
+
+    const memoryRepo = createFakeMemoryRepository(null);
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router, memoryRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    expect(planTextCalls).toHaveLength(1);
+    expect(planTextCalls[0].projectMemory).toBeNull();
+  });
+
+  it('succeeds with null projectMemory when no repo provided (5th arg omitted)', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createCapturingRouter();
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    expect(planTextCalls).toHaveLength(1);
+    expect(planTextCalls[0].projectMemory).toBeNull();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+  });
+
+  it('continues without memory when repo throws — job still succeeds', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createCapturingRouter();
+
+    const failingMemoryRepo: ProjectMemoryRepository = {
+      async getByProjectIdForWorkspace() { throw new Error('DB connection lost'); },
+      async upsertForProject() { throw new Error('not used'); },
+      async patchForProject() { throw new Error('not used'); },
+      async ensureForProject() { throw new Error('not used'); },
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router, failingMemoryRepo);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    warnSpy.mockRestore();
+
+    // planText was still called — job was not aborted
+    expect(planTextCalls).toHaveLength(1);
+    expect(planTextCalls[0].projectMemory).toBeNull(); // graceful fallback
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
   });
 });
 

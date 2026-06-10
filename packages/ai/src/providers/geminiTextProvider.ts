@@ -7,6 +7,7 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResult,
 } from '../types.js';
+import type { ProjectContextMemory } from '@orra/shared';
 import { AIProviderError } from '../errors.js';
 import { extractJsonObjectFromText } from '../json.js';
 import { normalizeTextPlanResult } from '../normalization.js';
@@ -132,17 +133,34 @@ export class GeminiTextProvider implements AIProvider {
       ? `Brand tone: ${input.brandContext.tone ?? 'not specified'}\nVisual direction: ${input.brandContext.visualDirection ?? 'not specified'}`
       : 'No brand context.';
 
+    const memorySection = this.buildMemorySection(input.projectMemory);
+
     return `You are a visual content planning assistant.
 Request: "${input.prompt}"
 Project type: ${input.projectType}
 Aspect ratio: ${input.ratio.name} (${input.ratio.w}x${input.ratio.h})
-${brandSection}
-
+${brandSection}${memorySection}
 Return a JSON object with exactly these fields:
 - title: string (1-200 chars) short topic title
 - summary: string one sentence plan summary
 - cardCount: integer 1 for post, 2-5 for carousel, max 10
 - body: string main body copy for the first card
 - styleNotes: array of strings (max 20 items, each max 300 chars) visual style guidance`;
+  }
+
+  private buildMemorySection(memory: ProjectContextMemory | null | undefined): string {
+    if (!memory) return '';
+    const lines: string[] = [];
+    if (memory.topic) lines.push(`- Topic: ${memory.topic}`);
+    if (memory.platform) lines.push(`- Platform: ${memory.platform}`);
+    if (memory.tone) lines.push(`- Tone: ${memory.tone}`);
+    if (memory.audience) lines.push(`- Audience: ${memory.audience}`);
+    const avoids = [
+      ...(memory.constraints ?? []),
+      ...(memory.rejectedIdeas ?? []),
+    ].filter(Boolean);
+    if (avoids.length > 0) lines.push(`- Avoid: ${avoids.slice(0, 5).join(', ')}`);
+    if (lines.length === 0) return '';
+    return `\nProject context (from prior conversation):\n${lines.join('\n')}\nCurrent user request takes precedence.\n`;
   }
 }

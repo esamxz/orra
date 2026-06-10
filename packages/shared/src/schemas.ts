@@ -238,6 +238,32 @@ export const BrandContextSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Project context memory (Phase 13D)
+// ---------------------------------------------------------------------------
+// Per-project, per-workspace structured memory built from chat signals.
+// NOT global user memory. NOT embeddings. NOT cross-project.
+// Fields are optional to allow incremental population.
+
+export const ProjectContextMemorySchema = z.object({
+  projectId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+  topic: z.string().max(500).optional(),
+  audience: z.string().max(500).optional(),
+  tone: z.string().max(500).optional(),
+  platform: z.string().max(100).optional(),
+  format: z.string().max(100).optional(),
+  carouselGoal: z.string().max(500).optional(),
+  slideCount: z.number().int().min(1).max(50).optional(),
+  visualDirection: z.string().max(500).optional(),
+  approvedDirection: z.string().max(500).optional(),
+  rejectedIdeas: z.array(z.string().max(300)).max(20).default([]),
+  userPreferences: z.array(z.string().max(300)).max(20).default([]),
+  constraints: z.array(z.string().max(300)).max(20).default([]),
+  summary: z.string().max(1000).default(''),
+  updatedAt: z.string(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 
@@ -262,3 +288,4 @@ export type Layer = z.infer<typeof LayerSchema>;
 export type Card = z.infer<typeof CardSchema>;
 export type ArtifactDocument = z.infer<typeof ArtifactDocumentSchema>;
 export type BrandContextDto = z.infer<typeof BrandContextSchema>;
+export type ProjectContextMemory = z.infer<typeof ProjectContextMemorySchema>;

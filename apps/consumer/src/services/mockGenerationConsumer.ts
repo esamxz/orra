@@ -1,7 +1,8 @@
 import type { GenerationJobRepository } from '@orra/api/src/repositories/generationJobRepository.js';
 import type { ArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
 import type { CreditRepository } from '@orra/api/src/repositories/creditRepository.js';
-import type { ArtifactDocument } from '@orra/shared';
+import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
+import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
 import { createAIProviderRouter } from '@orra/ai';
@@ -52,7 +53,8 @@ export class MockGenerationConsumer {
     private jobRepo: GenerationJobRepository,
     private artifactRepo: ArtifactRepository,
     private creditRepo?: CreditRepository,
-    private aiRouter: AIProviderRouter = createAIProviderRouter()
+    private aiRouter: AIProviderRouter = createAIProviderRouter(),
+    private projectMemoryRepo?: ProjectMemoryRepository
   ) {}
 
   /**
@@ -123,6 +125,39 @@ export class MockGenerationConsumer {
       // Read brand context from job plan (stored by GenerationService in Phase 11C)
       const brandContext = plan.brandContext as import('@orra/shared').BrandContextDto | undefined ?? null;
 
+      // Load project memory — non-blocking; missing memory is not an error.
+      let projectMemory: ProjectContextMemory | null = null;
+      if (this.projectMemoryRepo) {
+        try {
+          const memRow = await this.projectMemoryRepo.getByProjectIdForWorkspace({
+            workspaceId: job.workspace_id,
+            projectId: job.project_id,
+          });
+          if (memRow) {
+            projectMemory = {
+              projectId: memRow.project_id,
+              workspaceId: memRow.workspace_id,
+              topic: memRow.topic ?? undefined,
+              audience: memRow.audience ?? undefined,
+              tone: memRow.tone ?? undefined,
+              platform: memRow.platform ?? undefined,
+              format: memRow.format ?? undefined,
+              carouselGoal: memRow.carousel_goal ?? undefined,
+              slideCount: memRow.slide_count ?? undefined,
+              visualDirection: memRow.visual_direction ?? undefined,
+              approvedDirection: memRow.approved_direction ?? undefined,
+              rejectedIdeas: Array.isArray(memRow.rejected_ideas) ? (memRow.rejected_ideas as string[]) : [],
+              userPreferences: Array.isArray(memRow.user_preferences) ? (memRow.user_preferences as string[]) : [],
+              constraints: Array.isArray(memRow.constraints) ? (memRow.constraints as string[]) : [],
+              summary: memRow.summary,
+              updatedAt: memRow.updated_at,
+            };
+          }
+        } catch (memErr) {
+          console.warn(`Job ${message.jobId}: memory load failed, continuing without memory:`, memErr);
+        }
+      }
+
       const provider = this.aiRouter.getProvider();
       const aiPlan = await provider.planText({
         projectId: job.project_id,
@@ -131,6 +166,7 @@ export class MockGenerationConsumer {
         ratio: currentDocument.ratio,
         brandContext,
         approvalCard,
+        projectMemory,
       });
 
       // 8. Generate mock updated document using the AI plan result

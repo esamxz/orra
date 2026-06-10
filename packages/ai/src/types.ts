@@ -1,4 +1,4 @@
-import type { BrandContextDto, ApprovalCardDto } from '@orra/shared';
+import type { BrandContextDto, ApprovalCardDto, ProjectContextMemory } from '@orra/shared';
 
 // ---------------------------------------------------------------------------
 // AI provider types
@@ -15,6 +15,7 @@ export interface TextPlanRequest {
   ratio: { name: string; w: number; h: number };
   brandContext: BrandContextDto | null;
   approvalCard?: ApprovalCardDto;
+  projectMemory?: ProjectContextMemory | null; // Phase 13D: per-project context
 }
 
 export interface TextPlanResult {

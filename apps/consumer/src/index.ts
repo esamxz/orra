@@ -2,6 +2,7 @@ import { createDbClient } from '@orra/api/src/db/client.js';
 import { SupabaseGenerationJobRepository } from '@orra/api/src/repositories/generationJobRepository.js';
 import { SupabaseArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
 import { SupabaseCreditRepository } from '@orra/api/src/repositories/creditRepository.js';
+import { SupabaseProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
 import { createAIProviderRouter } from '@orra/ai';
 import type { ConsumerEnv } from './env.js';
@@ -23,6 +24,7 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
     const jobRepo = new SupabaseGenerationJobRepository(db);
     const artifactRepo = new SupabaseArtifactRepository(db);
     const creditRepo = new SupabaseCreditRepository(db);
+    const projectMemoryRepo = new SupabaseProjectMemoryRepository(db);
     const consumer = new MockGenerationConsumer(
       jobRepo,
       artifactRepo,
@@ -34,6 +36,7 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
         geminiBaseUrl: env.GEMINI_BASE_URL,
         timeoutMs: env.AI_PROVIDER_TIMEOUT_MS,
       }),
+      projectMemoryRepo,
     );
 
     for (const message of batch.messages) {

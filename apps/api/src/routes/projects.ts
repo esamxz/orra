@@ -16,6 +16,7 @@ import {
 import { validateJson, validateQuery, validateParam } from '../middleware/validate.js';
 import { ProjectService } from '../services/projectService.js';
 import { AssetUploadService } from '../services/assetUploadService.js';
+import { ProjectMemoryService } from '../services/projectMemoryService.js';
 import { createServiceContext, getRepositories } from '../services/service-context.js';
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
@@ -164,5 +165,17 @@ projectRoutes.get(
     return c.json({ ok: true, data: result });
   }
 );
+
+// GET /v1/projects/:id/memory — get project context memory
+// Returns null for data when no memory row exists yet (not 404).
+// Cross-workspace access returns null (workspace_id scoping in repo).
+projectRoutes.get('/:id/memory', validateParam(ProjectIdParamSchema), async (c) => {
+  const { id } = c.req.valid('param');
+  const ctx = buildServiceContext(c);
+  const repos = getRepositories(ctx);
+  const memoryService = new ProjectMemoryService(repos.projectMemory);
+  const memory = await memoryService.getMemory(ctx, id);
+  return c.json({ ok: true, data: memory });
+});
 
 export default projectRoutes;

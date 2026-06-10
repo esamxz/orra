@@ -637,10 +637,13 @@ describe('circular FK resolution: artifacts ↔ artifact_versions', () => {
 // ---------------------------------------------------------------------------
 
 const CREDIT_RPC = join(MIGRATIONS_DIR, '20260609000001_orra_credit_ledger_rpc.sql');
+const MEMORY = join(MIGRATIONS_DIR, '20260610000001_orra_project_context_memory.sql');
 let creditRpc: string;
+let memory: string;
 
 beforeAll(() => {
   creditRpc = readFileSync(CREDIT_RPC, 'utf-8').toLowerCase();
+  memory = readFileSync(MEMORY, 'utf-8').toLowerCase();
 });
 
 describe('credit ledger RPC migration', () => {
@@ -678,5 +681,63 @@ describe('credit ledger RPC migration', () => {
 
   it('refund_credits looks up reserve entries by job_id', () => {
     expect(has(creditRpc, 'no reservation found for job')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project context memory migration
+// ---------------------------------------------------------------------------
+
+describe('project context memory migration', () => {
+  it('migration file is readable', () => {
+    expect(memory.length).toBeGreaterThan(0);
+  });
+
+  it('creates table project_context_memories', () => {
+    expect(has(memory, 'create table project_context_memories')).toBe(true);
+  });
+
+  it('table has unique (project_id) constraint', () => {
+    const def = extractTableDef(memory, 'project_context_memories');
+    expect(has(def, 'unique (project_id)')).toBe(true);
+  });
+
+  it('workspace_id FK uses on delete cascade', () => {
+    const def = extractTableDef(memory, 'project_context_memories');
+    expect(has(def, 'workspace_id') && has(def, 'on delete cascade')).toBe(true);
+  });
+
+  it('project_id FK uses on delete cascade', () => {
+    const def = extractTableDef(memory, 'project_context_memories');
+    expect(has(def, 'project_id') && has(def, 'on delete cascade')).toBe(true);
+  });
+
+  it('rejected_ideas is jsonb not null', () => {
+    const def = extractTableDef(memory, 'project_context_memories');
+    expect(has(def, 'rejected_ideas') && has(def, 'jsonb') && has(def, 'not null')).toBe(true);
+  });
+
+  it('constraints is jsonb not null', () => {
+    const def = extractTableDef(memory, 'project_context_memories');
+    expect(has(def, 'constraints') && has(def, 'jsonb') && has(def, 'not null')).toBe(true);
+  });
+
+  it('slide_count check constraint exists', () => {
+    expect(has(memory, 'project_context_memories_slide_count_check')).toBe(true);
+  });
+
+  it('RLS is enabled on project_context_memories', () => {
+    expect(
+      has(memory, 'alter table project_context_memories') &&
+      has(memory, 'enable row level security')
+    ).toBe(true);
+  });
+
+  it('workspace_id index exists', () => {
+    expect(has(memory, 'idx_project_context_memories_workspace_id')).toBe(true);
+  });
+
+  it('project_id index exists', () => {
+    expect(has(memory, 'idx_project_context_memories_project_id')).toBe(true);
   });
 });

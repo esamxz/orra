@@ -290,3 +290,25 @@ export interface WebhookEventRow {
   payload: Json | null;
   created_at: string;
 }
+
+// Phase 13D: project-scoped structured memory (one row per project)
+export interface ProjectContextMemoryRow {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  summary: string;
+  topic: string | null;
+  audience: string | null;
+  tone: string | null;
+  platform: string | null;
+  format: string | null;
+  carousel_goal: string | null;
+  slide_count: number | null;
+  visual_direction: string | null;
+  approved_direction: string | null;
+  rejected_ideas: Json;    // string[] at runtime; cast after Array.isArray guard
+  user_preferences: Json;  // string[] at runtime
+  constraints: Json;       // string[] at runtime
+  created_at: string;
+  updated_at: string;
+}

@@ -67,6 +67,7 @@ function createFakeRepositories(brands: BrandSystemRow[] = []): Repositories {
     generationJob: {} as unknown as Repositories['generationJob'],
     credit: {} as unknown as Repositories['credit'],
     asset: {} as unknown as Repositories['asset'],
+    projectMemory: {} as unknown as Repositories['projectMemory'],
     brandSystem: {
       async create(input: CreateBrandSystemInput) {
         const brand: BrandSystemRow = {

@@ -11,6 +11,7 @@ import { SupabaseGenerationJobRepository } from '../repositories/generationJobRe
 import { SupabaseCreditRepository } from '../repositories/creditRepository.js';
 import { SupabaseBrandSystemRepository } from '../repositories/brandSystemRepository.js';
 import { SupabaseAssetRepository } from '../repositories/assetRepository.js';
+import { SupabaseProjectMemoryRepository } from '../repositories/projectMemoryRepository.js';
 
 // ---------------------------------------------------------------------------
 // Service context
@@ -134,6 +135,7 @@ export function getRepositories(ctx: ServiceContext): Repositories {
     credit: new SupabaseCreditRepository(db),
     brandSystem: new SupabaseBrandSystemRepository(db),
     asset: new SupabaseAssetRepository(db),
+    projectMemory: new SupabaseProjectMemoryRepository(db),
   };
 
   ctx.repositories = repos;

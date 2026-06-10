@@ -5,6 +5,7 @@ import { ProjectIdParamSchema } from '../schemas/project.js';
 import { ListMessagesQuerySchema, AppendMessageBodySchema, MessageIdParamSchema, ApprovalActionBodySchema } from '../schemas/chat.js';
 import { validateParam, validateQuery, validateJson } from '../middleware/validate.js';
 import { ChatService } from '../services/chatService.js';
+import { ProjectMemoryService } from '../services/projectMemoryService.js';
 import { createServiceContext, getRepositories } from '../services/service-context.js';
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
@@ -48,7 +49,8 @@ chatRoutes.get(
     const query = c.req.valid('query');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem);
+    const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService);
     const messages = await service.listMessages(ctx, id, { limit: query.limit });
     return c.json({ ok: true, data: messages });
   }
@@ -70,7 +72,8 @@ chatRoutes.post(
     const body = c.req.valid('json');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem);
+    const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService);
     const result = await service.appendUserMessage(ctx, id, { content: body.content });
     return c.json({ ok: true, data: result }, 201);
   }
@@ -95,7 +98,8 @@ chatRoutes.post(
     const body = c.req.valid('json');
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem);
+    const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService);
     const updatedMessage = await service.handleApprovalAction(ctx, id, messageId, {
       action: body.action,
       value: body.value,
