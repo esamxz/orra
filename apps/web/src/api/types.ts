@@ -280,3 +280,23 @@ export interface ConfirmAssetUploadInput {
   expectedSizeBytes?: number;
   expectedContentType?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Project memory types
+// ---------------------------------------------------------------------------
+
+export interface ProjectContextMemoryDto {
+  projectId: string;
+  topic?: string;
+  audience?: string;
+  tone?: string;
+  platform?: string;
+  format?: string;
+  slideCount?: number;
+  visualDirection?: string;
+  approvedDirection?: string;
+  rejectedIdeas: string[];
+  constraints: string[];
+  summary: string;
+  updatedAt: string;
+}

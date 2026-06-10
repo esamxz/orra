@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GeminiTextProvider } from '../providers/geminiTextProvider.js';
 import { AIProviderError } from '../errors.js';
-import type { TextPlanRequest } from '../types.js';
+import type { TextPlanRequest, RecentChatMessage, CurrentArtifactSummary } from '../types.js';
+import type { ProjectContextMemory } from '@orra/shared';
 
 function makeConfig() {
   return { apiKey: 'test-key', model: 'gemini-2.0-flash-lite' };
@@ -238,6 +239,167 @@ describe('GeminiTextProvider', () => {
         }
         expect(caughtMessage).not.toContain('secret-api-key');
       }
+    });
+  });
+
+  describe('Phase 13E: prompt context sections', () => {
+    function extractPrompt(): string {
+      const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      const contents = body.contents as Array<{ parts: Array<{ text: string }> }>;
+      return contents[0].parts[0].text;
+    }
+
+    it('prompt includes memory section when projectMemory provided', async () => {
+      const memory: ProjectContextMemory = {
+        projectId: 'proj-1',
+        workspaceId: 'ws-1',
+        topic: 'fitness',
+        platform: 'Instagram',
+        tone: 'energetic',
+        audience: 'gym goers',
+        updatedAt: '2026-06-01T00:00:00Z',
+        summary: 'fitness content',
+        rejectedIdeas: [],
+        userPreferences: [],
+        constraints: [],
+      };
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ projectMemory: memory }));
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('Project context');
+      expect(prompt).toContain('fitness');
+      expect(prompt).toContain('Instagram');
+    });
+
+    it('prompt includes recent messages section when recentChatMessages provided', async () => {
+      const messages: RecentChatMessage[] = [
+        { role: 'user', content: 'Keep the tone calm and focused' },
+        { role: 'assistant', content: 'I will keep it calm.' },
+      ];
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ recentChatMessages: messages }));
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('Recent conversation');
+      expect(prompt).toContain('Keep the tone calm and focused');
+    });
+
+    it('prompt includes artifact summary section when currentArtifactSummary provided', async () => {
+      const summary: CurrentArtifactSummary = {
+        cardCount: 3,
+        ratioName: '4:5',
+        textLayerCount: 6,
+        imageLayerCount: 1,
+        shapeLayerCount: 0,
+        visibleLayerCount: 7,
+        textSnippets: ['Main headline'],
+      };
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ currentArtifactSummary: summary }));
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('Current artifact');
+      expect(prompt).toContain('3 card(s)');
+      expect(prompt).toContain('Main headline');
+    });
+
+    it('prompt includes precedence instruction', async () => {
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest());
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('Current user request takes precedence');
+    });
+
+    it('truncates long message content to 500 chars in prompt', async () => {
+      const longContent = 'B'.repeat(600);
+      const messages: RecentChatMessage[] = [{ role: 'user', content: longContent }];
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ recentChatMessages: messages }));
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('B'.repeat(500));
+      expect(prompt).not.toContain('B'.repeat(501));
+    });
+
+    it('truncates long text snippet in artifact summary to 100 chars', async () => {
+      const summary: CurrentArtifactSummary = {
+        cardCount: 1,
+        textLayerCount: 1,
+        imageLayerCount: 0,
+        shapeLayerCount: 0,
+        visibleLayerCount: 1,
+        textSnippets: ['C'.repeat(120)],
+      };
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ currentArtifactSummary: summary }));
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('C'.repeat(100));
+      expect(prompt).not.toContain('C'.repeat(101));
+    });
+
+    it('does not include raw artifact JSON in prompt', async () => {
+      const summary: CurrentArtifactSummary = {
+        cardCount: 1,
+        textLayerCount: 1,
+        imageLayerCount: 0,
+        shapeLayerCount: 0,
+        visibleLayerCount: 1,
+        textSnippets: ['Headline'],
+      };
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ currentArtifactSummary: summary }));
+
+      const prompt = extractPrompt();
+      // Raw JSON would include "artifactId" or "schemaVersion"
+      expect(prompt).not.toContain('"artifactId"');
+      expect(prompt).not.toContain('"schemaVersion"');
+    });
+
+    it('does not include assetId strings when summary present', async () => {
+      const summary: CurrentArtifactSummary = {
+        cardCount: 1,
+        textLayerCount: 0,
+        imageLayerCount: 1,
+        shapeLayerCount: 0,
+        visibleLayerCount: 1,
+        textSnippets: [],
+      };
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ currentArtifactSummary: summary }));
+
+      const prompt = extractPrompt();
+      // Summary never exposes assetId — make sure no UUID patterns sneak in from summary
+      expect(prompt).not.toContain('assetId');
+    });
+
+    it('omits recent messages section when recentChatMessages is empty', async () => {
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ recentChatMessages: [] }));
+
+      const prompt = extractPrompt();
+      expect(prompt).not.toContain('Recent conversation');
+    });
+
+    it('omits artifact summary section when currentArtifactSummary is null', async () => {
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest({ currentArtifactSummary: null }));
+
+      const prompt = extractPrompt();
+      expect(prompt).not.toContain('Current artifact');
     });
   });
 

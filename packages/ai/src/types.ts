@@ -8,6 +8,23 @@ import type { BrandContextDto, ApprovalCardDto, ProjectContextMemory } from '@or
 
 export type AIProviderName = 'fake' | 'gemini';
 
+export interface RecentChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+// Phase 13E: compact artifact summary — never includes assetIds, R2 keys, or URLs
+export interface CurrentArtifactSummary {
+  cardCount: number;
+  ratioName?: string;
+  textLayerCount: number;
+  imageLayerCount: number;
+  shapeLayerCount: number;
+  visibleLayerCount: number;
+  selectedCardIndex?: number;
+  textSnippets: string[]; // max 5, each max 100 chars, from non-hidden text layers
+}
+
 export interface TextPlanRequest {
   projectId: string;
   prompt: string;
@@ -16,6 +33,8 @@ export interface TextPlanRequest {
   brandContext: BrandContextDto | null;
   approvalCard?: ApprovalCardDto;
   projectMemory?: ProjectContextMemory | null; // Phase 13D: per-project context
+  recentChatMessages?: RecentChatMessage[];    // Phase 13E: max 6, content truncated to 500 chars
+  currentArtifactSummary?: CurrentArtifactSummary | null; // Phase 13E: compact document context
 }
 
 export interface TextPlanResult {

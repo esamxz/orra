@@ -6,6 +6,8 @@ import type {
   TextPlanResult,
   ImageGenerationRequest,
   ImageGenerationResult,
+  RecentChatMessage,
+  CurrentArtifactSummary,
 } from '../types.js';
 import type { ProjectContextMemory } from '@orra/shared';
 import { AIProviderError } from '../errors.js';
@@ -134,12 +136,16 @@ export class GeminiTextProvider implements AIProvider {
       : 'No brand context.';
 
     const memorySection = this.buildMemorySection(input.projectMemory);
+    const chatSection = this.buildRecentChatSection(input.recentChatMessages);
+    const artifactSection = this.buildArtifactSummarySection(input.currentArtifactSummary);
 
     return `You are a visual content planning assistant.
 Request: "${input.prompt}"
 Project type: ${input.projectType}
 Aspect ratio: ${input.ratio.name} (${input.ratio.w}x${input.ratio.h})
-${brandSection}${memorySection}
+${brandSection}${memorySection}${chatSection}${artifactSection}
+Current user request takes precedence over all context above.
+
 Return a JSON object with exactly these fields:
 - title: string (1-200 chars) short topic title
 - summary: string one sentence plan summary
@@ -161,6 +167,23 @@ Return a JSON object with exactly these fields:
     ].filter(Boolean);
     if (avoids.length > 0) lines.push(`- Avoid: ${avoids.slice(0, 5).join(', ')}`);
     if (lines.length === 0) return '';
-    return `\nProject context (from prior conversation):\n${lines.join('\n')}\nCurrent user request takes precedence.\n`;
+    return `\nProject context (from prior conversation):\n${lines.join('\n')}\n`;
+  }
+
+  private buildRecentChatSection(messages: RecentChatMessage[] | undefined): string {
+    if (!messages || messages.length === 0) return '';
+    const formatted = messages
+      .map((m) => `  ${m.role}: ${m.content.slice(0, 500)}`)
+      .join('\n');
+    return `\nRecent conversation (oldest first):\n${formatted}\n`;
+  }
+
+  private buildArtifactSummarySection(summary: CurrentArtifactSummary | null | undefined): string {
+    if (!summary || summary.cardCount === 0) return '';
+    const snippetPart =
+      summary.textSnippets.length > 0
+        ? ` Existing text: ${summary.textSnippets.map((s) => `"${s.slice(0, 100)}"`).join(', ')}.`
+        : '';
+    return `\nCurrent artifact: ${summary.cardCount} card(s), ${summary.textLayerCount} text layer(s), ${summary.imageLayerCount} image layer(s).${snippetPart}\n`;
   }
 }

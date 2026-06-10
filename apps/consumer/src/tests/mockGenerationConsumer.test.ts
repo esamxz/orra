@@ -4,10 +4,11 @@ import type { GenerationJobRepository } from '@orra/api/src/repositories/generat
 import type { CreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import type { ArtifactRepository, ArtifactWithVersion } from '@orra/api/src/repositories/artifactRepository.js';
 import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
+import type { ChatRepository, RecentMessageRow } from '@orra/api/src/repositories/chatRepository.js';
 import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRow, CreditLedgerRow } from '@orra/db';
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
-import type { AIProviderRouter, AIProvider, TextPlanResult } from '@orra/ai';
+import type { AIProviderRouter, AIProvider, TextPlanResult, RecentChatMessage, CurrentArtifactSummary } from '@orra/ai';
 import { AIProviderError } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
@@ -1956,5 +1957,200 @@ describe('Gemini router integration', () => {
       (e) => e.entry_type === 'refund' && e.job_id === 'job-1',
     );
     expect(refundEntries.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 13E: recent chat + artifact summary integration
+// ---------------------------------------------------------------------------
+
+function createExtendedCapturingRouter(): {
+  router: AIProviderRouter;
+  planTextCalls: Array<{
+    recentChatMessages: RecentChatMessage[] | undefined;
+    currentArtifactSummary: CurrentArtifactSummary | null | undefined;
+  }>;
+} {
+  const planTextCalls: Array<{
+    recentChatMessages: RecentChatMessage[] | undefined;
+    currentArtifactSummary: CurrentArtifactSummary | null | undefined;
+  }> = [];
+
+  const router: AIProviderRouter = {
+    getProvider: () => ({
+      name: 'fake' as const,
+      async planText(input) {
+        planTextCalls.push({
+          recentChatMessages: input.recentChatMessages,
+          currentArtifactSummary: input.currentArtifactSummary,
+        });
+        return {
+          title: 'test',
+          summary: input.prompt,
+          cardCount: 1,
+          body: 'body',
+          styleNotes: [],
+        };
+      },
+      async generateImageOrDocument() {
+        return { kind: 'mock_document' as const };
+      },
+    }),
+  };
+
+  return { router, planTextCalls };
+}
+
+function createFakeChatRepository(rows: RecentMessageRow[]): ChatRepository {
+  return {
+    async ensureThreadForProject() {
+      throw new Error('not used');
+    },
+    async findThreadByProjectId() {
+      throw new Error('not used');
+    },
+    async listMessagesByThread() {
+      throw new Error('not used');
+    },
+    async listRecentMessagesForProject() {
+      return rows;
+    },
+    async appendMessage() {
+      throw new Error('not used');
+    },
+    async findMessageByIdForProject() {
+      throw new Error('not used');
+    },
+    async updateMessageMetadata() {
+      throw new Error('not used');
+    },
+  };
+}
+
+describe('Phase 13E: planning context integration', () => {
+  it('passes recentChatMessages into planText when chatRepo returns messages', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createExtendedCapturingRouter();
+
+    const rows: RecentMessageRow[] = [
+      { role: 'user', content: 'Make it calm and minimal', created_at: '2026-06-01T00:00:00Z' },
+      { role: 'assistant', content: 'Got it, designing a calm layout.', created_at: '2026-06-01T00:00:01Z' },
+    ];
+    const chatRepo = createFakeChatRepository(rows);
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router, undefined, chatRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    expect(planTextCalls).toHaveLength(1);
+    const msgs = planTextCalls[0].recentChatMessages;
+    expect(msgs).toBeDefined();
+    expect(msgs!.length).toBe(2);
+    expect(msgs![0].role).toBe('user');
+    expect(msgs![0].content).toBe('Make it calm and minimal');
+  });
+
+  it('passes currentArtifactSummary into planText with non-null value', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createExtendedCapturingRouter();
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    expect(planTextCalls).toHaveLength(1);
+    const summary = planTextCalls[0].currentArtifactSummary;
+    expect(summary).not.toBeNull();
+    expect(summary!.cardCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('chat repo load failure — planText called with empty recentChatMessages, job succeeds', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createExtendedCapturingRouter();
+
+    const failingChatRepo: ChatRepository = {
+      async ensureThreadForProject() { throw new Error('not used'); },
+      async findThreadByProjectId() { throw new Error('not used'); },
+      async listMessagesByThread() { throw new Error('not used'); },
+      async listRecentMessagesForProject() { throw new Error('DB down'); },
+      async appendMessage() { throw new Error('not used'); },
+      async findMessageByIdForProject() { throw new Error('not used'); },
+      async updateMessageMetadata() { throw new Error('not used'); },
+    };
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router, undefined, failingChatRepo);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    warnSpy.mockRestore();
+
+    expect(planTextCalls).toHaveLength(1);
+    expect(planTextCalls[0].recentChatMessages).toHaveLength(0);
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+  });
+
+  it('recentChatMessages is empty when chatRepo not provided (6th arg omitted)', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createExtendedCapturingRouter();
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    expect(planTextCalls).toHaveLength(1);
+    expect(planTextCalls[0].recentChatMessages).toHaveLength(0);
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+  });
+
+  it('content truncated to 500 chars per message in recentChatMessages', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createExtendedCapturingRouter();
+
+    const longContent = 'A'.repeat(600);
+    const rows: RecentMessageRow[] = [
+      { role: 'user', content: longContent, created_at: '2026-06-01T00:00:00Z' },
+    ];
+    const chatRepo = createFakeChatRepository(rows);
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router, undefined, chatRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const msgs = planTextCalls[0].recentChatMessages!;
+    expect(msgs[0].content).toHaveLength(500);
+  });
+
+  it('filters out system-role messages from recentChatMessages', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, planTextCalls } = createExtendedCapturingRouter();
+
+    const rows: RecentMessageRow[] = [
+      { role: 'system', content: 'System prompt here', created_at: '2026-06-01T00:00:00Z' },
+      { role: 'user', content: 'Make a post about health', created_at: '2026-06-01T00:00:01Z' },
+    ];
+    const chatRepo = createFakeChatRepository(rows);
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router, undefined, chatRepo);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const msgs = planTextCalls[0].recentChatMessages!;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].role).toBe('user');
   });
 });

@@ -46,10 +46,23 @@ export interface UpdateMessageMetadataInput {
   metadata: Json;
 }
 
+export interface ListRecentMessagesForProjectInput {
+  workspaceId: string;
+  projectId: string;
+  limit: number;
+}
+
+export interface RecentMessageRow {
+  role: string;
+  content: string | null;
+  created_at: string;
+}
+
 export interface ChatRepository {
   ensureThreadForProject(input: EnsureThreadInput): Promise<ChatThreadRow>;
   findThreadByProjectId(input: FindThreadInput): Promise<ChatThreadRow | null>;
   listMessagesByThread(input: ListMessagesInput): Promise<ChatMessageRow[]>;
+  listRecentMessagesForProject(input: ListRecentMessagesForProjectInput): Promise<RecentMessageRow[]>;
   appendMessage(input: AppendMessageInput): Promise<ChatMessageRow>;
   findMessageByIdForProject(input: FindMessageInput): Promise<ChatMessageRow | null>;
   updateMessageMetadata(input: UpdateMessageMetadataInput): Promise<ChatMessageRow>;
@@ -73,6 +86,11 @@ export class StubChatRepository implements ChatRepository {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async listMessagesByThread(_input: ListMessagesInput): Promise<ChatMessageRow[]> {
     throw new Error('ChatRepository.listMessagesByThread is not implemented yet.');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async listRecentMessagesForProject(_input: ListRecentMessagesForProjectInput): Promise<RecentMessageRow[]> {
+    throw new Error('ChatRepository.listRecentMessagesForProject is not implemented yet.');
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -149,6 +167,28 @@ export class SupabaseChatRepository implements ChatRepository {
     }
 
     return data ?? [];
+  }
+
+  async listRecentMessagesForProject(input: ListRecentMessagesForProjectInput): Promise<RecentMessageRow[]> {
+    const thread = await this.findThreadByProjectId({
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+    });
+    if (!thread) return [];
+
+    const { data, error } = await this.db
+      .from('chat_messages')
+      .select('role, content, created_at')
+      .eq('thread_id', thread.id)
+      .eq('workspace_id', input.workspaceId)
+      .order('created_at', { ascending: true })
+      .limit(input.limit);
+
+    if (error) {
+      throw mapDbError(error);
+    }
+
+    return (data ?? []) as RecentMessageRow[];
   }
 
   async appendMessage(input: AppendMessageInput): Promise<ChatMessageRow> {

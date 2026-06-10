@@ -42,6 +42,21 @@ export class FakeAIProvider implements AIProvider {
       }
     }
 
+    // Phase 13E: artifact summary context — compact, deterministic
+    if (input.currentArtifactSummary && input.currentArtifactSummary.cardCount > 0) {
+      styleNotes.push(
+        `existing: ${input.currentArtifactSummary.cardCount} card(s), ${input.currentArtifactSummary.textLayerCount} text layer(s)`
+      );
+    }
+
+    // Phase 13E: recent chat context — only the last user message, deterministic
+    if (input.recentChatMessages && input.recentChatMessages.length > 0) {
+      const lastUser = [...input.recentChatMessages].reverse().find((m) => m.role === 'user');
+      if (lastUser) {
+        styleNotes.push(`context: ${lastUser.content.slice(0, 100)}`);
+      }
+    }
+
     return {
       summary: raw,
       cardCount,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FakeAIProvider } from '../providers/fakeProvider.js';
 import { TextPlanResultSchema } from '../schemas.js';
-import type { TextPlanRequest, ImageGenerationRequest } from '../types.js';
+import type { TextPlanRequest, ImageGenerationRequest, RecentChatMessage, CurrentArtifactSummary } from '../types.js';
 import type { BrandContextDto } from '@orra/shared';
 
 function makeTextRequest(overrides: Partial<TextPlanRequest> = {}): TextPlanRequest {
@@ -86,6 +86,91 @@ describe('FakeAIProvider', () => {
     it('output validates with TextPlanResultSchema', async () => {
       const provider = new FakeAIProvider();
       const result = await provider.planText(makeTextRequest({ projectType: 'carousel' }));
+      const parsed = TextPlanResultSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
+    });
+  });
+
+  describe('Phase 13E: recentChatMessages and currentArtifactSummary', () => {
+    it('is still deterministic with recentChatMessages present', async () => {
+      const provider = new FakeAIProvider();
+      const messages: RecentChatMessage[] = [
+        { role: 'user', content: 'Make it calm and minimal' },
+        { role: 'assistant', content: 'Got it, I will plan a calm design.' },
+      ];
+      const req = makeTextRequest({ recentChatMessages: messages });
+      const a = await provider.planText(req);
+      const b = await provider.planText(req);
+      expect(a).toEqual(b);
+    });
+
+    it('adds existing artifact context to styleNotes when currentArtifactSummary present', async () => {
+      const provider = new FakeAIProvider();
+      const summary: CurrentArtifactSummary = {
+        cardCount: 3,
+        textLayerCount: 6,
+        imageLayerCount: 0,
+        shapeLayerCount: 1,
+        visibleLayerCount: 7,
+        textSnippets: ['Main headline'],
+      };
+      const result = await provider.planText(makeTextRequest({ currentArtifactSummary: summary }));
+      expect(result.styleNotes.some((n) => n.includes('existing: 3 card(s)'))).toBe(true);
+    });
+
+    it('does not add artifact styleNote when cardCount is 0', async () => {
+      const provider = new FakeAIProvider();
+      const summary: CurrentArtifactSummary = {
+        cardCount: 0,
+        textLayerCount: 0,
+        imageLayerCount: 0,
+        shapeLayerCount: 0,
+        visibleLayerCount: 0,
+        textSnippets: [],
+      };
+      const result = await provider.planText(makeTextRequest({ currentArtifactSummary: summary }));
+      expect(result.styleNotes.some((n) => n.includes('existing:'))).toBe(false);
+    });
+
+    it('adds last user message as context styleNote when recentChatMessages present', async () => {
+      const provider = new FakeAIProvider();
+      const messages: RecentChatMessage[] = [
+        { role: 'assistant', content: 'How can I help?' },
+        { role: 'user', content: 'Keep it simple and focused' },
+      ];
+      const result = await provider.planText(makeTextRequest({ recentChatMessages: messages }));
+      expect(result.styleNotes.some((n) => n.startsWith('context:'))).toBe(true);
+      expect(result.styleNotes.some((n) => n.includes('Keep it simple and focused'))).toBe(true);
+    });
+
+    it('does not add context styleNote when recentChatMessages has only assistant messages', async () => {
+      const provider = new FakeAIProvider();
+      const messages: RecentChatMessage[] = [
+        { role: 'assistant', content: 'How can I help?' },
+      ];
+      const result = await provider.planText(makeTextRequest({ recentChatMessages: messages }));
+      expect(result.styleNotes.some((n) => n.startsWith('context:'))).toBe(false);
+    });
+
+    it('does not add context styleNote when recentChatMessages is empty', async () => {
+      const provider = new FakeAIProvider();
+      const result = await provider.planText(makeTextRequest({ recentChatMessages: [] }));
+      expect(result.styleNotes.some((n) => n.startsWith('context:'))).toBe(false);
+    });
+
+    it('output validates with TextPlanResultSchema when new fields present', async () => {
+      const provider = new FakeAIProvider();
+      const result = await provider.planText(makeTextRequest({
+        recentChatMessages: [{ role: 'user', content: 'Make it bold' }],
+        currentArtifactSummary: {
+          cardCount: 1,
+          textLayerCount: 2,
+          imageLayerCount: 0,
+          shapeLayerCount: 0,
+          visibleLayerCount: 2,
+          textSnippets: ['Some text'],
+        },
+      }));
       const parsed = TextPlanResultSchema.safeParse(result);
       expect(parsed.success).toBe(true);
     });

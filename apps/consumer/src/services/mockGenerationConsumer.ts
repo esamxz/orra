@@ -2,11 +2,12 @@ import type { GenerationJobRepository } from '@orra/api/src/repositories/generat
 import type { ArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
 import type { CreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
+import type { ChatRepository } from '@orra/api/src/repositories/chatRepository.js';
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
-import { createAIProviderRouter } from '@orra/ai';
-import type { AIProviderRouter } from '@orra/ai';
+import { createAIProviderRouter, buildArtifactSummary } from '@orra/ai';
+import type { AIProviderRouter, RecentChatMessage } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Mock generation consumer
@@ -54,7 +55,8 @@ export class MockGenerationConsumer {
     private artifactRepo: ArtifactRepository,
     private creditRepo?: CreditRepository,
     private aiRouter: AIProviderRouter = createAIProviderRouter(),
-    private projectMemoryRepo?: ProjectMemoryRepository
+    private projectMemoryRepo?: ProjectMemoryRepository,
+    private chatRepo?: ChatRepository
   ) {}
 
   /**
@@ -158,6 +160,29 @@ export class MockGenerationConsumer {
         }
       }
 
+      // Phase 13E: Load recent chat messages for planning context — non-blocking.
+      let recentChatMessages: RecentChatMessage[] = [];
+      if (this.chatRepo) {
+        try {
+          const rows = await this.chatRepo.listRecentMessagesForProject({
+            workspaceId: job.workspace_id,
+            projectId: job.project_id,
+            limit: 6,
+          });
+          recentChatMessages = rows
+            .filter((r) => r.role === 'user' || r.role === 'assistant')
+            .map((r) => ({
+              role: r.role as 'user' | 'assistant',
+              content: (r.content ?? '').slice(0, 500),
+            }));
+        } catch (chatErr) {
+          console.warn(`Job ${message.jobId}: chat context load failed, continuing:`, chatErr);
+        }
+      }
+
+      // Phase 13E: Build compact artifact summary — no asset IDs or URLs.
+      const currentArtifactSummary = buildArtifactSummary(currentDocument);
+
       const provider = this.aiRouter.getProvider();
       const aiPlan = await provider.planText({
         projectId: job.project_id,
@@ -167,6 +192,8 @@ export class MockGenerationConsumer {
         brandContext,
         approvalCard,
         projectMemory,
+        recentChatMessages,
+        currentArtifactSummary,
       });
 
       // 8. Generate mock updated document using the AI plan result

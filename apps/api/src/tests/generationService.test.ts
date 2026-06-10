@@ -49,6 +49,7 @@ function createFakeChatRepository(
       ) ?? null;
     },
     async listMessagesByThread() { return []; },
+    async listRecentMessagesForProject() { return []; },
     async appendMessage() { throw new Error('not used'); },
     async findMessageByIdForProject(input) {
       const thread = threads.find(

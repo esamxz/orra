@@ -10,6 +10,7 @@ import { useBrandSystems } from '../hooks/useBrandSystems';
 import { useAssetUpload } from '../hooks/useAssetUpload';
 import { useProjectAssets } from '../hooks/useProjectAssets';
 import { useAssetPreviewUrls } from '../hooks/useAssetPreviewUrls';
+import { useProjectMemory } from '../hooks/useProjectMemory';
 import { appendProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { updateProject } from '../api/projects';
@@ -36,6 +37,7 @@ import Inspector from '../components/workspace/Inspector';
 import ExportMenu from '../components/workspace/ExportMenu';
 import VersionHistoryPopover from '../components/workspace/VersionHistoryPopover';
 import UsageStatus from '../components/workspace/UsageStatus';
+import ProjectMemoryPanel from '../components/workspace/ProjectMemoryPanel';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { buildUpdateLayerPropsAction, buildSetTextContentAction, buildInsertImageLayerAction } from '../components/workspace/inspectorActions';
 import { shouldEnterEditMode } from '../components/workspace/textEditHelpers';
@@ -248,6 +250,13 @@ export default function WorkspacePage() {
     error: messagesError,
     reload: reloadMessages,
   } = useProjectMessages(projectId ?? undefined);
+
+  const {
+    memory: projectMemory,
+    loading: memoryLoading,
+    error: memoryError,
+    reload: reloadMemory,
+  } = useProjectMemory(projectId ?? undefined);
 
   const {
     job: polledJob,
@@ -467,6 +476,7 @@ export default function WorkspacePage() {
         });
         lastIntentRef.current = saved.intent;
         setSendState('idle');
+        reloadMemory();
       } catch (err) {
         setRealMessages((prev) => prev.filter((m) => m.id !== tempId));
         setSendState('error');
@@ -524,6 +534,7 @@ export default function WorkspacePage() {
             ? 'Plan cancelled'
             : 'Plan updated',
       );
+      reloadMemory();
 
       // Phase 9G: create generation job and start polling after approval
       // Phase 10B: credit reservation before enqueue
@@ -865,6 +876,11 @@ export default function WorkspacePage() {
                     ? 'Reloaded latest'
                     : 'Saved'}
           </div>
+          <ProjectMemoryPanel
+            memory={projectMemory}
+            loading={memoryLoading}
+            error={memoryError}
+          />
           <UsageStatus
             compact
             status={creditData}

@@ -5,7 +5,11 @@ export type {
   ImageGenerationRequest,
   ImageGenerationResult,
   AIProvider,
+  RecentChatMessage,
+  CurrentArtifactSummary,
 } from './types.js';
+
+export { buildArtifactSummary } from './artifactSummary.js';
 
 export { FakeAIProvider } from './providers/fakeProvider.js';
 export { GeminiTextProvider } from './providers/geminiTextProvider.js';

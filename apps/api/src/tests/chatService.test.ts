@@ -76,6 +76,18 @@ function createFakeChatRepository(
         .slice(0, input.limit);
     },
 
+    async listRecentMessagesForProject(input) {
+      const thread = threads.find(
+        (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+      );
+      if (!thread) return [];
+      return messages
+        .filter((m) => m.thread_id === thread.id && m.workspace_id === input.workspaceId)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .slice(0, input.limit)
+        .map((m) => ({ role: m.role, content: m.content, created_at: m.created_at }));
+    },
+
     async appendMessage(input) {
       const message: ChatMessageRow = {
         id: `msg-${nextMessageId++}`,
