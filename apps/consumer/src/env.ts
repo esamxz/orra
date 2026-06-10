@@ -10,6 +10,8 @@ export const ConsumerEnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string(),
   ENVIRONMENT: z.enum(['development', 'staging', 'production']).default('development'),
+  // Reserved for future provider routing (Phase 13B/13C). Defaults to 'fake'.
+  AI_PROVIDER: z.string().optional(),
 });
 
 export type ConsumerEnv = z.infer<typeof ConsumerEnvSchema>;

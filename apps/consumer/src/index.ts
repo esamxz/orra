@@ -3,6 +3,7 @@ import { SupabaseGenerationJobRepository } from '@orra/api/src/repositories/gene
 import { SupabaseArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
 import { SupabaseCreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
+import { createAIProviderRouter } from '@orra/ai';
 import type { ConsumerEnv } from './env.js';
 
 // ---------------------------------------------------------------------------
@@ -22,7 +23,7 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
     const jobRepo = new SupabaseGenerationJobRepository(db);
     const artifactRepo = new SupabaseArtifactRepository(db);
     const creditRepo = new SupabaseCreditRepository(db);
-    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, createAIProviderRouter({ provider: env.AI_PROVIDER }));
 
     for (const message of batch.messages) {
       try {

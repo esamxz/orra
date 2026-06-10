@@ -4,6 +4,8 @@ import type { CreditRepository } from '@orra/api/src/repositories/creditReposito
 import type { ArtifactDocument } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
+import { createAIProviderRouter } from '@orra/ai';
+import type { AIProviderRouter } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Mock generation consumer
@@ -49,7 +51,8 @@ export class MockGenerationConsumer {
   constructor(
     private jobRepo: GenerationJobRepository,
     private artifactRepo: ArtifactRepository,
-    private creditRepo?: CreditRepository
+    private creditRepo?: CreditRepository,
+    private aiRouter: AIProviderRouter = createAIProviderRouter()
   ) {}
 
   /**
@@ -112,30 +115,29 @@ export class MockGenerationConsumer {
       }
       const currentDocument = docValidation.data;
 
-      // 7. Determine target card count from job plan if available
+      // 7. Call AI provider to plan the generation, then generate the document
       const plan = (job.plan ?? {}) as Record<string, unknown>;
-      const approvalCard = plan.approvalCard as Record<string, unknown> | undefined;
+      const approvalCard = plan.approvalCard as import('@orra/shared').ApprovalCardDto | undefined;
       const summaryLine = (approvalCard?.summaryLine as string) ?? '';
-      // Extract a simple topic from the summary line for mock copy
-      const topic = summaryLine.replace(/^Ready to create\s*(a\s*)?/i, '').trim() || null;
 
       // Read brand context from job plan (stored by GenerationService in Phase 11C)
       const brandContext = plan.brandContext as import('@orra/shared').BrandContextDto | undefined ?? null;
 
-      let targetCardCount: number | undefined;
-      if (currentDocument.type === 'carousel') {
-        // If the plan or generation hint included a card count, use it.
-        // Otherwise keep the current count (minimum 3 if only 1 empty card).
-        targetCardCount = Math.max(currentDocument.cards.length, 3);
-      } else {
-        targetCardCount = 1;
-      }
+      const provider = this.aiRouter.getProvider();
+      const aiPlan = await provider.planText({
+        projectId: job.project_id,
+        prompt: summaryLine,
+        projectType: currentDocument.type,
+        ratio: currentDocument.ratio,
+        brandContext,
+        approvalCard,
+      });
 
-      // 8. Generate mock updated document
+      // 8. Generate mock updated document using the AI plan result
       const mockDocument = generateMockArtifactDocument({
         currentDocument,
-        targetCardCount,
-        topic,
+        targetCardCount: aiPlan.cardCount,
+        topic: aiPlan.title,
         brandContext,
       });
 

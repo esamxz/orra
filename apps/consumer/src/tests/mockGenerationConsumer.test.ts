@@ -6,6 +6,7 @@ import type { ArtifactRepository, ArtifactWithVersion } from '@orra/api/src/repo
 import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRow, CreditLedgerRow } from '@orra/db';
 import type { ArtifactDocument } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
+import type { AIProviderRouter, AIProvider, TextPlanResult } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Fake repositories
@@ -1606,5 +1607,116 @@ describe('MockGenerationConsumer', () => {
     const bodyLayer = textLayers.find((l) => l.role === 'body')!;
     expect(bodyLayer.color).toBe('#a4b7bd');
     expect(bodyLayer.fontFamily).toBe('Inter');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AI provider router integration tests (Phase 13A)
+// ---------------------------------------------------------------------------
+
+function makeArtifactAndVersion(type: 'post' | 'carousel' = 'post'): { artifact: ArtifactRow; version: ArtifactVersionRow } {
+  const artifact: ArtifactRow = {
+    id: '11111111-1111-1111-1111-111111111111',
+    workspace_id: 'ws-1',
+    project_id: 'proj-1',
+    current_version_id: 'ver-1',
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+  };
+  const version: ArtifactVersionRow = {
+    id: 'ver-1',
+    workspace_id: 'ws-1',
+    artifact_id: '11111111-1111-1111-1111-111111111111',
+    version: 1,
+    document: makeEmptyDocument(type) as unknown as ArtifactVersionRow['document'],
+    reason: 'manual_checkpoint',
+    created_by: 'user',
+    brand_context_snapshot: null,
+    created_at: '2026-01-01',
+  };
+  return { artifact, version };
+}
+
+function createSpyRouter(): { router: AIProviderRouter; calls: { projectType: string; prompt: string }[] } {
+  const calls: { projectType: string; prompt: string }[] = [];
+  const provider: AIProvider = {
+    name: 'fake' as const,
+    async planText(input) {
+      calls.push({ projectType: input.projectType, prompt: input.prompt });
+      const result: TextPlanResult = {
+        summary: input.prompt,
+        cardCount: input.projectType === 'carousel' ? 3 : 1,
+        title: input.prompt.replace(/^Ready to create\s*(a\s*)?/i, '').trim() || 'design',
+        body: 'placeholder',
+        styleNotes: [],
+      };
+      return result;
+    },
+    async generateImageOrDocument() {
+      return { kind: 'mock_document' as const };
+    },
+  };
+  const router: AIProviderRouter = { getProvider: () => provider };
+  return { router, calls };
+}
+
+function createFailingRouter(): AIProviderRouter {
+  return {
+    getProvider: () => ({
+      name: 'fake' as const,
+      async planText() {
+        throw new Error('provider failure');
+      },
+      async generateImageOrDocument() {
+        return { kind: 'mock_document' as const };
+      },
+    }),
+  };
+}
+
+describe('AI provider router integration', () => {
+  it('provider planText is called before artifact generation', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const { router, calls } = createSpyRouter();
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 10, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -10, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }]
+    );
+
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, router);
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].projectType).toBe('post');
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+  });
+
+  it('provider planText failure marks job failed and refunds reserved credits', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 10, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -10, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }]
+    );
+
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, createFailingRouter());
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
+
+    // No artifact version should have been committed
+    expect(job!.result_version_id).toBeNull();
+
+    // Reserved credits should be refunded
+    const refundEntries = creditRepo.ledger.filter((e) => e.entry_type === 'refund' && e.job_id === 'job-1');
+    expect(refundEntries.length).toBeGreaterThan(0);
   });
 });
