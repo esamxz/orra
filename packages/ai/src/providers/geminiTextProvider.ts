@@ -150,8 +150,16 @@ Return a JSON object with exactly these fields:
 - title: string (1-200 chars) short topic title
 - summary: string one sentence plan summary
 - cardCount: integer 1 for post, 2-5 for carousel, max 10
-- body: string main body copy for the first card
-- styleNotes: array of strings (max 20 items, each max 300 chars) visual style guidance`;
+- body: string main body copy for the first card (fallback when cards[0] is absent)
+- styleNotes: array of strings (max 20 items, each max 300 chars) visual style guidance
+- cards: array of objects (one per card, same length as cardCount), each with:
+    - headline: string (1-200 chars) card-specific headline text
+    - body: string card-specific paragraph copy
+    - cta: string (optional, max 100 chars) call-to-action text, only for the last card
+- layoutDirection: string (optional, max 200 chars) layout preference e.g. "full-bleed" or "text-heavy"
+- visualDirection: string (optional, max 200 chars) overall visual style e.g. "minimal" or "bold"
+
+Do not include image prompts, layer coordinates, or ArtifactDocument JSON.`;
   }
 
   private buildMemorySection(memory: ProjectContextMemory | null | undefined): string {

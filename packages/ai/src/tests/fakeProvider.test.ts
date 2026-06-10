@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { FakeAIProvider } from '../providers/fakeProvider.js';
-import { TextPlanResultSchema } from '../schemas.js';
+import { TextPlanResultSchema, PlannedCardSchema } from '../schemas.js';
 import type { TextPlanRequest, ImageGenerationRequest, RecentChatMessage, CurrentArtifactSummary } from '../types.js';
 import type { BrandContextDto } from '@orra/shared';
 
@@ -199,6 +199,118 @@ describe('FakeAIProvider', () => {
       // If fetch had been called without a mock it would throw or hang.
       // Reaching here without error confirms no network call was made.
       expect(imgResult.kind).toBe('mock_document');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 14A: per-card content and visualDirection
+  // ---------------------------------------------------------------------------
+
+  describe('Phase 14A: per-card content and visualDirection', () => {
+    const provider = new FakeAIProvider();
+
+    it('returns cards array with length matching cardCount for post (1 card)', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'post' }));
+      expect(result.cards).toHaveLength(1);
+    });
+
+    it('returns cards array with length matching cardCount for carousel (3 cards)', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'carousel' }));
+      expect(result.cards).toHaveLength(3);
+    });
+
+    it('cards[0].headline equals the plan title', async () => {
+      const result = await provider.planText(
+        makeTextRequest({ projectMemory: { projectId: 'p', workspaceId: 'w', topic: 'productivity', summary: '', updatedAt: new Date().toISOString(), rejectedIdeas: [], userPreferences: [], constraints: [] } })
+      );
+      expect(result.cards![0].headline).toBe(result.title);
+    });
+
+    it('cards[1].headline and cards[2].headline differ from cards[0].headline for carousel', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'carousel' }));
+      expect(result.cards![1].headline).not.toBe(result.cards![0].headline);
+      expect(result.cards![2].headline).not.toBe(result.cards![0].headline);
+    });
+
+    it('all card headlines and bodies are non-empty strings', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'carousel' }));
+      for (const card of result.cards!) {
+        expect(typeof card.headline).toBe('string');
+        expect(card.headline.length).toBeGreaterThan(0);
+        expect(typeof card.body).toBe('string');
+        expect(card.body.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('last card has cta set; non-last cards have no cta for carousel', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'carousel' }));
+      const cards = result.cards!;
+      expect(cards[cards.length - 1].cta).toBeDefined();
+      for (let i = 0; i < cards.length - 1; i++) {
+        expect(cards[i].cta).toBeUndefined();
+      }
+    });
+
+    it('single-card post has cta set on its only card', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'post' }));
+      expect(result.cards![0].cta).toBeDefined();
+    });
+
+    it('each card entry validates against PlannedCardSchema', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'carousel' }));
+      for (const card of result.cards!) {
+        const parsed = PlannedCardSchema.safeParse(card);
+        expect(parsed.success).toBe(true);
+      }
+    });
+
+    it('returns visualDirection from brandContext.visualDirection when present', async () => {
+      const result = await provider.planText(makeTextRequest({ brandContext: brand }));
+      expect(result.visualDirection).toBe('minimal premium');
+    });
+
+    it('returns visualDirection from projectMemory.visualDirection when brandContext has none', async () => {
+      const noBrandVisual: BrandContextDto = { brandSystemId: 'b', name: 'B' };
+      const result = await provider.planText(
+        makeTextRequest({
+          brandContext: noBrandVisual,
+          projectMemory: {
+            projectId: 'p',
+            workspaceId: 'w',
+            visualDirection: 'bold editorial',
+            summary: '',
+            updatedAt: new Date().toISOString(),
+            rejectedIdeas: [],
+            userPreferences: [],
+            constraints: [],
+          },
+        })
+      );
+      expect(result.visualDirection).toBe('bold editorial');
+    });
+
+    it('returns undefined visualDirection when neither brandContext nor memory provides one', async () => {
+      const result = await provider.planText(makeTextRequest({ brandContext: null }));
+      expect(result.visualDirection).toBeUndefined();
+    });
+
+    it('layoutDirection is undefined in fake provider output', async () => {
+      const result = await provider.planText(makeTextRequest());
+      expect(result.layoutDirection).toBeUndefined();
+    });
+
+    it('full output validates against TextPlanResultSchema', async () => {
+      const result = await provider.planText(makeTextRequest({ projectType: 'carousel', brandContext: brand }));
+      const parsed = TextPlanResultSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
+    });
+
+    it('is still deterministic with cards field present', async () => {
+      const p = new FakeAIProvider();
+      const req = makeTextRequest({ projectType: 'carousel', brandContext: brand });
+      const r1 = await p.planText(req);
+      const r2 = await p.planText(req);
+      expect(JSON.stringify(r1.cards)).toBe(JSON.stringify(r2.cards));
     });
   });
 });

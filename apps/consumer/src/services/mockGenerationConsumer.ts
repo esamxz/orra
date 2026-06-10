@@ -196,12 +196,11 @@ export class MockGenerationConsumer {
         currentArtifactSummary,
       });
 
-      // 8. Generate mock updated document using the AI plan result
+      // 8. Generate plan-driven document from AI plan result
       const mockDocument = generateMockArtifactDocument({
-        currentDocument,
-        targetCardCount: aiPlan.cardCount,
-        topic: aiPlan.title,
+        plan: aiPlan,
         brandContext,
+        currentDocument,
       });
 
       // 8b. Belt-and-suspenders: validate generated document before committing.

@@ -2,6 +2,7 @@ export type {
   AIProviderName,
   TextPlanRequest,
   TextPlanResult,
+  PlannedCard,
   ImageGenerationRequest,
   ImageGenerationResult,
   AIProvider,
@@ -18,7 +19,7 @@ export type { GeminiTextProviderConfig } from './providers/geminiTextProvider.js
 export { AIProviderError, isAIProviderError } from './errors.js';
 export type { AIProviderErrorCode } from './errors.js';
 
-export { TextPlanResultSchema } from './schemas.js';
+export { TextPlanResultSchema, PlannedCardSchema } from './schemas.js';
 
 export { extractJsonObjectFromText } from './json.js';
 export { normalizeTextPlanResult } from './normalization.js';

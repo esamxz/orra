@@ -281,6 +281,7 @@ function makeEmptyDocument(type: 'post' | 'carousel' = 'post'): ArtifactDocument
 
 type FakeArtifactRepository = ArtifactRepository & {
   getVersionById(id: string): ArtifactVersionRow | null;
+  getLastCommittedDocument(): ArtifactVersionRow['document'] | null;
 };
 
 function createFakeArtifactRepository(
@@ -344,6 +345,11 @@ function createFakeArtifactRepository(
     // Test helper: retrieve any version by id directly
     getVersionById(id: string) {
       return versions.find((v) => v.id === id) ?? null;
+    },
+    // Test helper: return the document from the most recently committed version
+    getLastCommittedDocument() {
+      const last = versions[versions.length - 1];
+      return last?.document ?? null;
     },
   };
 }
@@ -2152,5 +2158,108 @@ describe('Phase 13E: planning context integration', () => {
     const msgs = planTextCalls[0].recentChatMessages!;
     expect(msgs.length).toBe(1);
     expect(msgs[0].role).toBe('user');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 14A: plan content in committed document
+// ---------------------------------------------------------------------------
+
+function createPlanContentRouter(planOverrides: Partial<TextPlanResult> = {}): AIProviderRouter {
+  const provider: AIProvider = {
+    name: 'fake' as const,
+    async planText(input) {
+      const base: TextPlanResult = {
+        summary: input.prompt,
+        cardCount: input.projectType === 'carousel' ? 3 : 1,
+        title: 'Plan Driven Title',
+        body: 'Plan driven body content.',
+        styleNotes: [],
+      };
+      return { ...base, ...planOverrides };
+    },
+    async generateImageOrDocument() {
+      return { kind: 'mock_document' as const };
+    },
+  };
+  return { getProvider: () => provider };
+}
+
+function getTextLayersByRole(doc: ArtifactDocument, cardIndex = 0) {
+  const card = doc.cards[cardIndex];
+  return card.layers.filter((l) => l.type === 'text') as import('@orra/shared').TextLayer[];
+}
+
+describe('Phase 14A: plan content in committed document', () => {
+  it('committed document title layer content matches aiPlan.title', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const router = createPlanContentRouter({ title: 'My Specific Title' });
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+
+    const committedDoc = artifactRepo.getLastCommittedDocument() as ArtifactDocument;
+    const titleLayer = getTextLayersByRole(committedDoc).find((l) => l.role === 'title');
+    expect(titleLayer).toBeDefined();
+    expect(titleLayer!.content).toBe('My Specific Title');
+  });
+
+  it('committed document body layer content matches aiPlan.body', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const router = createPlanContentRouter({ body: 'Unique body text from plan.' });
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const committedDoc = artifactRepo.getLastCommittedDocument() as ArtifactDocument;
+    const bodyLayer = getTextLayersByRole(committedDoc).find((l) => l.role === 'body');
+    expect(bodyLayer).toBeDefined();
+    expect(bodyLayer!.content).toBe('Unique body text from plan.');
+  });
+
+  it('when plan has cards, committed document card[0] title matches plan.cards[0].headline', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const router = createPlanContentRouter({
+      cardCount: 1,
+      cards: [{ headline: 'Per-Card Headline', body: 'Per-card body.' }],
+    });
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const committedDoc = artifactRepo.getLastCommittedDocument() as ArtifactDocument;
+    const titleLayer = getTextLayersByRole(committedDoc, 0).find((l) => l.role === 'title');
+    expect(titleLayer!.content).toBe('Per-Card Headline');
+  });
+
+  it('when plan has cta on a card, committed document has a layer with role accent', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const router = createPlanContentRouter({
+      cardCount: 1,
+      cards: [{ headline: 'H', body: 'B', cta: 'Get started now' }],
+    });
+
+    const jobRepo = createFakeJobRepository([makeJob('queued')]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const committedDoc = artifactRepo.getLastCommittedDocument() as ArtifactDocument;
+    const accentLayer = getTextLayersByRole(committedDoc, 0).find((l) => l.role === 'accent');
+    expect(accentLayer).toBeDefined();
+    expect(accentLayer!.content).toBe('Get started now');
   });
 });

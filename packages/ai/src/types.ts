@@ -37,12 +37,23 @@ export interface TextPlanRequest {
   currentArtifactSummary?: CurrentArtifactSummary | null; // Phase 13E: compact document context
 }
 
+// Phase 14A: per-card content for plan-driven artifact generation
+export interface PlannedCard {
+  headline: string;
+  body: string;
+  cta?: string;
+}
+
 export interface TextPlanResult {
   summary: string;
   cardCount: number;
   title: string;
   body: string;
   styleNotes: string[];
+  // Phase 14A: optional per-card content and visual direction
+  cards?: PlannedCard[];
+  layoutDirection?: string;
+  visualDirection?: string;
 }
 
 export interface ImageGenerationRequest {
