@@ -628,3 +628,213 @@ describe('generateMockArtifactDocument', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 14B: layout and visual direction
+// ---------------------------------------------------------------------------
+
+const CARD_W = 1080;
+const CARD_H = 1350;
+
+function getOverlayLayer(doc: ArtifactDocument, cardIdx = 0) {
+  return doc.cards[cardIdx].layers.find((l) => l.type === 'overlay')!;
+}
+function getShapeLayers(doc: ArtifactDocument, cardIdx = 0) {
+  return doc.cards[cardIdx].layers.filter((l) => l.type === 'shape');
+}
+function getTextLayerByRole(doc: ArtifactDocument, role: string, cardIdx = 0) {
+  return doc.cards[cardIdx].layers.find(
+    (l) => l.type === 'text' && (l as import('@orra/shared').TextLayer).role === role,
+  ) as import('@orra/shared').TextLayer | undefined;
+}
+
+describe('Phase 14B: layout and visual direction', () => {
+  it('layoutDirection "centered" — title layer align = center', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'centered' }),
+      brandContext: null,
+    });
+    const title = getTextLayerByRole(doc, 'title');
+    expect(title!.align).toBe('center');
+  });
+
+  it('layoutDirection "centered" — body layer align = center', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'centered' }),
+      brandContext: null,
+    });
+    const body = getTextLayerByRole(doc, 'body');
+    expect(body!.align).toBe('center');
+  });
+
+  it('layoutDirection "bold" — title layer fontSize = 96', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'bold' }),
+      brandContext: null,
+    });
+    const title = getTextLayerByRole(doc, 'title');
+    expect(title!.fontSize).toBe(96);
+  });
+
+  it('layoutDirection "bold" — title layer fontWeight = 700', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'bold' }),
+      brandContext: null,
+    });
+    const title = getTextLayerByRole(doc, 'title');
+    expect(title!.fontWeight).toBe(700);
+  });
+
+  it('layoutDirection "minimal" — title layer fontSize = 60', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'minimal' }),
+      brandContext: null,
+    });
+    const title = getTextLayerByRole(doc, 'title');
+    expect(title!.fontSize).toBe(60);
+  });
+
+  it('layoutDirection "quote" — title layer fontSize = 88, align = center', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'quote' }),
+      brandContext: null,
+    });
+    const title = getTextLayerByRole(doc, 'title');
+    expect(title!.fontSize).toBe(88);
+    expect(title!.align).toBe('center');
+  });
+
+  it('layoutDirection "centered" — no accent shape layer (3 layers for post without CTA)', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'centered' }),
+      brandContext: null,
+    });
+    expect(getShapeLayers(doc)).toHaveLength(0);
+    expect(doc.cards[0].layers).toHaveLength(3); // overlay + title + body
+  });
+
+  it('layoutDirection "minimal" — no accent shape layer', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'minimal' }),
+      brandContext: null,
+    });
+    expect(getShapeLayers(doc)).toHaveLength(0);
+  });
+
+  it('visualDirection "minimal" — overlay opacity <= 0.20', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ visualDirection: 'minimal' }),
+      brandContext: null,
+    });
+    const overlay = getOverlayLayer(doc);
+    expect(overlay.opacity).toBeLessThanOrEqual(0.20);
+  });
+
+  it('visualDirection "dark" — overlay opacity >= 0.50', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ visualDirection: 'dark' }),
+      brandContext: null,
+    });
+    const overlay = getOverlayLayer(doc);
+    expect(overlay.opacity).toBeGreaterThanOrEqual(0.50);
+  });
+
+  it('layoutDirection "bold", visualDirection "dark" — overlay opacity >= 0.50', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'bold', visualDirection: 'dark' }),
+      brandContext: null,
+    });
+    const overlay = getOverlayLayer(doc);
+    expect(overlay.opacity).toBeGreaterThanOrEqual(0.50);
+    expect(getShapeLayers(doc)).toHaveLength(1); // bold layout keeps shape
+  });
+
+  it('layoutDirection "editorial" — accent shape present, title y = 140', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'editorial' }),
+      brandContext: null,
+    });
+    expect(getShapeLayers(doc)).toHaveLength(1);
+    const title = getTextLayerByRole(doc, 'title');
+    expect(title!.y).toBe(140);
+  });
+
+  it('brand colors still respected when layoutDirection "bold" present', () => {
+    const brandCtx = {
+      brandSystemId: 'b1',
+      name: 'Brand',
+      colors: { background: '#ff0000', primary: '#00ff00', text: '#0000ff', accent: '#ffffff' },
+      typography: { headingFont: 'Newsreader', bodyFont: 'Inter' },
+    };
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'bold' }),
+      brandContext: brandCtx,
+    });
+    expect(doc.cards[0].baseColor).toBe('#ff0000');
+    const title = getTextLayerByRole(doc, 'title');
+    expect(title!.color).toBe('#0000ff');
+    expect(title!.fontSize).toBe(96); // bold layout still applied
+  });
+
+  it('no-brand defaults produce valid document with layoutDirection "centered"', () => {
+    const doc = generateMockArtifactDocument({
+      currentDocument: makeEmptyDocument('post'),
+      plan: makePlan({ layoutDirection: 'centered' }),
+      brandContext: null,
+    });
+    const parsed = ArtifactDocumentSchema.safeParse(doc);
+    expect(parsed.success).toBe(true);
+    expect(doc.cards[0].baseColor).toBe('#1d2a30');
+  });
+
+  it.each(['editorial', 'centered', 'bold', 'minimal', 'quote', 'split'] as const)(
+    'layoutDirection "%s" produces valid ArtifactDocument',
+    (layout) => {
+      const doc = generateMockArtifactDocument({
+        currentDocument: makeEmptyDocument('post'),
+        plan: makePlan({ layoutDirection: layout }),
+        brandContext: null,
+      });
+      const parsed = ArtifactDocumentSchema.safeParse(doc);
+      expect(parsed.success).toBe(true);
+    },
+  );
+
+  it('all layout families: title.x + title.w <= cardW', () => {
+    const layouts = ['editorial', 'centered', 'bold', 'minimal', 'quote', 'split'] as const;
+    for (const layout of layouts) {
+      const doc = generateMockArtifactDocument({
+        currentDocument: makeEmptyDocument('post'),
+        plan: makePlan({ layoutDirection: layout }),
+        brandContext: null,
+      });
+      const title = getTextLayerByRole(doc, 'title')!;
+      expect(title.x + title.w).toBeLessThanOrEqual(CARD_W);
+    }
+  });
+
+  it('centered and quote layouts: title.y + title.h <= cardH', () => {
+    for (const layout of ['centered', 'quote'] as const) {
+      const doc = generateMockArtifactDocument({
+        currentDocument: makeEmptyDocument('post'),
+        plan: makePlan({ layoutDirection: layout }),
+        brandContext: null,
+      });
+      const title = getTextLayerByRole(doc, 'title')!;
+      expect(title.y + title.h).toBeLessThanOrEqual(CARD_H);
+    }
+  });
+});

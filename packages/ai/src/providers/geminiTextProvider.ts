@@ -156,8 +156,8 @@ Return a JSON object with exactly these fields:
     - headline: string (1-200 chars) card-specific headline text
     - body: string card-specific paragraph copy
     - cta: string (optional, max 100 chars) call-to-action text, only for the last card
-- layoutDirection: string (optional, max 200 chars) layout preference e.g. "full-bleed" or "text-heavy"
-- visualDirection: string (optional, max 200 chars) overall visual style e.g. "minimal" or "bold"
+- layoutDirection: string (optional, max 200 chars) — one of: editorial, centered, bold, minimal, quote, split
+- visualDirection: string (optional, max 200 chars) — one of: calm, dark, bold, minimal, elegant, playful, professional
 
 Do not include image prompts, layer coordinates, or ArtifactDocument JSON.`;
   }

@@ -401,6 +401,24 @@ describe('GeminiTextProvider', () => {
       const prompt = extractPrompt();
       expect(prompt).not.toContain('Current artifact');
     });
+
+    it('prompt includes supported layout direction vocabulary', async () => {
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest());
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('editorial, centered, bold, minimal, quote, split');
+    });
+
+    it('prompt includes supported visual direction vocabulary', async () => {
+      mockFetchOk(makeGeminiEnvelope(makeValidPlan()));
+      const provider = new GeminiTextProvider(makeConfig());
+      await provider.planText(makeRequest());
+
+      const prompt = extractPrompt();
+      expect(prompt).toContain('calm, dark, bold, minimal, elegant, playful, professional');
+    });
   });
 
   describe('generateImageOrDocument', () => {
