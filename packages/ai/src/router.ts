@@ -2,6 +2,7 @@ import type { AIProvider } from './types.js';
 import { FakeAIProvider } from './providers/fakeProvider.js';
 import { GeminiTextProvider } from './providers/geminiTextProvider.js';
 import { AIProviderError } from './errors.js';
+import type { AIProviderObserver } from './observability.js';
 
 export interface AIProviderRouter {
   getProvider(): AIProvider;
@@ -13,6 +14,7 @@ export interface AIProviderRouterConfig {
   geminiModel?: string;
   geminiBaseUrl?: string;
   timeoutMs?: number;
+  observer?: AIProviderObserver;  // threaded to GeminiTextProvider when configured
 }
 
 export function createAIProviderRouter(config?: AIProviderRouterConfig): AIProviderRouter {
@@ -34,6 +36,7 @@ export function createAIProviderRouter(config?: AIProviderRouterConfig): AIProvi
           model: config.geminiModel ?? 'gemini-2.0-flash-lite',
           baseUrl: config.geminiBaseUrl,
           timeoutMs: config.timeoutMs,
+          observer: config.observer,
         }),
     };
   }

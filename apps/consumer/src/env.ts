@@ -1,3 +1,25 @@
+/**
+ * AI provider configuration for the generation consumer.
+ *
+ * AI_PROVIDER=fake (default)
+ *   Uses FakeAIProvider — deterministic, no network calls.
+ *   All automated tests use this default. Never requires an API key.
+ *
+ * AI_PROVIDER=gemini
+ *   Uses GeminiTextProvider for real text planning via Google Gemini.
+ *   Requires GEMINI_API_KEY to be set in consumer runtime/staging secrets only.
+ *   NEVER add GEMINI_API_KEY to apps/web or apps/api environment.
+ *   Run the manual smoke test: pnpm --filter @orra/ai smoke:gemini
+ *
+ * [provider_plan] log events show:
+ *   jobId, provider, status, durationMs, cardCount (on success)
+ *   jobId, provider, status, durationMs, errorCode (on failure)
+ *
+ * [provider_plan] log events intentionally omit:
+ *   prompt text, raw AI response, API key, project memory content,
+ *   chat message content, artifact JSON
+ */
+
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------

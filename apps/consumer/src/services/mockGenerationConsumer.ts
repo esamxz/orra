@@ -6,8 +6,8 @@ import type { ChatRepository } from '@orra/api/src/repositories/chatRepository.j
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
-import { createAIProviderRouter, buildArtifactSummary } from '@orra/ai';
-import type { AIProviderRouter, RecentChatMessage } from '@orra/ai';
+import { createAIProviderRouter, buildArtifactSummary, AIProviderError } from '@orra/ai';
+import type { AIProviderRouter, RecentChatMessage, TextPlanResult } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Mock generation consumer
@@ -184,16 +184,38 @@ export class MockGenerationConsumer {
       const currentArtifactSummary = buildArtifactSummary(currentDocument);
 
       const provider = this.aiRouter.getProvider();
-      const aiPlan = await provider.planText({
-        projectId: job.project_id,
-        prompt: summaryLine,
-        projectType: currentDocument.type,
-        ratio: currentDocument.ratio,
-        brandContext,
-        approvalCard,
-        projectMemory,
-        recentChatMessages,
-        currentArtifactSummary,
+      const t0 = Date.now();
+      console.info('[provider_plan]', { jobId: message.jobId, provider: provider.name, status: 'started' });
+      let aiPlan: TextPlanResult;
+      try {
+        aiPlan = await provider.planText({
+          projectId: job.project_id,
+          prompt: summaryLine,
+          projectType: currentDocument.type,
+          ratio: currentDocument.ratio,
+          brandContext,
+          approvalCard,
+          projectMemory,
+          recentChatMessages,
+          currentArtifactSummary,
+        });
+      } catch (providerErr) {
+        const errorCode = providerErr instanceof AIProviderError ? providerErr.code : 'PROVIDER_UNKNOWN';
+        console.error('[provider_plan]', {
+          jobId: message.jobId,
+          provider: provider.name,
+          status: 'failed',
+          durationMs: Date.now() - t0,
+          errorCode,
+        });
+        throw providerErr;
+      }
+      console.info('[provider_plan]', {
+        jobId: message.jobId,
+        provider: provider.name,
+        status: 'succeeded',
+        durationMs: Date.now() - t0,
+        cardCount: aiPlan.cardCount,
       });
 
       // 8. Generate plan-driven document from AI plan result

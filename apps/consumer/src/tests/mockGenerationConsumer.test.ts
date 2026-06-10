@@ -9,7 +9,7 @@ import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRo
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import type { AIProviderRouter, AIProvider, TextPlanResult, RecentChatMessage, CurrentArtifactSummary } from '@orra/ai';
-import { AIProviderError } from '@orra/ai';
+import { AIProviderError, createAIProviderRouter } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Fake repositories
@@ -2261,5 +2261,138 @@ describe('Phase 14A: plan content in committed document', () => {
     const accentLayer = getTextLayersByRole(committedDoc, 0).find((l) => l.role === 'accent');
     expect(accentLayer).toBeDefined();
     expect(accentLayer!.content).toBe('Get started now');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 14C: consumer provider_plan logging
+// ---------------------------------------------------------------------------
+
+function createAIProviderErrorRouter(code: string): AIProviderRouter {
+  return {
+    getProvider: () => ({
+      name: 'fake' as const,
+      async planText() {
+        throw new AIProviderError({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          code: code as any,
+          provider: 'fake',
+          message: `Simulated ${code}`,
+          retryable: code === 'PROVIDER_TIMEOUT',
+        });
+      },
+      async generateImageOrDocument() {
+        return { kind: 'mock_document' as const };
+      },
+    }),
+  };
+}
+
+describe('Phase 14C: consumer provider_plan logging', () => {
+  it('logs [provider_plan] started then succeeded on a successful job', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 0 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+
+    const capturedInfoCalls: unknown[][] = [];
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation((...args) => { capturedInfoCalls.push(args); });
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, createAIProviderRouter());
+    await consumer.processMessage({ jobId: 'job-1' });
+    infoSpy.mockRestore();
+
+    const providerLogs = capturedInfoCalls.filter((c) => c[0] === '[provider_plan]');
+    expect(providerLogs.length).toBeGreaterThanOrEqual(2);
+
+    const started = providerLogs.find((c) => (c[1] as Record<string, unknown>).status === 'started');
+    expect(started).toBeDefined();
+    expect((started![1] as Record<string, unknown>).jobId).toBe('job-1');
+    expect((started![1] as Record<string, unknown>).provider).toBe('fake');
+
+    const succeeded = providerLogs.find((c) => (c[1] as Record<string, unknown>).status === 'succeeded');
+    expect(succeeded).toBeDefined();
+    expect((succeeded![1] as Record<string, unknown>).jobId).toBe('job-1');
+    expect((succeeded![1] as Record<string, unknown>).provider).toBe('fake');
+    expect(typeof (succeeded![1] as Record<string, unknown>).cardCount).toBe('number');
+    expect(typeof (succeeded![1] as Record<string, unknown>).durationMs).toBe('number');
+  });
+
+  it('logs [provider_plan] failed with PROVIDER_TIMEOUT errorCode when planText throws AIProviderError', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 0 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+
+    const capturedErrorCalls: unknown[][] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => { capturedErrorCalls.push(args); });
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, undefined,
+      createAIProviderErrorRouter('PROVIDER_TIMEOUT'),
+    );
+    await consumer.processMessage({ jobId: 'job-1' });
+    errorSpy.mockRestore();
+    infoSpy.mockRestore();
+
+    const providerErrors = capturedErrorCalls.filter((c) => c[0] === '[provider_plan]');
+    expect(providerErrors.length).toBeGreaterThanOrEqual(1);
+
+    const failed = providerErrors.find((c) => (c[1] as Record<string, unknown>).status === 'failed');
+    expect(failed).toBeDefined();
+    expect((failed![1] as Record<string, unknown>).jobId).toBe('job-1');
+    expect((failed![1] as Record<string, unknown>).errorCode).toBe('PROVIDER_TIMEOUT');
+    expect(typeof (failed![1] as Record<string, unknown>).durationMs).toBe('number');
+  });
+
+  it('provider AIProviderError failure still refunds credits and marks job failed', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 10, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -10, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }]
+    );
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderErrorRouter('PROVIDER_TIMEOUT'),
+    );
+    await consumer.processMessage({ jobId: 'job-1' });
+    infoSpy.mockRestore();
+    errorSpy.mockRestore();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
+    expect(job!.result_version_id).toBeNull();
+
+    const refundEntries = creditRepo.ledger.filter((e) => e.entry_type === 'refund' && e.job_id === 'job-1');
+    expect(refundEntries.length).toBeGreaterThan(0);
+  });
+
+  it('[provider_plan] log objects never contain prompt text or API key', async () => {
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 0 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+
+    const capturedInfoCalls: unknown[][] = [];
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation((...args) => { capturedInfoCalls.push(args); });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, createAIProviderRouter());
+    await consumer.processMessage({ jobId: 'job-1' });
+    infoSpy.mockRestore();
+    errorSpy.mockRestore();
+
+    const providerPlanObjects = capturedInfoCalls
+      .filter((c) => c[0] === '[provider_plan]')
+      .map((c) => c[1] as Record<string, unknown>);
+
+    expect(providerPlanObjects.length).toBeGreaterThan(0);
+    for (const obj of providerPlanObjects) {
+      expect(obj).not.toHaveProperty('prompt');
+      expect(obj).not.toHaveProperty('rawText');
+      expect(obj).not.toHaveProperty('response');
+      expect(JSON.stringify(obj)).not.toContain('GEMINI_API_KEY');
+      expect(JSON.stringify(obj)).not.toContain('api_key');
+    }
   });
 });

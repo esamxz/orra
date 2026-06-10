@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:gemini": "tsx src/scripts/smokeGeminiText.ts"
   },
   "dependencies": {
     "@orra/shared": "workspace:*",
@@ -22,6 +23,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260603.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.8.3",
     "vitest": "^3.2.3"
   }

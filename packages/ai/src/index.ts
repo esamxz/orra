@@ -19,6 +19,9 @@ export type { GeminiTextProviderConfig } from './providers/geminiTextProvider.js
 export { AIProviderError, isAIProviderError } from './errors.js';
 export type { AIProviderErrorCode } from './errors.js';
 
+export type { AIProviderObservation, AIProviderObserver } from './observability.js';
+export { NoopAIProviderObserver } from './observability.js';
+
 export { TextPlanResultSchema, PlannedCardSchema } from './schemas.js';
 
 export { extractJsonObjectFromText } from './json.js';

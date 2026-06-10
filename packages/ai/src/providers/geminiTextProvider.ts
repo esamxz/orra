@@ -13,12 +13,15 @@ import type { ProjectContextMemory } from '@orra/shared';
 import { AIProviderError } from '../errors.js';
 import { extractJsonObjectFromText } from '../json.js';
 import { normalizeTextPlanResult } from '../normalization.js';
+import type { AIProviderObserver } from '../observability.js';
+import { NoopAIProviderObserver } from '../observability.js';
 
 export interface GeminiTextProviderConfig {
   apiKey: string;
   model: string;
   timeoutMs?: number;
   baseUrl?: string;
+  observer?: AIProviderObserver;
 }
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
@@ -43,82 +46,124 @@ export class GeminiTextProvider implements AIProvider {
   private readonly model: string;
   private readonly timeoutMs: number;
   private readonly baseUrl: string;
+  private readonly observer: AIProviderObserver;
 
   constructor(config: GeminiTextProviderConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
+    this.observer = config.observer ?? new NoopAIProviderObserver();
   }
 
   async planText(input: TextPlanRequest): Promise<TextPlanResult> {
+    const prompt = this.buildPrompt(input);
+    const t0 = Date.now();
+
+    this.observer.observe({
+      provider: 'gemini',
+      operation: 'planText',
+      status: 'started',
+      model: this.model,
+      promptChars: prompt.length,
+    });
+
     const url = `${this.baseUrl}/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    let response: Response;
     try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: this.buildPrompt(input) }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      if (err instanceof Error && err.name === 'AbortError') {
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new AIProviderError({
+            code: 'PROVIDER_TIMEOUT',
+            provider: 'gemini',
+            message: `Gemini request timed out after ${this.timeoutMs}ms`,
+            retryable: true,
+          });
+        }
         throw new AIProviderError({
-          code: 'PROVIDER_TIMEOUT',
+          code: 'PROVIDER_HTTP_ERROR',
           provider: 'gemini',
-          message: `Gemini request timed out after ${this.timeoutMs}ms`,
+          message: `Gemini network error: ${err instanceof Error ? err.message : 'unknown'}`,
           retryable: true,
         });
       }
-      throw new AIProviderError({
-        code: 'PROVIDER_HTTP_ERROR',
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        throw new AIProviderError({
+          code: 'PROVIDER_HTTP_ERROR',
+          provider: 'gemini',
+          message: `Gemini returned HTTP ${response.status}`,
+          retryable: response.status >= 500,
+        });
+      }
+
+      let raw: unknown;
+      try {
+        raw = await response.json();
+      } catch {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'gemini',
+          message: 'Gemini response body was not valid JSON',
+        });
+      }
+
+      const envelope = GeminiEnvelopeSchema.safeParse(raw);
+      if (!envelope.success) {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'gemini',
+          message: 'Gemini response did not match expected envelope shape',
+        });
+      }
+
+      const rawText = envelope.data.candidates[0].content.parts[0].text;
+
+      const extracted = extractJsonObjectFromText(rawText, 'gemini');
+      const result = normalizeTextPlanResult(extracted, 'gemini');
+
+      this.observer.observe({
         provider: 'gemini',
-        message: `Gemini network error: ${err instanceof Error ? err.message : 'unknown'}`,
-        retryable: true,
+        operation: 'planText',
+        status: 'succeeded',
+        durationMs: Date.now() - t0,
+        model: this.model,
+        promptChars: prompt.length,
+        responseChars: rawText.length,
+        normalizedCardCount: result.cardCount,
+        layoutDirection: result.layoutDirection,
+        visualDirection: result.visualDirection,
       });
-    }
-    clearTimeout(timer);
 
-    if (!response.ok) {
-      throw new AIProviderError({
-        code: 'PROVIDER_HTTP_ERROR',
+      return result;
+
+    } catch (err) {
+      const durationMs = Date.now() - t0;
+      this.observer.observe({
         provider: 'gemini',
-        message: `Gemini returned HTTP ${response.status}`,
-        retryable: response.status >= 500,
+        operation: 'planText',
+        status: 'failed',
+        durationMs,
+        errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNKNOWN',
+        retryable: err instanceof AIProviderError ? err.retryable : false,
       });
+      throw err;
     }
-
-    let raw: unknown;
-    try {
-      raw = await response.json();
-    } catch {
-      throw new AIProviderError({
-        code: 'PROVIDER_INVALID_RESPONSE',
-        provider: 'gemini',
-        message: 'Gemini response body was not valid JSON',
-      });
-    }
-
-    const envelope = GeminiEnvelopeSchema.safeParse(raw);
-    if (!envelope.success) {
-      throw new AIProviderError({
-        code: 'PROVIDER_INVALID_RESPONSE',
-        provider: 'gemini',
-        message: 'Gemini response did not match expected envelope shape',
-      });
-    }
-
-    const text = envelope.data.candidates[0].content.parts[0].text;
-
-    const extracted = extractJsonObjectFromText(text, 'gemini');
-    return normalizeTextPlanResult(extracted, 'gemini');
   }
 
   async generateImageOrDocument(_input: ImageGenerationRequest): Promise<ImageGenerationResult> {
