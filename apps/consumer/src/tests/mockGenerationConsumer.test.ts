@@ -2396,3 +2396,192 @@ describe('Phase 14C: consumer provider_plan logging', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 14E: Gemini provider path (mocked network)
+// ---------------------------------------------------------------------------
+
+const geminiSuccessEnvelope = {
+  candidates: [
+    {
+      content: {
+        parts: [
+          {
+            text: JSON.stringify({
+              title: 'Smoke Test Carousel',
+              summary: 'A 2-card carousel about productivity.',
+              cardCount: 2,
+              body: 'Main body text.',
+              styleNotes: ['calm', 'professional'],
+              cards: [
+                { headline: 'Card One Headline', body: 'First card content.' },
+                { headline: 'Card Two Headline', body: 'Second card content.', cta: 'Learn more' },
+              ],
+              layoutDirection: 'centered',
+              visualDirection: 'calm',
+            }),
+          },
+        ],
+      },
+    },
+  ],
+};
+
+describe('Gemini provider path (mocked network)', () => {
+  it('mocked Gemini success: commits valid ArtifactDocument and captures credits', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => geminiSuccessEnvelope,
+      }),
+    );
+
+    const { artifact, version } = makeArtifactAndVersion('carousel');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 5 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 5, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -5, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }],
+    );
+
+    const router = createAIProviderRouter({ provider: 'gemini', geminiApiKey: 'secret-test-api-key' });
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, router);
+    await consumer.processMessage({ jobId: 'job-1' });
+    infoSpy.mockRestore();
+    vi.unstubAllGlobals();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('succeeded');
+    expect(job!.result_version_id).toBeTruthy();
+    expect(job!.captured_credits).toBe(5);
+
+    const committed = artifactRepo.getVersionById(job!.result_version_id!);
+    const parsed = ArtifactDocumentSchema.safeParse(committed!.document);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.cards.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('mocked Gemini HTTP 500: refunds credits and marks job failed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce({ ok: false, status: 500 }),
+    );
+
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 10 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 10, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -10, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }],
+    );
+
+    const router = createAIProviderRouter({ provider: 'gemini', geminiApiKey: 'secret-test-api-key' });
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, router);
+    await consumer.processMessage({ jobId: 'job-1' });
+    infoSpy.mockRestore();
+    errorSpy.mockRestore();
+    vi.unstubAllGlobals();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
+    expect(job!.result_version_id).toBeNull();
+
+    const refundEntries = creditRepo.ledger.filter(
+      (e) => e.entry_type === 'refund' && e.job_id === 'job-1',
+    );
+    expect(refundEntries.length).toBeGreaterThan(0);
+  });
+
+  it('mocked Gemini invalid JSON response: refunds credits and marks job failed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => { throw new SyntaxError('Unexpected token'); },
+      }),
+    );
+
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 8 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = createFakeCreditRepository(
+      [{ workspace_id: 'ws-1', subscription_available: 50, topup_available: 0, reserved: 8, updated_at: '2026-01-01' }],
+      [{ id: 'l-1', workspace_id: 'ws-1', entry_type: 'reserve', bucket: 'subscription', amount: -8, job_id: 'job-1', expires_at: null, metadata: {}, created_at: '2026-01-01' }],
+    );
+
+    const router = createAIProviderRouter({ provider: 'gemini', geminiApiKey: 'secret-test-api-key' });
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, creditRepo, router);
+    await consumer.processMessage({ jobId: 'job-1' });
+    infoSpy.mockRestore();
+    errorSpy.mockRestore();
+    vi.unstubAllGlobals();
+
+    const job = await jobRepo.findById('job-1');
+    expect(job!.status).toBe('failed');
+
+    const refundEntries = creditRepo.ledger.filter(
+      (e) => e.entry_type === 'refund' && e.job_id === 'job-1',
+    );
+    expect(refundEntries.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 14E: [provider_plan] log safety with real Gemini router + mocked fetch
+// ---------------------------------------------------------------------------
+
+describe('[provider_plan] log safety with Gemini router', () => {
+  it('[provider_plan] logs never contain the API key string when Gemini router is used', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => geminiSuccessEnvelope,
+      }),
+    );
+
+    const { artifact, version } = makeArtifactAndVersion('post');
+    const jobRepo = createFakeJobRepository([makeJob('queued', { reserved_credits: 0 })]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+
+    const capturedInfoCalls: unknown[][] = [];
+    const capturedErrorCalls: unknown[][] = [];
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation((...args) => { capturedInfoCalls.push(args); });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => { capturedErrorCalls.push(args); });
+
+    const router = createAIProviderRouter({ provider: 'gemini', geminiApiKey: 'secret-test-api-key' });
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    infoSpy.mockRestore();
+    errorSpy.mockRestore();
+    vi.unstubAllGlobals();
+
+    const allProviderPlanCalls = [
+      ...capturedInfoCalls.filter((c) => c[0] === '[provider_plan]'),
+      ...capturedErrorCalls.filter((c) => c[0] === '[provider_plan]'),
+    ];
+    expect(allProviderPlanCalls.length).toBeGreaterThan(0);
+
+    for (const call of allProviderPlanCalls) {
+      const serialized = JSON.stringify(call);
+      expect(serialized).not.toContain('secret-test-api-key');
+      expect(serialized).not.toContain('GEMINI_API_KEY');
+      expect(serialized).not.toContain('apiKey');
+      expect(call[1]).not.toHaveProperty('prompt');
+      expect(call[1]).not.toHaveProperty('rawText');
+      expect(call[1]).not.toHaveProperty('response');
+    }
+  });
+});

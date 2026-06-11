@@ -6,6 +6,7 @@ import { SupabaseProjectMemoryRepository } from '@orra/api/src/repositories/proj
 import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
 import { createAIProviderRouter } from '@orra/ai';
 import type { ConsumerEnv } from './env.js';
+import { validateConsumerEnv } from './env.js';
 
 // ---------------------------------------------------------------------------
 // Queue consumer Worker entry point
@@ -20,6 +21,10 @@ export interface QueueMessage {
 
 const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
   async queue(batch, env, _ctx) {
+    // Validate env before creating any service so misconfiguration fails fast
+    // with a clear message rather than throwing inside the first job.
+    validateConsumerEnv(env);
+
     const db = createDbClient(env as unknown as import('@orra/api/src/env.js').Env);
     const jobRepo = new SupabaseGenerationJobRepository(db);
     const artifactRepo = new SupabaseArtifactRepository(db);
