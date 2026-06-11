@@ -56,13 +56,16 @@ export interface TextPlanResult {
   visualDirection?: string;
 }
 
-export interface ImageGenerationRequest {
+// Stub types for AIProvider.generateImageOrDocument() — the mock document placeholder pathway.
+// These are intentionally named to reflect their real purpose (mock document generation),
+// freeing the ImageGeneration* names for the real image provider seam added in Phase 15A.
+export interface MockDocumentRequest {
   projectId: string;
   plan: TextPlanResult;
   brandContext: BrandContextDto | null;
 }
 
-export interface ImageGenerationResult {
+export interface MockDocumentResult {
   kind: 'mock_document';
   documentPatchPlan?: unknown;
 }
@@ -70,5 +73,5 @@ export interface ImageGenerationResult {
 export interface AIProvider {
   readonly name: AIProviderName;
   planText(input: TextPlanRequest): Promise<TextPlanResult>;
-  generateImageOrDocument(input: ImageGenerationRequest): Promise<ImageGenerationResult>;
+  generateImageOrDocument(input: MockDocumentRequest): Promise<MockDocumentResult>;
 }

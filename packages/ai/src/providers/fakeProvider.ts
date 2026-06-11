@@ -1,4 +1,4 @@
-import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, ImageGenerationRequest, ImageGenerationResult } from '../types.js';
+import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, MockDocumentRequest, MockDocumentResult } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Fake AI provider
@@ -91,7 +91,7 @@ export class FakeAIProvider implements AIProvider {
     };
   }
 
-  async generateImageOrDocument(_input: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  async generateImageOrDocument(_input: MockDocumentRequest): Promise<MockDocumentResult> {
     return { kind: 'mock_document' };
   }
 }

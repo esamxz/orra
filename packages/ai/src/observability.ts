@@ -9,17 +9,21 @@
 
 export interface AIProviderObservation {
   provider: string;
-  operation: 'planText';
+  operation: 'planText' | 'generateImage';
   status: 'started' | 'succeeded' | 'failed';
   durationMs?: number;           // present on succeeded and failed
   retryable?: boolean;           // present on failed
   errorCode?: string;            // present on failed
   model?: string;                // present on started, succeeded
+  // planText fields
   promptChars?: number;          // character count only — never the prompt string
   responseChars?: number;        // character count only — never the response string
-  normalizedCardCount?: number;  // present on succeeded
-  layoutDirection?: string;      // present on succeeded when AI returned one
-  visualDirection?: string;      // present on succeeded when AI returned one
+  normalizedCardCount?: number;  // present on succeeded planText
+  layoutDirection?: string;      // present on succeeded planText when AI returned one
+  visualDirection?: string;      // present on succeeded planText when AI returned one
+  // generateImage fields — never include prompt text, raw bytes, or secrets
+  requestWidth?: number;         // pixel dimension from the request
+  requestHeight?: number;        // pixel dimension from the request
 }
 
 export interface AIProviderObserver {

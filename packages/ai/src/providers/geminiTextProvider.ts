@@ -4,8 +4,8 @@ import type {
   AIProviderName,
   TextPlanRequest,
   TextPlanResult,
-  ImageGenerationRequest,
-  ImageGenerationResult,
+  MockDocumentRequest,
+  MockDocumentResult,
   RecentChatMessage,
   CurrentArtifactSummary,
 } from '../types.js';
@@ -166,7 +166,7 @@ export class GeminiTextProvider implements AIProvider {
     }
   }
 
-  async generateImageOrDocument(_input: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  async generateImageOrDocument(_input: MockDocumentRequest): Promise<MockDocumentResult> {
     throw new AIProviderError({
       code: 'PROVIDER_UNAVAILABLE',
       provider: 'gemini',

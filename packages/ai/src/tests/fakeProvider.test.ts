@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FakeAIProvider } from '../providers/fakeProvider.js';
 import { TextPlanResultSchema, PlannedCardSchema } from '../schemas.js';
-import type { TextPlanRequest, ImageGenerationRequest, RecentChatMessage, CurrentArtifactSummary } from '../types.js';
+import type { TextPlanRequest, MockDocumentRequest, RecentChatMessage, CurrentArtifactSummary } from '../types.js';
 import type { BrandContextDto } from '@orra/shared';
 
 function makeTextRequest(overrides: Partial<TextPlanRequest> = {}): TextPlanRequest {
@@ -179,7 +179,7 @@ describe('FakeAIProvider', () => {
   describe('generateImageOrDocument', () => {
     it('returns { kind: "mock_document" }', async () => {
       const provider = new FakeAIProvider();
-      const req: ImageGenerationRequest = {
+      const req: MockDocumentRequest = {
         projectId: 'proj-1',
         plan: { summary: '', cardCount: 1, title: '', body: '', styleNotes: [] },
         brandContext: null,
