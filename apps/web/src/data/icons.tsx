@@ -133,6 +133,11 @@ export const Icon = {
       <path d="M4 12l16-7-7 16-2.5-6.5z" />
     </I>
   ),
+  arrowUp: ({ s, w, style }: IconProps) => (
+    <I s={s} w={w} style={style}>
+      <path d="M12 19V5M5 12l7-7 7 7" />
+    </I>
+  ),
   alignL: ({ s, w, style }: IconProps) => (
     <I s={s} w={w} style={style}>
       <path d="M4 6h16M4 10h10M4 14h16M4 18h10" />
