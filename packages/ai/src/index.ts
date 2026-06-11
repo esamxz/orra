@@ -25,6 +25,8 @@ export { GeminiTextProvider } from './providers/geminiTextProvider.js';
 export type { GeminiTextProviderConfig } from './providers/geminiTextProvider.js';
 
 export { FakeImageProvider } from './providers/fakeImageProvider.js';
+export { FluxImageProvider } from './providers/fluxImageProvider.js';
+export type { FluxImageProviderConfig } from './providers/fluxImageProvider.js';
 
 export { AIProviderError, isAIProviderError } from './errors.js';
 export type { AIProviderErrorCode } from './errors.js';

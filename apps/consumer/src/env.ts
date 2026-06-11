@@ -11,6 +11,16 @@
  *   NEVER add GEMINI_API_KEY to apps/web or apps/api environment.
  *   Run the manual smoke test: pnpm --filter @orra/ai smoke:gemini
  *
+ * IMAGE_PROVIDER=fake (default)
+ *   Uses FakeImageProvider — deterministic, no network calls.
+ *   All automated tests use this default. Never requires an API key.
+ *
+ * IMAGE_PROVIDER=flux
+ *   Uses FluxImageProvider (FLUX Schnell via Black Forest Labs) for real image generation.
+ *   Requires FLUX_API_KEY to be set in consumer runtime/staging secrets only.
+ *   NEVER add FLUX_API_KEY to apps/web or apps/api environment.
+ *   Generated image R2 storage and artifact integration are implemented in later phases.
+ *
  * [provider_plan] log events show:
  *   jobId, provider, status, durationMs, cardCount (on success)
  *   jobId, provider, status, durationMs, errorCode (on failure)
@@ -39,6 +49,10 @@ export const ConsumerEnvSchema = z
     GEMINI_BASE_URL: z.string().optional(),
     // z.coerce.number() because Worker bindings are always strings at runtime
     AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+    IMAGE_PROVIDER: z.string().optional(),
+    FLUX_API_KEY: z.string().optional(),
+    FLUX_API_BASE_URL: z.string().optional(),
+    FLUX_MODEL: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.AI_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {
@@ -46,6 +60,13 @@ export const ConsumerEnvSchema = z
         code: z.ZodIssueCode.custom,
         message: 'GEMINI_API_KEY is required when AI_PROVIDER=gemini',
         path: ['GEMINI_API_KEY'],
+      });
+    }
+    if (data.IMAGE_PROVIDER === 'flux' && !data.FLUX_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'FLUX_API_KEY is required when IMAGE_PROVIDER=flux',
+        path: ['FLUX_API_KEY'],
       });
     }
   });
