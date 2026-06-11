@@ -6,6 +6,7 @@ import {
   UpdateProjectSchema,
   ListProjectsQuerySchema,
   ProjectIdParamSchema,
+  NewProjectSchema,
 } from '../schemas/project.js';
 import {
   ProjectUploadIntentBodySchema,
@@ -38,6 +39,17 @@ function buildServiceContext(c: Context<{ Bindings: Env }>): ReturnType<typeof c
   const repositories = c.get('repositories' as never) as Repositories | undefined;
   return createServiceContext(c.env, requestId, auth ?? undefined, repositories ? { repositories } : undefined);
 }
+
+// POST /v1/projects/new — create a project from dashboard and save first prompt
+// This route must be registered BEFORE the dynamic /:id routes to avoid shadowing.
+projectRoutes.post('/new', validateJson(NewProjectSchema), async (c) => {
+  const body = c.req.valid('json');
+  const ctx = buildServiceContext(c);
+  const repos = getRepositories(ctx);
+  const service = new ProjectService(repos.project, repos.artifact, repos.brandSystem, repos.chat);
+  const result = await service.createNewProject(ctx, body);
+  return c.json({ ok: true, data: result }, 201);
+});
 
 // POST /v1/projects — create a project
 projectRoutes.post('/', validateJson(CreateProjectSchema), async (c) => {

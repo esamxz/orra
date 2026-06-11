@@ -1,5 +1,5 @@
 import { apiClient } from './client.js';
-import type { Project, CreateProjectInput, UpdateProjectInput } from './types.js';
+import type { Project, CreateProjectInput, UpdateProjectInput, ChatMessageDto } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Project API functions
@@ -35,5 +35,21 @@ export async function updateProject(id: string, input: UpdateProjectInput): Prom
 export async function deleteProject(id: string): Promise<{ deleted: boolean }> {
   return apiClient.request<{ deleted: boolean }>(`/projects/${id}`, {
     method: 'DELETE',
+  });
+}
+
+export interface CreateNewProjectInput extends CreateProjectInput {
+  prompt: string;
+}
+
+export interface CreateNewProjectResponse {
+  project: Project;
+  firstMessage: ChatMessageDto;
+}
+
+export async function createNewProject(input: CreateNewProjectInput): Promise<CreateNewProjectResponse> {
+  return apiClient.request<CreateNewProjectResponse>('/projects/new', {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
 }

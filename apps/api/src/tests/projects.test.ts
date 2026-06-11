@@ -842,3 +842,212 @@ describe('Project route error responses', () => {
     expect(text).not.toContain('SQL');
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /v1/projects/new (W1: Dashboard start endpoint)
+// ---------------------------------------------------------------------------
+
+describe('POST /v1/projects/new', () => {
+  it('creates project and saves first message', async () => {
+    const app = buildApp(createFakeRepositories());
+    const res = await app.request(
+      '/v1/projects/new',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Dashboard Post',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          prompt: 'Create a post about discipline',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as { project: { name: string; type: string }; firstMessage: { content: string; role: string; kind: string } };
+    expect(data.project.name).toBe('Dashboard Post');
+    expect(data.project.type).toBe('post');
+    expect(data.firstMessage.content).toBe('Create a post about discipline');
+    expect(data.firstMessage.role).toBe('user');
+    expect(data.firstMessage.kind).toBe('text');
+  });
+
+  it('requires authentication', async () => {
+    const app = buildApp();
+    const res = await app.request(
+      '/v1/projects/new',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Test',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          prompt: 'Hello',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('UNAUTHENTICATED');
+  });
+
+  it('returns validation error for missing prompt', async () => {
+    const app = buildApp(createFakeRepositories());
+    const res = await app.request(
+      '/v1/projects/new',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Missing Prompt',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('returns validation error for empty prompt', async () => {
+    const app = buildApp(createFakeRepositories());
+    const res = await app.request(
+      '/v1/projects/new',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Empty Prompt',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          prompt: '',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('works with valid brandSystemId', async () => {
+    const repos = createFakeRepositories([], [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'My Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/new',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Branded Dashboard Post',
+          type: 'carousel',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          brandSystemId: '11111111-1111-1111-1111-111111111111',
+          prompt: 'Create a 5-card carousel',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as { project: { brandSystemId: string } };
+    expect(data.project.brandSystemId).toBe('11111111-1111-1111-1111-111111111111');
+  });
+
+  it('rejects invalid brandSystemId', async () => {
+    const app = buildApp(createFakeRepositories());
+    const res = await app.request(
+      '/v1/projects/new',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Bad Brand',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          brandSystemId: '00000000-0000-0000-0000-000000000000',
+          prompt: 'Hello',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('NOT_FOUND');
+  });
+
+  it('works without brandSystemId (no-brand)', async () => {
+    const app = buildApp(createFakeRepositories());
+    const res = await app.request(
+      '/v1/projects/new',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'No Brand Post',
+          type: 'post',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          prompt: 'Create something beautiful',
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as { project: { brandSystemId: string | null } };
+    expect(data.project.brandSystemId).toBeNull();
+  });
+});

@@ -4,7 +4,8 @@ import { ProjectService } from '../services/projectService.js';
 import { ApiError } from '../errors.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { ArtifactRepository } from '../repositories/artifactRepository.js';
-import type { ProjectRow, ArtifactRow, ArtifactVersionRow, BrandSystemRow } from '@orra/db';
+import type { ChatRepository } from '../repositories/chatRepository.js';
+import type { ProjectRow, ArtifactRow, ArtifactVersionRow, BrandSystemRow, ChatThreadRow, ChatMessageRow } from '@orra/db';
 import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
 
 // ---------------------------------------------------------------------------
@@ -742,5 +743,230 @@ describe('ProjectService brand validation', () => {
     });
 
     expect(project.brandSystemId).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Fake chat repository for W1 tests
+  // ---------------------------------------------------------------------------
+
+  function createFakeChatRepository(
+    initialThreads: ChatThreadRow[] = [],
+    initialMessages: ChatMessageRow[] = []
+  ): ChatRepository {
+    const threads = [...initialThreads];
+    const messages = [...initialMessages];
+    let nextThreadId = 1;
+    let nextMessageId = 1;
+
+    return {
+      async ensureThreadForProject(input) {
+        const existing = threads.find(
+          (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+        );
+        if (existing) return existing;
+
+        const thread: ChatThreadRow = {
+          id: `thread-${nextThreadId++}`,
+          workspace_id: input.workspaceId,
+          project_id: input.projectId,
+          title: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        threads.push(thread);
+        return thread;
+      },
+
+      async findThreadByProjectId(input) {
+        return (
+          threads.find(
+            (t) => t.project_id === input.projectId && t.workspace_id === input.workspaceId
+          ) ?? null
+        );
+      },
+
+      async listMessagesByThread(input) {
+        return messages
+          .filter((m) => m.thread_id === input.threadId && m.workspace_id === input.workspaceId)
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .slice(0, input.limit);
+      },
+
+      async listRecentMessagesForProject() {
+        return [];
+      },
+
+      async appendMessage(input) {
+        const message: ChatMessageRow = {
+          id: `msg-${nextMessageId++}`,
+          workspace_id: input.workspaceId,
+          thread_id: input.threadId,
+          role: input.role,
+          kind: input.kind,
+          content: input.content,
+          metadata: input.metadata ?? {},
+          seq: input.seq ?? null,
+          created_at: new Date().toISOString(),
+        };
+        messages.push(message);
+        return message;
+      },
+
+      async findMessageByIdForProject() {
+        return null;
+      },
+
+      async updateMessageMetadata() {
+        throw new Error('not implemented');
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // createNewProject (W1: Dashboard start endpoint)
+  // ---------------------------------------------------------------------------
+
+  it('createNewProject creates project and saves first message', async () => {
+    const chatRepo = createFakeChatRepository();
+    const projRepo = createFakeProjectRepository();
+    const artifactRepo = createFakeArtifactRepository();
+    const service = new ProjectService(projRepo, artifactRepo, undefined, chatRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createNewProject(ctx, {
+      name: 'Test Project',
+      type: 'post',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      prompt: 'Create a post about discipline',
+    });
+
+    expect(result.project.workspaceId).toBe('ws-1');
+    expect(result.project.name).toBe('Test Project');
+    expect(result.project.type).toBe('post');
+    expect(result.firstMessage.projectId).toBe(result.project.id);
+    expect(result.firstMessage.role).toBe('user');
+    expect(result.firstMessage.kind).toBe('text');
+    expect(result.firstMessage.content).toBe('Create a post about discipline');
+  });
+
+  it('createNewProject does not create approval summary message', async () => {
+    const chatRepo = createFakeChatRepository();
+    const projRepo = createFakeProjectRepository();
+    const artifactRepo = createFakeArtifactRepository();
+    const service = new ProjectService(projRepo, artifactRepo, undefined, chatRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createNewProject(ctx, {
+      name: 'Test',
+      type: 'carousel',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      prompt: 'Create a 5-card carousel about marketing',
+    });
+
+    // Only one message should exist (the first user message)
+    const thread = await chatRepo.findThreadByProjectId({
+      workspaceId: 'ws-1',
+      projectId: result.project.id,
+    });
+    const messages = await chatRepo.listMessagesByThread({
+      workspaceId: 'ws-1',
+      threadId: thread!.id,
+      limit: 50,
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].kind).toBe('text');
+    expect(messages[0].role).toBe('user');
+  });
+
+  it('createNewProject works without brand system', async () => {
+    const chatRepo = createFakeChatRepository();
+    const projRepo = createFakeProjectRepository();
+    const artifactRepo = createFakeArtifactRepository();
+    const service = new ProjectService(projRepo, artifactRepo, undefined, chatRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createNewProject(ctx, {
+      name: 'No Brand Post',
+      type: 'post',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      prompt: 'Hello world',
+    });
+
+    expect(result.project.brandSystemId).toBeNull();
+    expect(result.firstMessage.content).toBe('Hello world');
+  });
+
+  it('createNewProject validates brandSystemId belongs to same workspace', async () => {
+    const brandRepo = createFakeBrandSystemRepository([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-other',
+        name: 'Other Brand',
+        description: null,
+        tone_of_voice: null,
+        visual_direction: null,
+        rules: null,
+        palette: [],
+        typography: {},
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const chatRepo = createFakeChatRepository();
+    const projRepo = createFakeProjectRepository();
+    const artifactRepo = createFakeArtifactRepository();
+    const service = new ProjectService(projRepo, artifactRepo, brandRepo, chatRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createNewProject(ctx, {
+        name: 'Bad Brand',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brandSystemId: '11111111-1111-1111-1111-111111111111',
+        prompt: 'Test',
+      })
+    ).rejects.toThrow(ApiError);
+  });
+
+  it('createNewProject requires auth', async () => {
+    const chatRepo = createFakeChatRepository();
+    const projRepo = createFakeProjectRepository();
+    const artifactRepo = createFakeArtifactRepository();
+    const service = new ProjectService(projRepo, artifactRepo, undefined, chatRepo);
+    const ctx = {
+      env: {} as unknown as import('../env.js').Env,
+      requestId: 'req-123',
+      auth: undefined,
+    };
+
+    await expect(
+      service.createNewProject(ctx, {
+        name: 'Test',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        prompt: 'Test',
+      })
+    ).rejects.toThrow(ApiError);
+  });
+
+  it('createNewProject creates artifact spine', async () => {
+    const chatRepo = createFakeChatRepository();
+    const projRepo = createFakeProjectRepository();
+    const artifactRepo = createFakeArtifactRepository();
+    const service = new ProjectService(projRepo, artifactRepo, undefined, chatRepo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createNewProject(ctx, {
+      name: 'Test',
+      type: 'carousel',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      prompt: 'Create a carousel',
+    });
+
+    expect(result.project.currentArtifactId).toBeDefined();
+    expect(typeof result.project.currentArtifactId).toBe('string');
   });
 });

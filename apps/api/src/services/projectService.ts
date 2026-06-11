@@ -4,6 +4,7 @@ import { ApiError } from '../errors.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { ArtifactRepository } from '../repositories/artifactRepository.js';
 import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
+import type { ChatRepository } from '../repositories/chatRepository.js';
 import { ArtifactService } from './artifactService.js';
 import type { ProjectRow } from '@orra/db';
 
@@ -29,6 +30,10 @@ export interface UpdateProjectRequest {
 export interface ListProjectsRequest {
   tab?: 'recent' | 'all';
   limit: number;
+}
+
+export interface NewProjectRequest extends CreateProjectRequest {
+  prompt: string;
 }
 
 export interface ProjectResponse {
@@ -68,7 +73,8 @@ export class ProjectService {
   constructor(
     private projectRepo: ProjectRepository,
     artifactRepo: ArtifactRepository,
-    private brandSystemRepo?: BrandSystemRepository
+    private brandSystemRepo?: BrandSystemRepository,
+    private chatRepo?: ChatRepository
   ) {
     this.artifactService = new ArtifactService(artifactRepo);
   }
@@ -238,5 +244,81 @@ export class ProjectService {
       id: projectId,
       workspaceId,
     });
+  }
+
+  /**
+   * Create a new project from the dashboard and save the first prompt.
+   * W1: Dashboard start endpoint.
+   * Creates a project, then appends the prompt as the first user message.
+   * Does NOT run intent classification, build approval cards, or reserve credits.
+   * Returns both the project and first message.
+   */
+  async createNewProject(
+    ctx: ServiceContext,
+    input: NewProjectRequest
+  ): Promise<{ project: ProjectResponse; firstMessage: { id: string; projectId: string; role: string; kind: string; content: string } }> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    // Step 1: Validate brand system if provided.
+    if (input.brandSystemId && this.brandSystemRepo) {
+      const brand = await this.brandSystemRepo.findByIdForWorkspace({
+        id: input.brandSystemId,
+        workspaceId,
+      });
+      if (!brand) {
+        throw new ApiError('NOT_FOUND', 'Brand system not found.');
+      }
+    }
+
+    // Step 2: Create the project.
+    const row = await this.projectRepo.create({
+      workspaceId,
+      name: input.name,
+      type: input.type,
+      ratio: input.ratio,
+      brandSystemId: input.brandSystemId,
+    });
+
+    // Step 3: Create the artifact spine.
+    const artifact = await this.artifactService.createInitialArtifactForProject(
+      workspaceId,
+      row.id,
+      input.type,
+      input.ratio
+    );
+
+    const project = mapProjectRow(row, artifact.id);
+
+    // Step 4: Save the first prompt as a user chat message.
+    // This is done separately from createProject to avoid a transaction.
+    // The first message does not trigger intent classification.
+    if (!this.chatRepo) {
+      throw new ApiError('INTERNAL', 'Chat repository is not configured.');
+    }
+
+    const thread = await this.chatRepo.ensureThreadForProject({
+      workspaceId,
+      projectId: row.id,
+    });
+
+    const messageRow = await this.chatRepo.appendMessage({
+      workspaceId,
+      threadId: thread.id,
+      role: 'user',
+      kind: 'text',
+      content: input.prompt,
+    });
+
+    return {
+      project,
+      firstMessage: {
+        id: messageRow.id,
+        projectId: row.id,
+        role: messageRow.role,
+        kind: messageRow.kind,
+        content: messageRow.content ?? '',
+      },
+    };
   }
 }

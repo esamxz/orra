@@ -28,3 +28,11 @@ export const ListProjectsQuerySchema = z.object({
 export const ProjectIdParamSchema = z.object({
   id: z.string().uuid(),
 });
+
+// Dashboard new-project schema — creates a project and saves the first prompt
+// as the first project chat message (no intent classification, no approval card).
+export const NewProjectSchema = CreateProjectSchema.extend({
+  prompt: z.string().trim().min(1).max(8000),
+});
+
+export type NewProjectRequest = z.infer<typeof NewProjectSchema>;

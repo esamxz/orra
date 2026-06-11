@@ -12,7 +12,7 @@ import UsageStatus from '../components/workspace/UsageStatus';
 import { useProjects } from '../hooks/useProjects';
 import { useBrandSystems } from '../hooks/useBrandSystems';
 import { brandSystemDtoToDisplayBrand, paletteToColors } from '../components/brand/brandDisplayUtils';
-import { createProject } from '../api/projects';
+import { createProject, createNewProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
 
 const TYPE_OPTS = [
@@ -120,15 +120,26 @@ export default function DashboardPage() {
       const selectedRatio = RATIOS.find((r) => r.id === ratio) ?? RATIOS[1];
       const projectType = (type === 'single' ? 'post' : type === 'carousel' ? 'carousel' : 'from_assets') as 'post' | 'carousel' | 'from_assets';
 
-      const createInput = {
-        name: (extra.projectName as string) || (type === 'carousel' ? 'Untitled carousel' : 'Untitled post'),
+      const projectName = (extra.projectName as string) || (type === 'carousel' ? 'Untitled carousel' : 'Untitled post');
+      const prefill = (extra.prefill as string) || '';
+
+      const brandArgs = selectedBrandId && selectedBrandId !== '__no-brand__'
+        ? { brandSystemId: selectedBrandId }
+        : {};
+      const baseArgs = {
+        name: projectName,
         type: projectType,
         ratio: { name: selectedRatio.id, w: selectedRatio.w, h: selectedRatio.h },
-        ...(selectedBrandId && selectedBrandId !== '__no-brand__'
-          ? { brandSystemId: selectedBrandId }
-          : {}),
+        ...brandArgs,
       };
-      const project = await createProject(createInput);
+
+      let project;
+      if (prefill) {
+        const result = await createNewProject({ ...baseArgs, prompt: prefill });
+        project = result.project;
+      } else {
+        project = await createProject(baseArgs);
+      }
 
       if (project.currentArtifactId) {
         navigate(`/workspace/${project.id}`, {

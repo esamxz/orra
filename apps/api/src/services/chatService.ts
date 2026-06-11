@@ -287,6 +287,43 @@ export class ChatService {
   }
 
   /**
+   * Append a dashboard first prompt as the initial user chat message.
+   * Skips intent classification, approval card creation, and memory updates.
+   * Used exclusively by the POST /v1/projects/new dashboard start endpoint.
+   */
+  async appendFirstMessage(
+    ctx: ServiceContext,
+    projectId: string,
+    prompt: string
+  ): Promise<MessageResponse> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    const project = await this.projectRepo.findByIdForWorkspace({
+      id: projectId,
+      workspaceId,
+    });
+    if (!project) {
+      throw new ApiError('NOT_FOUND', 'Project not found.');
+    }
+
+    const thread = await this.chatRepo.ensureThreadForProject({
+      workspaceId,
+      projectId,
+    });
+
+    const row = await this.chatRepo.appendMessage({
+      workspaceId,
+      threadId: thread.id,
+      role: 'user',
+      kind: 'text',
+      content: prompt,
+    });
+
+    return mapMessageRow(row, projectId);
+  }
+
+  /**
    * Append an assistant or system message.
    * For future internal use (Director replies, approval cards, job refs).
    * Does NOT trigger generation.
