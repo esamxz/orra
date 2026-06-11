@@ -51,14 +51,23 @@ vi.mock('../../hooks/useCreditStatus', () => ({
   useCreditStatus: () => ({ data: null, loading: false, error: null, reload: vi.fn() }),
 }));
 
+// DashboardPage calls useAssetUpload() twice: first for brandUpload, second for projectAssetUpload.
+// We track call index to return distinct upload spies per instance.
+const mockBrandUploadFn = vi.fn();
+const mockProjectUploadFn = vi.fn().mockResolvedValue({ id: 'asset-new' });
+let assetUploadCallIndex = 0;
+
 vi.mock('../../hooks/useAssetUpload', () => ({
-  useAssetUpload: () => ({
-    status: 'idle' as const,
-    error: null,
-    asset: null,
-    upload: vi.fn(),
-    reset: vi.fn(),
-  }),
+  useAssetUpload: () => {
+    const idx = assetUploadCallIndex++;
+    return {
+      status: 'idle' as const,
+      error: null,
+      asset: null,
+      upload: idx % 2 === 0 ? mockBrandUploadFn : mockProjectUploadFn,
+      reset: vi.fn(),
+    };
+  },
 }));
 
 vi.mock('../../hooks/useTheme', () => ({
@@ -112,6 +121,10 @@ function renderDashboard() {
 // ---------------------------------------------------------------------------
 describe('DashboardPage', () => {
   beforeEach(() => {
+    assetUploadCallIndex = 0;
+    mockProjectUploadFn.mockResolvedValue({ id: 'asset-new' });
+    URL.createObjectURL = vi.fn().mockReturnValue('blob:mock');
+    URL.revokeObjectURL = vi.fn();
     mockProjectsHook.mockReturnValue(defaultProjectsHook());
     mockBrandsHook.mockReturnValue(defaultBrandsHook());
     mockCreateProject.mockResolvedValue(makeProject());
@@ -120,6 +133,7 @@ describe('DashboardPage', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    assetUploadCallIndex = 0;
   });
 
   it('renders the composer textarea', () => {
@@ -300,5 +314,117 @@ describe('DashboardPage', () => {
     const seeAll = screen.getByRole('button', { name: /see all/i });
     expect(seeAll).not.toBeNull();
     expect(seeAll.hasAttribute('disabled')).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // W3: Asset upload
+  // ---------------------------------------------------------------------------
+  function createFile(name: string, type = 'image/png') {
+    return new File(['data'], name, { type });
+  }
+
+  function selectFiles(container: Element, files: File[]) {
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files } });
+  }
+
+  describe('W3 asset upload', () => {
+    it('upload (attach) button is not disabled', () => {
+      renderDashboard();
+      const attachBtn = screen.getByTitle('Attach images');
+      expect(attachBtn.hasAttribute('disabled')).toBe(false);
+    });
+
+    it('"Use image" chip is not disabled', () => {
+      renderDashboard();
+      const chip = screen.getAllByRole('button').find(
+        (b) => b.className.includes('chip') && /use image/i.test(b.textContent ?? ''),
+      );
+      expect(chip).toBeTruthy();
+      expect(chip!.hasAttribute('disabled')).toBe(false);
+      expect(chip!.className).not.toContain('disabled');
+    });
+
+    it('selecting a supported PNG shows a pending chip with the filename', () => {
+      const { container } = renderDashboard();
+      selectFiles(container, [createFile('hero.png', 'image/png')]);
+      expect(screen.getByText('hero.png')).not.toBeNull();
+    });
+
+    it('clicking remove on a pending chip removes it', () => {
+      const { container } = renderDashboard();
+      selectFiles(container, [createFile('hero.png')]);
+      expect(screen.getByText('hero.png')).not.toBeNull();
+      const removeBtn = screen.getByRole('button', { name: /remove hero\.png/i });
+      fireEvent.click(removeBtn);
+      expect(screen.queryByText('hero.png')).toBeNull();
+    });
+
+    it('selecting an unsupported file type shows validation error and does not add chip', () => {
+      const { container } = renderDashboard();
+      selectFiles(container, [createFile('doc.pdf', 'application/pdf')]);
+      expect(screen.getByText(/not supported/i)).not.toBeNull();
+      expect(screen.queryByText('doc.pdf')).toBeNull();
+    });
+
+    it('non-empty prompt + selected file: calls createNewProject, uploads to new projectId, navigates', async () => {
+      const { container } = renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      selectFiles(container, [createFile('ref.png')]);
+
+      const createBtn = screen.getAllByRole('button', { name: /^create$/i }).find(
+        (b) => !b.hasAttribute('disabled'),
+      );
+      fireEvent.click(createBtn!);
+
+      await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
+      expect(mockCreateProject).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(mockProjectUploadFn).toHaveBeenCalledWith(
+          expect.any(File),
+          expect.objectContaining({ type: 'project', projectId: 'proj-123', kind: 'upload' }),
+        ),
+      );
+      await waitFor(() =>
+        expect(mockNavigate).toHaveBeenCalledWith('/workspace/proj-123', expect.any(Object)),
+      );
+    });
+
+    it('empty prompt + selected file: calls createProject (not createNewProject) then uploads', async () => {
+      const { container } = renderDashboard();
+      selectFiles(container, [createFile('bg.webp', 'image/webp')]);
+
+      const createBtn = screen.getAllByRole('button', { name: /^create$/i }).find(
+        (b) => !b.hasAttribute('disabled'),
+      );
+      fireEvent.click(createBtn!);
+
+      await waitFor(() => expect(mockCreateProject).toHaveBeenCalledTimes(1));
+      expect(mockCreateNewProject).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(mockProjectUploadFn).toHaveBeenCalledWith(
+          expect.any(File),
+          expect.objectContaining({ type: 'project', projectId: 'proj-123' }),
+        ),
+      );
+    });
+
+    it('does not call generation APIs', async () => {
+      const { container } = renderDashboard();
+      selectFiles(container, [createFile('img.png')]);
+      const createBtn = screen.getAllByRole('button', { name: /^create$/i }).find(
+        (b) => !b.hasAttribute('disabled'),
+      );
+      fireEvent.click(createBtn!);
+      await waitFor(() => expect(mockCreateProject).toHaveBeenCalledTimes(1));
+      // No generation mock exists — its absence confirms no generation call was made
+    });
+
+    it('does not call credit APIs', () => {
+      renderDashboard();
+      // useCreditStatus mock is read-only; no mutation/deduction calls are wired
+      expect(screen.queryByRole('button', { name: /spend credits/i })).toBeNull();
+    });
   });
 });

@@ -579,3 +579,77 @@
 .section-head { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 18px; }
 .section-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
 .section-head p { font-size: 13.5px; color: var(--muted); margin: 0; }
+
+/* ----- W3: pending assets tray ----- */
+.pending-assets-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px 2px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+.pending-asset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 4px;
+  border-radius: var(--r-xs);
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  font-size: 12px;
+  color: #c8d1d8;
+  max-width: 200px;
+}
+
+.pending-asset-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex: none;
+}
+
+.pending-asset-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  max-width: 130px;
+}
+
+.pending-asset-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: rgba(196,209,216,0.55);
+  cursor: pointer;
+  flex: none;
+  transition: background .12s, color .12s;
+}
+
+.pending-asset-remove:hover:not(:disabled) {
+  background: rgba(255,255,255,0.10);
+  color: var(--pale);
+}
+
+.pending-asset-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.composer-asset-warning {
+  padding: 8px 16px 10px;
+  font-size: 12.5px;
+  color: #fbbf24;
+  background: rgba(255,255,255,0.04);
+  border-top: 1px solid rgba(255,255,255,0.07);
+}

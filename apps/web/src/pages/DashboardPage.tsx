@@ -56,8 +56,12 @@ export default function DashboardPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [brandUploadStatus, setBrandUploadStatus] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [assetError, setAssetError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const brandUpload = useAssetUpload();
+  const projectAssetUpload = useAssetUpload();
 
   // ---------------------------------------------------------------------------
   // Brand systems from API
@@ -109,6 +113,7 @@ export default function DashboardPage() {
   const handleCreate = async (overrides: { prefill?: string } = {}) => {
     setCreateLoading(true);
     setCreateError(null);
+    setAssetError(null);
 
     try {
       const activePrompt = (overrides.prefill ?? prompt).trim();
@@ -129,6 +134,10 @@ export default function DashboardPage() {
         project = result.project;
       } else {
         project = await createProject(baseArgs);
+      }
+
+      if (pendingFiles.length > 0) {
+        await uploadPendingFiles(project.id);
       }
 
       navigate(`/workspace/${project.id}`, {
@@ -168,12 +177,52 @@ export default function DashboardPage() {
   };
 
   // ---------------------------------------------------------------------------
+  // W3: pending file staging helpers
+  // ---------------------------------------------------------------------------
+  const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+  const validateAndStageFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const valid: File[] = [];
+    let errorMsg: string | null = null;
+    for (const file of Array.from(files)) {
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        errorMsg = `"${file.name}" is not supported. Use PNG, JPEG, or WebP.`;
+      } else {
+        valid.push(file);
+      }
+    }
+    if (errorMsg) setCreateError(errorMsg);
+    if (valid.length > 0) {
+      setPendingFiles((prev) => [...prev, ...valid]);
+      setCreateError(null);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const uploadPendingFiles = async (projectId: string): Promise<void> => {
+    if (pendingFiles.length === 0) return;
+    let anyFailed = false;
+    for (const file of pendingFiles) {
+      const result = await projectAssetUpload.upload(file, {
+        type: 'project',
+        projectId,
+        kind: 'upload',
+      });
+      if (!result) anyFailed = true;
+    }
+    if (anyFailed) {
+      setAssetError('Some images could not be uploaded. You can re-add them in the workspace.');
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Helper chips
   // ---------------------------------------------------------------------------
   const CHIPS: { label: string; icon?: keyof typeof Icon; action: () => void; disabled?: boolean; hint?: string; active?: boolean }[] = [
     { label: 'Single post',  icon: 'post',     action: () => setType('single'),  active: type === 'single' },
     { label: 'Carousel',     icon: 'carousel', action: () => setType('carousel'), active: type === 'carousel' },
-    { label: 'Use image',    icon: 'assets',   action: () => {},  disabled: true, hint: 'Asset upload available in W3' },
+    { label: 'Use image',    icon: 'assets',   action: () => fileInputRef.current?.click(), active: pendingFiles.length > 0 },
     { label: 'Brand system',                   action: () => setBrandModalOpen(true) },
   ];
 
@@ -204,6 +253,14 @@ export default function DashboardPage() {
 
         {/* COMPOSER CARD */}
         <div className="composer-card">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => validateAndStageFiles(e.target.files)}
+          />
           <textarea
             ref={textareaRef}
             className="composer-textarea"
@@ -218,9 +275,41 @@ export default function DashboardPage() {
               }
             }}
           />
+          {pendingFiles.length > 0 && (
+            <div className="pending-assets-tray">
+              {pendingFiles.map((file, idx) => {
+                const objectUrl = URL.createObjectURL(file);
+                return (
+                  <div key={`${file.name}-${idx}`} className="pending-asset-chip">
+                    <img
+                      src={objectUrl}
+                      alt={file.name}
+                      className="pending-asset-thumb"
+                      onLoad={() => URL.revokeObjectURL(objectUrl)}
+                    />
+                    <span className="pending-asset-name">{file.name}</span>
+                    <button
+                      className="pending-asset-remove"
+                      onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                      disabled={createLoading}
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      <Icon.x s={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="composer-foot">
-            {/* Attach — disabled in W2, available in W3 */}
-            <button className="composer-tool-btn" disabled title="Asset upload available in W3">
+            {/* Attach images */}
+            <button
+              className="composer-tool-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={createLoading}
+              title="Attach images"
+            >
               <Icon.attach s={16} />
             </button>
 
@@ -294,9 +383,9 @@ export default function DashboardPage() {
 
             <div style={{ flex: 1 }} />
 
-            {/* Arrow-up send — fills paper/white when prompt is non-empty */}
+            {/* Arrow-up send — fills paper/white when prompt is non-empty or files are staged */}
             <button
-              className={'composer-send-btn' + (prompt.trim() ? ' active' : '')}
+              className={'composer-send-btn' + (prompt.trim() || pendingFiles.length > 0 ? ' active' : '')}
               onClick={() => void handleCreate()}
               disabled={createLoading}
               aria-label="Create"
@@ -308,6 +397,9 @@ export default function DashboardPage() {
 
           {createError && (
             <div className="composer-error">{createError}</div>
+          )}
+          {assetError && (
+            <div className="composer-asset-warning">{assetError}</div>
           )}
         </div>
 
