@@ -74,7 +74,12 @@ export function createAuthMiddleware(
 
         try {
           const repos = getRepositories(serviceCtx);
-          const bootstrapService = new AuthBootstrapService(repos.user, repos.workspace);
+          const bootstrapService = new AuthBootstrapService(
+            repos.user,
+            repos.workspace,
+            repos.credit,
+            serviceCtx.env.INITIAL_CREDIT_GRANT ?? 0,
+          );
           const bootstrapResult = await bootstrapService.bootstrap({
             clerkUserId: result.clerkUserId,
             email: result.email ?? null,

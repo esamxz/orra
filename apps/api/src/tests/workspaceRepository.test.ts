@@ -104,6 +104,7 @@ describe('SupabaseWorkspaceRepository', () => {
 
     expect(result.workspaceId).toBe('ws-1');
     expect(result.role).toBe('owner');
+    expect(result.isNew).toBe(false);
   });
 
   it('ensurePersonalWorkspaceForUser creates workspace and membership when missing', async () => {
@@ -120,6 +121,7 @@ describe('SupabaseWorkspaceRepository', () => {
 
     expect(result.workspaceId).toBeTruthy();
     expect(result.role).toBe('owner');
+    expect(result.isNew).toBe(true);
 
     // Verify the workspace was inserted
     const ws = await repo.findPersonalWorkspaceForUser('user-new');
@@ -154,5 +156,6 @@ describe('SupabaseWorkspaceRepository', () => {
 
     expect(result.workspaceId).toBe('ws-raced');
     expect(result.role).toBe('owner');
+    expect(result.isNew).toBe(false);
   });
 });

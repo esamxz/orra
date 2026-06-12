@@ -1,5 +1,6 @@
 import type { UserRepository } from '../repositories/userRepository.js';
 import type { WorkspaceRepository } from '../repositories/workspaceRepository.js';
+import type { CreditRepository } from '../repositories/creditRepository.js';
 import type { UserRole } from '../auth/types.js';
 
 // ---------------------------------------------------------------------------
@@ -12,6 +13,7 @@ import type { UserRole } from '../auth/types.js';
 //   - find or create the users row (upsert on clerk_id)
 //   - find or create the personal workspace + owner membership
 //   - return userId, workspaceId, role
+//   - if initialCreditGrant > 0 and workspace is newly created, grant credits
 //
 // This is the bridge from Clerk authentication to Orra authorization.
 
@@ -30,7 +32,9 @@ export interface BootstrapIdentity {
 export class AuthBootstrapService {
   constructor(
     private userRepo: UserRepository,
-    private workspaceRepo: WorkspaceRepository
+    private workspaceRepo: WorkspaceRepository,
+    private creditRepo?: CreditRepository,
+    private initialCreditGrant: number = 0,
   ) {}
 
   async bootstrap(identity: BootstrapIdentity): Promise<BootstrapResult> {
@@ -39,6 +43,23 @@ export class AuthBootstrapService {
       userId: user.id,
       name: this.deriveWorkspaceName(identity.displayName),
     });
+
+    if (workspace.isNew && this.initialCreditGrant > 0 && this.creditRepo) {
+      try {
+        await this.creditRepo.grantCredits({
+          workspaceId: workspace.workspaceId,
+          bucket: 'subscription',
+          amount: this.initialCreditGrant,
+          metadata: { reason: 'initial_grant', source: 'bootstrap' },
+        });
+      } catch (err) {
+        // Non-fatal: a grant failure must not block user login.
+        console.warn(
+          `Initial credit grant failed for workspace ${workspace.workspaceId}:`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
 
     return {
       userId: user.id,

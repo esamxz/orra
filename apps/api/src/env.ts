@@ -24,6 +24,9 @@ export const EnvSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(), // comma-separated list
   DEV_AUTH_ENABLED: z.literal('true').optional(), // explicit opt-in for dev auth fallback
   DEV_GENERATION_QUEUE_DISABLED: z.literal('true').optional(), // explicit opt-in for local dev without queue
+  // Credits granted to a workspace on first creation. Absent or 0 means no grant.
+  // Set to a positive integer for staging/private-alpha testing.
+  INITIAL_CREDIT_GRANT: z.coerce.number().int().nonnegative().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema> & {
@@ -31,3 +34,36 @@ export type Env = z.infer<typeof EnvSchema> & {
   ORRA_ASSETS?: R2Bucket;
   GENERATION_QUEUE?: Queue;
 };
+
+/**
+ * Parse and validate API environment bindings. In staging/production,
+ * throws if critical vars are missing. In development, passes even if
+ * optional vars are absent (health routes must work without DB config).
+ *
+ * Logs missing vars for operators; never exposes them to HTTP clients.
+ */
+export function validateApiEnv(env: unknown): Env {
+  const result = EnvSchema.safeParse(env);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `${i.path.join('.') || 'root'}: ${i.message}`)
+      .join('; ');
+    throw new Error(`API environment validation failed: ${issues}`);
+  }
+
+  const parsed = result.data;
+
+  if (parsed.ENVIRONMENT === 'staging' || parsed.ENVIRONMENT === 'production') {
+    const missing: string[] = [];
+    if (!parsed.SUPABASE_URL) missing.push('SUPABASE_URL');
+    if (!parsed.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+    if (!parsed.CLERK_JWKS_URL) missing.push('CLERK_JWKS_URL');
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing required environment variables for ${parsed.ENVIRONMENT}: ${missing.join(', ')}`
+      );
+    }
+  }
+
+  return parsed as Env;
+}

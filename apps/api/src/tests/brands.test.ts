@@ -58,7 +58,8 @@ function createFakeRepositories(brands: BrandSystemRow[] = []): Repositories {
       }),
       ensurePersonalWorkspaceForUser: async () => ({
         workspaceId: 'ws-fake-1',
-        role: 'owner',
+        role: 'owner' as const,
+        isNew: false,
       }),
     },
     project: {} as unknown as Repositories['project'],

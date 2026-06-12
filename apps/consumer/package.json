@@ -8,7 +8,10 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "smoke:gemini-job": "tsx src/scripts/smokeFullQueueGemini.ts"
+    "smoke:gemini-job": "tsx src/scripts/smokeFullQueueGemini.ts",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:staging:dry-run": "wrangler deploy --env staging --dry-run"
   },
   "dependencies": {
     "@orra/ai": "workspace:*",

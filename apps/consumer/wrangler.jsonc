@@ -1,7 +1,8 @@
 {
-  "name": "@orra/consumer",
+  "name": "orra-consumer",
   "main": "src/index.ts",
   "compatibility_date": "2025-11-11",
+  "compatibility_flags": ["nodejs_compat"],
   "queues": {
     "consumers": [
       {
@@ -11,5 +12,46 @@
         "dead_letter_queue": "orra-generation-dlq"
       }
     ]
+  },
+  "env": {
+    "staging": {
+      "vars": {
+        "ENVIRONMENT": "staging"
+      },
+      "queues": {
+        "consumers": [
+          {
+            "queue": "orra-generation-queue-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "dead_letter_queue": "orra-generation-dlq-staging"
+          }
+        ]
+      }
+    },
+    "production": {
+      "vars": {
+        "ENVIRONMENT": "production"
+      },
+      "queues": {
+        "consumers": [
+          {
+            "queue": "orra-generation-queue",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "dead_letter_queue": "orra-generation-dlq"
+          }
+        ]
+      }
+    }
   }
 }
+
+// Secrets (set via `wrangler secret put` — never commit real values):
+//   SUPABASE_URL                — Supabase project URL (required)
+//   SUPABASE_SERVICE_ROLE_KEY   — Supabase service role key (required)
+//   AI_PROVIDER                 — fake (default) or gemini
+//   GEMINI_API_KEY              — required when AI_PROVIDER=gemini
+//   GEMINI_TEXT_MODEL           — optional Gemini model override
+//   IMAGE_PROVIDER              — fake (default) or flux
+//   FLUX_API_KEY                — required when IMAGE_PROVIDER=flux

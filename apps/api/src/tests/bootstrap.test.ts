@@ -6,6 +6,7 @@ import type {
   EnsureWorkspaceInput,
   EnsureWorkspaceResult,
 } from '../repositories/workspaceRepository.js';
+import type { CreditRepository } from '../repositories/creditRepository.js';
 import type { UserRow } from '@orra/db';
 
 // ---------------------------------------------------------------------------
@@ -53,10 +54,11 @@ function createFakeWorkspaceRepository(
     },
     async ensurePersonalWorkspaceForUser(input: EnsureWorkspaceInput) {
       const existing = workspaces.get(input.userId);
-      if (existing) return existing;
+      if (existing) return { ...existing, isNew: false };
       const result: EnsureWorkspaceResult = {
         workspaceId: `ws-${Date.now()}`,
         role: 'owner',
+        isNew: true,
       };
       workspaces.set(input.userId, result);
       return result;
@@ -77,7 +79,7 @@ describe('AuthBootstrapService', () => {
       },
     ]);
     const workspaceMap = new Map<string, EnsureWorkspaceResult>([
-      ['user-1', { workspaceId: 'ws-1', role: 'owner' }],
+      ['user-1', { workspaceId: 'ws-1', role: 'owner', isNew: false }],
     ]);
     const workspaceRepo = createFakeWorkspaceRepository(workspaceMap);
 
@@ -189,5 +191,97 @@ describe('AuthBootstrapService', () => {
     expect(user).not.toBeNull();
     expect(user!.email).toBeNull();
     expect(user!.display_name).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Credit grant on first bootstrap
+// ---------------------------------------------------------------------------
+
+function createFakeCreditRepository(): CreditRepository & { grants: { workspaceId: string; amount: number }[] } {
+  const grants: { workspaceId: string; amount: number }[] = [];
+  return {
+    grants,
+    async getBalanceForWorkspace() { return null; },
+    async listLedgerForWorkspace() { return []; },
+    async grantCredits(input) {
+      grants.push({ workspaceId: input.workspaceId, amount: input.amount });
+      return { ledgerId: `ledger-${Date.now()}` };
+    },
+    async reserveCredits() { return { reservedAmount: 0 }; },
+    async captureCredits() { return { captured: 0, refunded: 0 }; },
+    async refundCredits() { return { refunded: 0 }; },
+  };
+}
+
+describe('AuthBootstrapService — initial credit grant', () => {
+  it('does not grant when initialCreditGrant is 0 (default)', async () => {
+    const userRepo = createFakeUserRepository([]);
+    const workspaceRepo = createFakeWorkspaceRepository();
+    const creditRepo = createFakeCreditRepository();
+
+    const service = new AuthBootstrapService(userRepo, workspaceRepo, creditRepo, 0);
+    await service.bootstrap({ clerkUserId: 'clerk_g1', email: null, displayName: null });
+
+    expect(creditRepo.grants).toHaveLength(0);
+  });
+
+  it('does not grant when no creditRepo is provided', async () => {
+    const userRepo = createFakeUserRepository([]);
+    const workspaceRepo = createFakeWorkspaceRepository();
+
+    // No creditRepo — 4th arg irrelevant but set
+    const service = new AuthBootstrapService(userRepo, workspaceRepo, undefined, 100);
+    const result = await service.bootstrap({ clerkUserId: 'clerk_g2', email: null, displayName: null });
+
+    expect(result.userId).toBeTruthy();
+    expect(result.workspaceId).toBeTruthy();
+  });
+
+  it('grants configured credits on first workspace creation', async () => {
+    const userRepo = createFakeUserRepository([]);
+    const workspaceRepo = createFakeWorkspaceRepository();
+    const creditRepo = createFakeCreditRepository();
+
+    const service = new AuthBootstrapService(userRepo, workspaceRepo, creditRepo, 100);
+    const result = await service.bootstrap({ clerkUserId: 'clerk_g3', email: null, displayName: null });
+
+    expect(creditRepo.grants).toHaveLength(1);
+    expect(creditRepo.grants[0].workspaceId).toBe(result.workspaceId);
+    expect(creditRepo.grants[0].amount).toBe(100);
+  });
+
+  it('does not grant again on repeated bootstrap (existing workspace)', async () => {
+    const userRepo = createFakeUserRepository([]);
+    const workspaceRepo = createFakeWorkspaceRepository();
+    const creditRepo = createFakeCreditRepository();
+
+    const service = new AuthBootstrapService(userRepo, workspaceRepo, creditRepo, 100);
+    // First bootstrap — creates workspace, grants credits
+    await service.bootstrap({ clerkUserId: 'clerk_g4', email: null, displayName: null });
+    // Second bootstrap — finds existing workspace, no grant
+    await service.bootstrap({ clerkUserId: 'clerk_g4', email: null, displayName: null });
+
+    expect(creditRepo.grants).toHaveLength(1);
+  });
+
+  it('bootstrap succeeds even if credit grant throws', async () => {
+    const userRepo = createFakeUserRepository([]);
+    const workspaceRepo = createFakeWorkspaceRepository();
+    const failingCreditRepo: CreditRepository = {
+      async getBalanceForWorkspace() { return null; },
+      async listLedgerForWorkspace() { return []; },
+      async grantCredits() { throw new Error('DB unavailable'); },
+      async reserveCredits() { return { reservedAmount: 0 }; },
+      async captureCredits() { return { captured: 0, refunded: 0 }; },
+      async refundCredits() { return { refunded: 0 }; },
+    };
+
+    const service = new AuthBootstrapService(userRepo, workspaceRepo, failingCreditRepo, 100);
+    const result = await service.bootstrap({ clerkUserId: 'clerk_g5', email: null, displayName: null });
+
+    // Bootstrap must succeed even when grant throws
+    expect(result.userId).toBeTruthy();
+    expect(result.workspaceId).toBeTruthy();
   });
 });

@@ -1,0 +1,53 @@
+# API Worker local dev vars — copy to .dev.vars and fill in real values.
+# Never commit .dev.vars with real secrets.
+
+# ---------------------------------------------------------------------------
+# Database (server-only)
+# ---------------------------------------------------------------------------
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.your-service-role-key
+
+# ---------------------------------------------------------------------------
+# Clerk auth (server-only)
+# ---------------------------------------------------------------------------
+CLERK_SECRET_KEY=sk_test_your-clerk-secret-key
+CLERK_JWKS_URL=https://your-app.clerk.accounts.dev/.well-known/jwks.json
+CLERK_JWT_ISSUER=https://your-app.clerk.accounts.dev
+# CLERK_AUDIENCE=  # leave empty unless your Clerk app sets a custom audience
+
+# ---------------------------------------------------------------------------
+# R2 object storage — S3-compatible credentials for presigned URLs (server-only)
+# ---------------------------------------------------------------------------
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_BUCKET_NAME=orra-assets
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+
+# ---------------------------------------------------------------------------
+# Queue
+# ---------------------------------------------------------------------------
+QUEUE_NAME=orra-generation-queue
+
+# ---------------------------------------------------------------------------
+# Runtime behavior
+# ---------------------------------------------------------------------------
+ENVIRONMENT=development
+
+# Comma-separated allowed CORS origins for this environment.
+# In development, localhost is always included automatically.
+# In staging/production, set this to your deployed frontend domain.
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+
+# Enable dev-auth bypass (development only — never set in staging/production)
+DEV_AUTH_ENABLED=true
+
+# Disable queue enqueue so you can test generation flows without a real queue
+DEV_GENERATION_QUEUE_DISABLED=true
+
+# ---------------------------------------------------------------------------
+# Credits
+# ---------------------------------------------------------------------------
+# Credits granted to a workspace on first creation.
+# Set to 0 for production. Set to 100 (or similar) for staging/private-alpha
+# so testers can run generation without manual credit grants.
+INITIAL_CREDIT_GRANT=0

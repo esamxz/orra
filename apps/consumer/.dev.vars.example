@@ -1,0 +1,40 @@
+# Consumer Worker local dev vars — copy to .dev.vars and fill in real values.
+# Never commit .dev.vars with real secrets.
+
+# ---------------------------------------------------------------------------
+# Database (required)
+# ---------------------------------------------------------------------------
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.your-service-role-key
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+ENVIRONMENT=development
+
+# ---------------------------------------------------------------------------
+# AI provider
+# ---------------------------------------------------------------------------
+# AI_PROVIDER=fake  — default, deterministic, no API key needed
+# AI_PROVIDER=gemini — requires GEMINI_API_KEY; for staging/manual smoke only
+AI_PROVIDER=fake
+
+# Required when AI_PROVIDER=gemini (server-only — never set in apps/web or apps/api)
+GEMINI_API_KEY=
+# Optional Gemini model and endpoint overrides
+GEMINI_TEXT_MODEL=
+GEMINI_BASE_URL=
+# Optional provider timeout in milliseconds
+AI_PROVIDER_TIMEOUT_MS=
+
+# ---------------------------------------------------------------------------
+# Image provider
+# ---------------------------------------------------------------------------
+# IMAGE_PROVIDER=fake  — default, deterministic, no API key needed
+# IMAGE_PROVIDER=flux  — requires FLUX_API_KEY; for staging/manual smoke only
+IMAGE_PROVIDER=fake
+
+# Required when IMAGE_PROVIDER=flux (server-only — never set in apps/web or apps/api)
+FLUX_API_KEY=
+FLUX_API_BASE_URL=
+FLUX_MODEL=

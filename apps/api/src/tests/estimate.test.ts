@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../env.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
@@ -104,7 +104,8 @@ function createFakeRepositories(options: {
       }),
       ensurePersonalWorkspaceForUser: async () => ({
         workspaceId: 'ws-fake-1',
-        role: 'owner',
+        role: 'owner' as const,
+        isNew: false,
       }),
     },
     project: {

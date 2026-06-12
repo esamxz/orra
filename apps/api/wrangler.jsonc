@@ -2,6 +2,7 @@
   "name": "orra-api",
   "main": "src/index.ts",
   "compatibility_date": "2025-11-11",
+  "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ENVIRONMENT": "development",
     "R2_ACCOUNT_ID": "<your-account-id>",
@@ -20,19 +21,71 @@
       "binding": "ORRA_ASSETS",
       "bucket_name": "orra-assets"
     }
-  ]
+  ],
+  "env": {
+    "staging": {
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "R2_ACCOUNT_ID": "<your-account-id>",
+        "R2_BUCKET_NAME": "orra-assets-staging"
+      },
+      "queues": {
+        "producers": [
+          {
+            "binding": "GENERATION_QUEUE",
+            "queue": "orra-generation-queue-staging"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "ORRA_ASSETS",
+          "bucket_name": "orra-assets-staging"
+        }
+      ]
+    },
+    "production": {
+      "vars": {
+        "ENVIRONMENT": "production",
+        "R2_ACCOUNT_ID": "<your-account-id>",
+        "R2_BUCKET_NAME": "orra-assets"
+      },
+      "queues": {
+        "producers": [
+          {
+            "binding": "GENERATION_QUEUE",
+            "queue": "orra-generation-queue"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "ORRA_ASSETS",
+          "bucket_name": "orra-assets"
+        }
+      ]
+    }
+  }
 }
 
 // Secrets (set via `wrangler secret put` — never commit real values):
-//   R2_ACCESS_KEY_ID     — R2 S3-compatible access key
-//   R2_SECRET_ACCESS_KEY — R2 S3-compatible secret key
+//   SUPABASE_URL                — Supabase project URL
+//   SUPABASE_SERVICE_ROLE_KEY   — Supabase service role key
+//   CLERK_SECRET_KEY            — Clerk secret key
+//   CLERK_JWKS_URL              — Clerk JWKS endpoint URL
+//   CLERK_JWT_ISSUER            — Clerk JWT issuer URL
+//   CLERK_AUDIENCE              — Clerk audience (optional)
+//   R2_ACCESS_KEY_ID            — R2 S3-compatible access key
+//   R2_SECRET_ACCESS_KEY        — R2 S3-compatible secret key
+//   ALLOWED_ORIGINS             — Comma-separated allowed CORS origins for this env
+//   INITIAL_CREDIT_GRANT        — Credits granted on first workspace creation (default 0)
 //
-// CORS required on the R2 bucket for browser uploads:
+// R2 bucket CORS policy required for browser uploads:
 //   Allowed methods: PUT
 //   Allowed headers: Content-Type
-//   Allowed origins: app domain and staging domain
+//   Allowed origins: your app domain (staging or production)
 //
 // Upload flow:
 //   1. Client requests upload intent → server returns presigned PUT URL
 //   2. Client PUTs file bytes directly to the presigned URL
-//   3. Upload confirmation/status endpoint will be added in a future phase
+//   3. Server confirms upload and returns safe asset DTO

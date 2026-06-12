@@ -6,7 +6,11 @@
   "scripts": {
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
-    "build": "pnpm -r run build"
+    "build": "pnpm -r run build",
+    "deploy:staging:api": "pnpm --filter @orra/api run deploy:staging",
+    "deploy:staging:consumer": "pnpm --filter @orra/consumer run deploy:staging",
+    "deploy:staging": "pnpm run deploy:staging:api && pnpm run deploy:staging:consumer",
+    "deploy:staging:dry-run": "pnpm --filter @orra/api run deploy:staging:dry-run && pnpm --filter @orra/consumer run deploy:staging:dry-run"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

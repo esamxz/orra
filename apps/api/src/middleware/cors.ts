@@ -16,7 +16,9 @@ function parseAllowedOrigins(env: Env): string[] {
   const fromEnv = env.ALLOWED_ORIGINS
     ? env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
     : [];
-  return [...new Set([...DEFAULT_DEV_ORIGINS, ...fromEnv])];
+  const isDev = !env.ENVIRONMENT || env.ENVIRONMENT === 'development';
+  const devOrigins = isDev ? DEFAULT_DEV_ORIGINS : [];
+  return [...new Set([...devOrigins, ...fromEnv])];
 }
 
 export const corsMiddleware = createMiddleware(

@@ -22,6 +22,7 @@ export interface EnsureWorkspaceInput {
 export interface EnsureWorkspaceResult {
   workspaceId: string;
   role: 'owner' | 'admin' | 'member';
+  isNew: boolean;
 }
 
 export interface WorkspaceRepository {
@@ -98,7 +99,7 @@ export class SupabaseWorkspaceRepository implements WorkspaceRepository {
     // Fast path: already exists.
     const existing = await this.findPersonalWorkspaceForUser(input.userId);
     if (existing) {
-      return { workspaceId: existing.id, role: 'owner' };
+      return { workspaceId: existing.id, role: 'owner', isNew: false };
     }
 
     // Create workspace + membership.
@@ -125,7 +126,7 @@ export class SupabaseWorkspaceRepository implements WorkspaceRepository {
         throw mapDbError(memberError);
       }
 
-      return { workspaceId: workspace.id, role: 'owner' };
+      return { workspaceId: workspace.id, role: 'owner', isNew: true };
     } catch (err) {
       // If another request raced and created the workspace, recover by
       // re-querying rather than surfacing a CONFLICT to the caller.
@@ -137,7 +138,7 @@ export class SupabaseWorkspaceRepository implements WorkspaceRepository {
       ) {
         const raced = await this.findPersonalWorkspaceForUser(input.userId);
         if (raced) {
-          return { workspaceId: raced.id, role: 'owner' };
+          return { workspaceId: raced.id, role: 'owner', isNew: false };
         }
       }
       throw err;

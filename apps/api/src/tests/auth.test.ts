@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+﻿import { describe, it, expect, beforeAll } from 'vitest';
 import { Hono } from 'hono';
 import { generateKeyPair, exportJWK, SignJWT, type JWK } from 'jose';
 import type { Env } from '../env.js';
@@ -55,7 +55,8 @@ function createFakeRepositories(): Repositories {
       }),
       ensurePersonalWorkspaceForUser: async () => ({
         workspaceId: 'ws-fake-1',
-        role: 'owner',
+        role: 'owner' as const,
+        isNew: false,
       }),
     },
     project: {},
