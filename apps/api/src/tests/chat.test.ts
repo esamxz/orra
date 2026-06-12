@@ -7,7 +7,7 @@ import { errorHandler } from '../middleware/error-handler.js';
 import { createFakeVerifier } from '../auth/verifier.js';
 import chatRoutes from '../routes/chat.js';
 import type { Repositories } from '../repositories/types.js';
-import type { ProjectRow, ChatThreadRow, ChatMessageRow } from '@orra/db';
+import type { ProjectRow, ChatThreadRow, ChatMessageRow, ArtifactRow, ArtifactVersionRow } from '@orra/db';
 import type { CreateProjectInput, FindProjectInput, UpdateProjectInput, DeleteProjectInput } from '../repositories/projectRepository.js';
 
 const fakeVerifier = createFakeVerifier();
@@ -1508,5 +1508,336 @@ describe('POST /:id/messages/:messageId/prepare', () => {
     expect(res.status).toBe(201);
     const json = (await res.json()) as ApiResponse;
     expect((json.data as Record<string, unknown>)).not.toHaveProperty('creditsReserved');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/projects/:id/messages — W7 chat-directed editing
+// ---------------------------------------------------------------------------
+
+const W7_PROJECT_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+const W7_CARD_ID = 'f1f1f1f1-f1f1-f1f1-f1f1-f1f1f1f1f1f1';
+const W7_LAYER_ID = 'a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2';
+const W7_ARTIFACT_ID = 'b3b3b3b3-b3b3-b3b3-b3b3-b3b3b3b3b3b3';
+const W7_VERSION_ID = 'c4c4c4c4-c4c4-c4c4-c4c4-c4c4c4c4c4c4';
+
+const W7_PROJ_ROW: ProjectRow = {
+  id: W7_PROJECT_ID,
+  workspace_id: 'ws-fake-1',
+  name: 'W7 Edit Test Project',
+  type: 'post',
+  ratio: { name: '4:5', w: 1080, h: 1350 },
+  brand_system_id: null,
+  source_template_id: null,
+  autosave_state: null,
+  created_at: '2026-01-01',
+  updated_at: '2026-01-01',
+};
+
+// Minimal valid ArtifactDocument — passes schema + kernel validation
+const w7TestDoc = {
+  schemaVersion: 1,
+  artifactId: W7_ARTIFACT_ID,
+  type: 'post' as const,
+  ratio: { name: '4:5' as const, w: 1080, h: 1350 },
+  version: 1,
+  cards: [
+    {
+      id: W7_CARD_ID,
+      index: 0,
+      baseColor: '#354e53',
+      layers: [
+        {
+          id: W7_LAYER_ID,
+          type: 'text' as const,
+          z: 0,
+          x: 80,
+          y: 200,
+          w: 920,
+          h: 200,
+          rotation: 0,
+          opacity: 1,
+          locked: false,
+          hidden: false,
+          content: 'Original title',
+          fontFamily: 'Inter',
+          fontSize: 48,
+          fontWeight: 600,
+          lineHeight: 1.2,
+          letterSpacing: -0.5,
+          color: '#f1f4f4',
+          align: 'center' as const,
+          role: 'title' as const,
+        },
+      ],
+    },
+  ],
+};
+
+// Two-card variant for delete-card tests
+const W7_CARD2_ID = 'd5d5d5d5-d5d5-d5d5-d5d5-d5d5d5d5d5d5';
+const W7_LAYER2_ID = 'e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6';
+const w7TwoCardDoc = {
+  ...w7TestDoc,
+  cards: [
+    ...w7TestDoc.cards,
+    {
+      id: W7_CARD2_ID,
+      index: 1,
+      baseColor: '#1d2a30',
+      layers: [
+        {
+          id: W7_LAYER2_ID,
+          type: 'text' as const,
+          z: 0,
+          x: 80,
+          y: 200,
+          w: 920,
+          h: 200,
+          rotation: 0,
+          opacity: 1,
+          locked: false,
+          hidden: false,
+          content: 'Card 2',
+          fontFamily: 'Inter',
+          fontSize: 48,
+          fontWeight: 600,
+          lineHeight: 1.2,
+          letterSpacing: -0.5,
+          color: '#f1f4f4',
+          align: 'center' as const,
+          role: 'title' as const,
+        },
+      ],
+    },
+  ],
+};
+
+/** Build fake repos with a committed artifact so edit commands can succeed. */
+function createReposWithArtifact(doc: typeof w7TestDoc, versionNumber = 1): Repositories {
+  const base = createFakeRepositories([W7_PROJ_ROW]);
+
+  const artifactRow: ArtifactRow = {
+    id: W7_ARTIFACT_ID,
+    workspace_id: 'ws-fake-1',
+    project_id: W7_PROJECT_ID,
+    current_version_id: W7_VERSION_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+
+  const versionRow: ArtifactVersionRow = {
+    id: W7_VERSION_ID,
+    workspace_id: 'ws-fake-1',
+    artifact_id: W7_ARTIFACT_ID,
+    version: versionNumber,
+    document: doc as unknown as import('@orra/db').Json,
+    reason: 'manual_checkpoint',
+    created_by: 'user',
+    brand_context_snapshot: null,
+    created_at: '2026-01-01T00:00:00Z',
+  };
+
+  // Replace the artifact repo on the base repos object
+  (base as unknown as { artifact: unknown }).artifact = {
+    async createArtifactForProject() { throw new Error('not used in W7 tests'); },
+    async createVersion() { throw new Error('not used in W7 tests'); },
+    async setCurrentVersion() { throw new Error('not used in W7 tests'); },
+    async setCurrentVersionGuarded() { return null; },
+    async commitVersion(input: import('../repositories/artifactRepository.js').CommitVersionInput) {
+      if (input.artifactId === W7_ARTIFACT_ID && input.workspaceId === 'ws-fake-1') {
+        return {
+          id: 'new-version-00000000-0000-0000-0000-000000000001',
+          workspace_id: 'ws-fake-1',
+          artifact_id: W7_ARTIFACT_ID,
+          version: input.version,
+          document: input.document,
+          reason: input.reason,
+          created_by: input.createdBy,
+          brand_context_snapshot: null,
+          created_at: new Date().toISOString(),
+        } as ArtifactVersionRow;
+      }
+      return null;
+    },
+    async getArtifactByIdForWorkspace(input: { id: string; workspaceId: string }) {
+      if (input.id === W7_ARTIFACT_ID && input.workspaceId === 'ws-fake-1') return artifactRow;
+      return null;
+    },
+    async getArtifactByProjectIdForWorkspace(input: { projectId: string; workspaceId: string }) {
+      if (input.projectId === W7_PROJECT_ID && input.workspaceId === 'ws-fake-1') return artifactRow;
+      return null;
+    },
+    async getCurrentVersion(input: { artifactId: string; workspaceId: string }) {
+      if (input.artifactId === W7_ARTIFACT_ID && input.workspaceId === 'ws-fake-1') {
+        return { artifact: artifactRow, version: versionRow };
+      }
+      return null;
+    },
+  };
+
+  return base;
+}
+
+describe('POST /messages — W7 chat-directed editing', () => {
+  const ENV = { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>;
+  const AUTH_HEADERS = {
+    Authorization: 'Bearer test_valid',
+    'Content-Type': 'application/json',
+  };
+
+  async function postMessage(app: ReturnType<typeof buildApp>, content: string, extra: Record<string, unknown> = {}) {
+    return app.request(
+      `/v1/projects/${W7_PROJECT_ID}/messages`,
+      {
+        method: 'POST',
+        headers: AUTH_HEADERS,
+        body: JSON.stringify({ content, ...extra }),
+      },
+      ENV
+    );
+  }
+
+  it('"change title to Build better habits" applies setTextContent and returns editResult', async () => {
+    const repos = createReposWithArtifact(w7TestDoc);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'change title to Build better habits');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      intent: { mode: string };
+      editResult?: { document: { cards: Array<{ layers: Array<{ content: string }> }> }; version: number; artifactId: string };
+      approvalMessage?: { content: string };
+    };
+    expect(data.intent.mode).toBe('edit');
+    expect(data.editResult).toBeDefined();
+    expect(data.editResult!.artifactId).toBe(W7_ARTIFACT_ID);
+    // The kernel applied setTextContent → title layer updated
+    expect(data.editResult!.document.cards[0].layers[0].content).toBe('Build better habits');
+    // Document version bumped by kernel
+    expect(data.editResult!.version).toBe(2);
+    // Confirmation message present
+    expect(data.approvalMessage).toBeDefined();
+    expect(data.approvalMessage!.content).toContain('Done');
+  });
+
+  it('"change title to X" without existing artifact returns "no design yet" message', async () => {
+    // Standard fake repos: getArtifactByProjectIdForWorkspace returns null
+    const repos = createFakeRepositories([W7_PROJ_ROW]);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'change title to Something new');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      intent: { mode: string };
+      editResult?: unknown;
+      approvalMessage?: { content: string };
+    };
+    expect(data.intent.mode).toBe('edit');
+    expect(data.editResult).toBeUndefined();
+    expect(data.approvalMessage).toBeDefined();
+    expect(data.approvalMessage!.content).toContain('no design');
+  });
+
+  it('"duplicate this card" returns editResult with 2 cards', async () => {
+    const repos = createReposWithArtifact(w7TestDoc);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'duplicate this card');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as {
+      intent: { mode: string };
+      editResult?: { document: { cards: unknown[] } };
+    };
+    expect(data.intent.mode).toBe('edit');
+    expect(data.editResult).toBeDefined();
+    expect(data.editResult!.document.cards).toHaveLength(2);
+  });
+
+  it('"delete this card" on a 2-card doc returns editResult with 1 card', async () => {
+    const repos = createReposWithArtifact(w7TwoCardDoc as typeof w7TestDoc);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'delete this card');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as {
+      intent: { mode: string };
+      editResult?: { document: { cards: unknown[] } };
+    };
+    expect(data.intent.mode).toBe('edit');
+    expect(data.editResult).toBeDefined();
+    expect(data.editResult!.document.cards).toHaveLength(1);
+  });
+
+  it('"add a card" returns editResult with 2 cards', async () => {
+    const repos = createReposWithArtifact(w7TestDoc);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'add a card');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as {
+      intent: { mode: string };
+      editResult?: { document: { cards: unknown[] } };
+    };
+    expect(data.intent.mode).toBe('edit');
+    expect(data.editResult).toBeDefined();
+    expect(data.editResult!.document.cards).toHaveLength(2);
+  });
+
+  it('"remove background from image" returns image-editing message with no editResult', async () => {
+    const repos = createReposWithArtifact(w7TestDoc);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'remove background from image');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as {
+      intent: { mode: string };
+      editResult?: unknown;
+      approvalMessage?: { content: string };
+    };
+    expect(data.intent.mode).toBe('edit');
+    expect(data.editResult).toBeUndefined();
+    expect(data.approvalMessage).toBeDefined();
+    expect(data.approvalMessage!.content).toContain('image editing');
+  });
+
+  it('edit message does NOT create a generation_jobs record', async () => {
+    const repos = createReposWithArtifact(w7TestDoc);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'make text bigger');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as Record<string, unknown>;
+    // No job reference in the response — edits are free of generation pipeline
+    expect(data).not.toHaveProperty('jobId');
+    expect(data).not.toHaveProperty('creditsReserved');
+  });
+
+  it('generation intent still produces approval_summary (regression guard)', async () => {
+    const repos = createReposWithArtifact(w7TestDoc);
+    const app = buildApp(repos);
+    const res = await postMessage(app, 'create a post about focus');
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    const data = json.data as {
+      intent: { mode: string };
+      approvalMessage?: { role: string; kind: string };
+      editResult?: unknown;
+    };
+    expect(data.intent.mode).toBe('generation');
+    expect(data.editResult).toBeUndefined();
+    expect(data.approvalMessage).toBeDefined();
+    expect(data.approvalMessage!.role).toBe('assistant');
+    expect(data.approvalMessage!.kind).toBe('approval_summary');
   });
 });

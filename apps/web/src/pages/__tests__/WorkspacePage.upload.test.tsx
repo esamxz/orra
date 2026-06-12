@@ -37,7 +37,6 @@ const mockAsset: AssetDto = {
   fileName: 'photo.png',
   contentType: 'image/png',
   sizeBytes: 1024,
-  r2Key: 'workspace/ws-1/projects/proj-1/assets/asset-1/photo.png',
   status: 'uploaded',
   createdAt: '2026-01-01T00:00:00Z',
 };

@@ -198,6 +198,8 @@ export const ApprovalCardSchema = z.object({
   visualDirection: z.string().max(80).optional(),
   styleNotes: z.array(z.string().max(80)).max(5).optional(),
   memorySummary: z.string().max(120).optional(),
+  // W8: estimated credit cost for the full generation action (not per card).
+  estimatedCredits: z.number().int().nonnegative().optional(),
 });
 
 // ---------------------------------------------------------------------------

@@ -1,9 +1,10 @@
 // ---------------------------------------------------------------------------
 // Director Intent Service
 // ---------------------------------------------------------------------------
-// Deterministic rule-based classifier that splits user messages into two modes:
+// Deterministic rule-based classifier that splits user messages into modes:
 //   - conversation: brainstorming, questions, context, discussion
 //   - generation: clear creation actions (create a post, make a carousel, etc.)
+//   - edit: safe artifact mutations via validated kernel actions
 //
 // This is a skeleton seam. Real AI intent classification will replace the
 // rule-based logic in a later phase.
@@ -15,7 +16,9 @@
 //   - No credit reservation.
 // ---------------------------------------------------------------------------
 
-export type DirectorMode = 'conversation' | 'generation';
+import { classifyEditIntent, type EditIntent } from './editIntentService.js';
+
+export type DirectorMode = 'conversation' | 'generation' | 'edit';
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
@@ -33,6 +36,7 @@ export interface DirectorIntentResult {
   confidence: ConfidenceLevel;
   reason: string;
   generationHint?: GenerationHint;
+  editHint?: EditIntent;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +156,19 @@ export function classifyDirectorIntent(text: string): DirectorIntentResult {
       mode: 'conversation',
       confidence: 'low',
       reason: 'Empty input cannot be classified.',
+    };
+  }
+
+  // Check for edit patterns first — they are high-specificity and should take
+  // priority over generation keywords (e.g. "make text bigger" starts with "make"
+  // but is an edit, not a generation request).
+  const editIntent = classifyEditIntent(text);
+  if (editIntent) {
+    return {
+      mode: 'edit',
+      confidence: 'high',
+      reason: `Matched edit pattern: ${editIntent.type}`,
+      editHint: editIntent,
     };
   }
 

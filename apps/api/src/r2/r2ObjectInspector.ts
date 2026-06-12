@@ -35,9 +35,15 @@ export interface R2ObjectInspector {
  */
 export class FakeR2ObjectInspector implements R2ObjectInspector {
   private registry = new Map<string, R2ObjectMetadata>();
+  private wildcard: R2ObjectMetadata | null = null;
 
   register(key: string, meta: Omit<R2ObjectMetadata, 'exists'>): void {
     this.registry.set(key, { exists: true, ...meta });
+  }
+
+  /** Register a wildcard fallback returned for any key not in the registry. */
+  registerAll(meta: Omit<R2ObjectMetadata, 'exists'>): void {
+    this.wildcard = { exists: true, ...meta };
   }
 
   unregister(key: string): void {
@@ -46,10 +52,11 @@ export class FakeR2ObjectInspector implements R2ObjectInspector {
 
   clear(): void {
     this.registry.clear();
+    this.wildcard = null;
   }
 
   async headObject(key: string): Promise<R2ObjectMetadata> {
-    return this.registry.get(key) ?? { exists: false };
+    return this.registry.get(key) ?? this.wildcard ?? { exists: false };
   }
 }
 

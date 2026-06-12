@@ -16,6 +16,7 @@
 
 import type { ApprovalCardDto, ApprovalAction, BrandContextDto } from '@orra/shared';
 import type { DirectorIntentResult } from './directorIntentService.js';
+import { estimateGenerationCredits } from './generationService.js';
 
 export interface BuildApprovalCardInput {
   /** The raw user message content. */
@@ -147,6 +148,17 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
     ? input.memorySummary.slice(0, 120)
     : undefined;
 
+  const effectiveProjectType =
+    input.projectType === 'carousel' ||
+    input.intent.generationHint?.artifactType === 'carousel'
+      ? 'carousel'
+      : input.projectType;
+  const estimatedCredits = estimateGenerationCredits(
+    effectiveProjectType,
+    'full_artifact',
+    cardCount
+  );
+
   return {
     summaryLine,
     style,
@@ -159,5 +171,6 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
     ...(visualDirection !== undefined && { visualDirection }),
     ...(styleNotes !== undefined && { styleNotes }),
     ...(memorySummary !== undefined && { memorySummary }),
+    estimatedCredits,
   };
 }

@@ -1,5 +1,5 @@
 import { apiClient } from './client.js';
-import type { GenerationJobDto, CreateGenerationJobInput } from './types.js';
+import type { GenerationJobDto, CreateGenerationJobInput, GenerationEstimateInput, GenerationEstimateResponse } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Generation API functions
@@ -17,4 +17,17 @@ export async function createGenerationJob(
 
 export async function getGenerationJob(jobId: string): Promise<GenerationJobDto> {
   return apiClient.request<GenerationJobDto>(`/jobs/${jobId}`);
+}
+
+export async function getGenerationEstimate(
+  projectId: string,
+  input: GenerationEstimateInput,
+): Promise<GenerationEstimateResponse> {
+  return apiClient.request<GenerationEstimateResponse>(
+    `/projects/${projectId}/generation-estimate`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
 }

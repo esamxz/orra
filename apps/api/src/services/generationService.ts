@@ -11,38 +11,43 @@ import type { Env } from '../env.js';
 import type { BrandContextDto } from '@orra/shared';
 
 // ---------------------------------------------------------------------------
-// Credit estimation policy (Phase 10B)
+// Credit estimation policy (Phase 10B / W8)
 // ---------------------------------------------------------------------------
 // Deterministic stub costs. No model/provider pricing yet.
 //   - post: 10 credits
 //   - carousel: 10 credits per card, default 30 if card count unknown
+//   - selected_card: 10 credits (always)
 //
-function estimateCredits(
+export const CREDITS_PER_CARD = 10;
+export const CREDITS_PER_POST = 10;
+
+/**
+ * Estimate credits for a generation action.
+ *
+ * Pure function — no side effects, no DB access, no credit reservation.
+ * Used by the approval card builder, the estimate endpoint, and internally
+ * by createStubGenerationJob before reserving credits.
+ */
+export function estimateGenerationCredits(
   projectType: string,
-  approvalMetadata: Record<string, unknown>,
-  generationScope?: string
+  generationScope: string,
+  requestedCardCount?: number
 ): number {
   if (generationScope === 'selected_card') {
-    return 10;
+    return CREDITS_PER_CARD;
   }
 
-  const intent = approvalMetadata.intent as Record<string, unknown> | undefined;
-  const hint = intent?.generationHint as Record<string, unknown> | undefined;
-  const artifactType = hint?.artifactType as string | undefined;
-  const requestedCardCount = hint?.requestedCardCount as number | undefined;
-
-  const isCarousel =
-    projectType === 'carousel' || artifactType === 'carousel';
+  const isCarousel = projectType === 'carousel';
 
   if (isCarousel) {
     const cards =
       typeof requestedCardCount === 'number' && requestedCardCount > 0
         ? requestedCardCount
         : 3;
-    return cards * 10;
+    return cards * CREDITS_PER_CARD;
   }
 
-  return 10;
+  return CREDITS_PER_POST;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +242,19 @@ export class GenerationService {
     const approvalCard = metadata.approvalCard as
       | Record<string, unknown>
       | undefined;
-    const estimatedCredits = estimateCredits(project.type, metadata, input.generationScope);
+    const intent = metadata.intent as Record<string, unknown> | undefined;
+    const hint = intent?.generationHint as Record<string, unknown> | undefined;
+    const artifactType = hint?.artifactType as string | undefined;
+    const metaCardCount = hint?.requestedCardCount as number | undefined;
+    const effectiveProjectType =
+      project.type === 'carousel' || artifactType === 'carousel'
+        ? 'carousel'
+        : project.type;
+    const estimatedCredits = estimateGenerationCredits(
+      effectiveProjectType,
+      input.generationScope ?? 'full_artifact',
+      metaCardCount
+    );
 
     // 6. Load brand context if the project has a brand system.
     const brandContext = await loadBrandContextForJob(

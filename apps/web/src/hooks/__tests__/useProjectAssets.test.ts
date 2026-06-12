@@ -20,7 +20,6 @@ const mockAsset = {
   fileName: 'hero.png',
   contentType: 'image/png',
   sizeBytes: 1024,
-  r2Key: 'workspace/ws-1/projects/proj-1/assets/asset-1/hero.png',
   status: 'uploaded',
   createdAt: '2026-01-01T00:00:00Z',
 };

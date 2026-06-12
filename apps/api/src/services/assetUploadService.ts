@@ -38,6 +38,8 @@ export interface BrandUploadIntentRequest {
   kind: BrandAssetKind;
 }
 
+// Internal DTO — includes r2Key for service-layer pipeline use (signing, inspection, etc.)
+// Never returned to clients directly.
 export interface AssetDto {
   id: string;
   workspaceId: string;
@@ -52,8 +54,22 @@ export interface AssetDto {
   createdAt: string;
 }
 
+// Public client-facing DTO — storage internals omitted.
+export interface SafeAssetDto {
+  id: string;
+  workspaceId: string;
+  projectId?: string | null;
+  brandSystemId?: string | null;
+  kind: string;
+  fileName: string;
+  contentType: string | null;
+  sizeBytes: number | null;
+  status: string;
+  createdAt: string;
+}
+
 export interface UploadIntentResponse {
-  asset: AssetDto;
+  asset: SafeAssetDto;
   upload: {
     method: 'PUT';
     url: string;
@@ -153,6 +169,11 @@ function mapBrandAssetRowToDto(
   };
 }
 
+function toSafeAssetDto(dto: AssetDto): SafeAssetDto {
+  const { r2Key: _r2Key, ...safe } = dto;
+  return safe;
+}
+
 export interface AssetConfirmInput {
   expectedSizeBytes?: number;
   expectedContentType?: string;
@@ -165,7 +186,7 @@ export interface AssetPreviewInfo {
 }
 
 export interface AssetPreviewUrlResponse {
-  asset: AssetDto;
+  asset: SafeAssetDto;
   preview: AssetPreviewInfo;
 }
 
@@ -216,7 +237,7 @@ export class AssetUploadService {
     );
 
     return {
-      asset: mapProjectAssetRowToDto(row, input.fileName),
+      asset: toSafeAssetDto(mapProjectAssetRowToDto(row, input.fileName)),
       upload: {
         method: 'PUT',
         url: upload.url,
@@ -262,7 +283,7 @@ export class AssetUploadService {
     );
 
     return {
-      asset: mapBrandAssetRowToDto(row, input.fileName),
+      asset: toSafeAssetDto(mapBrandAssetRowToDto(row, input.fileName)),
       upload: {
         method: 'PUT',
         url: upload.url,
@@ -281,7 +302,7 @@ export class AssetUploadService {
     projectId: string,
     assetId: string,
     input: AssetConfirmInput
-  ): Promise<AssetDto> {
+  ): Promise<SafeAssetDto> {
     const auth = requireAuth(ctx);
     const workspaceId = auth.workspaceId;
 
@@ -297,7 +318,7 @@ export class AssetUploadService {
 
     // Idempotent: already uploaded
     if (asset.status === 'uploaded') {
-      return mapProjectAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key));
+      return toSafeAssetDto(mapProjectAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key)));
     }
 
     // Verify object exists in R2
@@ -338,7 +359,7 @@ export class AssetUploadService {
       throw new ApiError('NOT_FOUND', 'Asset not found during confirmation.');
     }
 
-    return mapProjectAssetRowToDto(updated, extractFileNameFromR2Key(updated.r2_key));
+    return toSafeAssetDto(mapProjectAssetRowToDto(updated, extractFileNameFromR2Key(updated.r2_key)));
   }
 
   async confirmBrandAssetUpload(
@@ -346,7 +367,7 @@ export class AssetUploadService {
     brandSystemId: string,
     assetId: string,
     input: AssetConfirmInput
-  ): Promise<AssetDto> {
+  ): Promise<SafeAssetDto> {
     const auth = requireAuth(ctx);
     const workspaceId = auth.workspaceId;
 
@@ -362,7 +383,7 @@ export class AssetUploadService {
 
     // Idempotent: already uploaded
     if (asset.status === 'uploaded') {
-      return mapBrandAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key));
+      return toSafeAssetDto(mapBrandAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key)));
     }
 
     // Verify object exists in R2
@@ -403,7 +424,7 @@ export class AssetUploadService {
       throw new ApiError('NOT_FOUND', 'Asset not found during confirmation.');
     }
 
-    return mapBrandAssetRowToDto(updated, extractFileNameFromR2Key(updated.r2_key));
+    return toSafeAssetDto(mapBrandAssetRowToDto(updated, extractFileNameFromR2Key(updated.r2_key)));
   }
 
   // ---------------------------------------------------------------------------
@@ -413,7 +434,7 @@ export class AssetUploadService {
   async listProjectAssets(
     ctx: ServiceContext,
     projectId: string
-  ): Promise<AssetDto[]> {
+  ): Promise<SafeAssetDto[]> {
     const auth = requireAuth(ctx);
     const workspaceId = auth.workspaceId;
 
@@ -427,13 +448,13 @@ export class AssetUploadService {
     }
 
     const rows = await this.assetRepo.listProjectAssets({ projectId, workspaceId });
-    return rows.map((row) => mapProjectAssetRowToDto(row, extractFileNameFromR2Key(row.r2_key)));
+    return rows.map((row) => toSafeAssetDto(mapProjectAssetRowToDto(row, extractFileNameFromR2Key(row.r2_key))));
   }
 
   async listBrandAssets(
     ctx: ServiceContext,
     brandSystemId: string
-  ): Promise<AssetDto[]> {
+  ): Promise<SafeAssetDto[]> {
     const auth = requireAuth(ctx);
     const workspaceId = auth.workspaceId;
 
@@ -447,7 +468,7 @@ export class AssetUploadService {
     }
 
     const rows = await this.assetRepo.listBrandAssets({ brandSystemId, workspaceId });
-    return rows.map((row) => mapBrandAssetRowToDto(row, extractFileNameFromR2Key(row.r2_key)));
+    return rows.map((row) => toSafeAssetDto(mapBrandAssetRowToDto(row, extractFileNameFromR2Key(row.r2_key))));
   }
 
   // ---------------------------------------------------------------------------
@@ -482,7 +503,7 @@ export class AssetUploadService {
     const readUrl = await this.r2Signer.createReadUrl(asset.r2_key, PREVIEW_EXPIRY_SECONDS);
 
     return {
-      asset: mapProjectAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key)),
+      asset: toSafeAssetDto(mapProjectAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key))),
       preview: {
         method: 'GET',
         url: readUrl.url,
@@ -519,7 +540,7 @@ export class AssetUploadService {
     const readUrl = await this.r2Signer.createReadUrl(asset.r2_key, PREVIEW_EXPIRY_SECONDS);
 
     return {
-      asset: mapBrandAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key)),
+      asset: toSafeAssetDto(mapBrandAssetRowToDto(asset, extractFileNameFromR2Key(asset.r2_key))),
       preview: {
         method: 'GET',
         url: readUrl.url,

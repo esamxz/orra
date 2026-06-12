@@ -73,8 +73,11 @@ chatRoutes.post(
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
     const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService);
-    const result = await service.appendUserMessage(ctx, id, { content: body.content });
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, repos.artifact);
+    const result = await service.appendUserMessage(ctx, id, {
+      content: body.content,
+      selectedCardIndex: body.selectedCardIndex,
+    });
     return c.json({ ok: true, data: result }, 201);
   }
 );

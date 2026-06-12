@@ -4,14 +4,17 @@ import { ApiError } from '../errors.js';
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
+import type { ArtifactRepository } from '../repositories/artifactRepository.js';
 import type { ChatMessageRow } from '@orra/db';
-import type { BrandContextDto } from '@orra/shared';
+import type { ArtifactDocument, BrandContextDto } from '@orra/shared';
 import {
   classifyDirectorIntent,
   type DirectorIntentResult,
 } from './directorIntentService.js';
 import { buildApprovalCard } from './approvalCardBuilder.js';
 import type { ProjectMemoryService } from './projectMemoryService.js';
+import { ArtifactService } from './artifactService.js';
+import { buildEditActions, buildEditConfirmation } from './editActionBuilder.js';
 
 // ---------------------------------------------------------------------------
 // Chat service
@@ -33,12 +36,22 @@ export interface MessageResponse {
 
 export interface AppendUserMessageRequest {
   content: string;
+  /** 0-based index of the currently selected card. Used for card/text edits. */
+  selectedCardIndex?: number;
+}
+
+export interface EditResult {
+  document: ArtifactDocument;
+  version: number;
+  artifactId: string;
 }
 
 export interface AppendUserMessageResult {
   message: MessageResponse;
   intent: DirectorIntentResult;
   approvalMessage?: MessageResponse;
+  /** Present only when an edit was successfully applied to the artifact. */
+  editResult?: EditResult;
 }
 
 export interface AppendAssistantMessageRequest {
@@ -73,7 +86,8 @@ export class ChatService {
     private chatRepo: ChatRepository,
     private projectRepo: ProjectRepository,
     private brandSystemRepo?: BrandSystemRepository,
-    private projectMemoryService?: ProjectMemoryService
+    private projectMemoryService?: ProjectMemoryService,
+    private artifactRepo?: ArtifactRepository
   ) {}
 
   /**
@@ -161,9 +175,116 @@ export class ChatService {
         .catch((err) => console.error('[memory] updateFromUserMessage failed:', err));
     }
 
+    // For edit intent, apply the kernel action and return the updated document.
+    // No approval card, no generation job, no credit reservation.
+    let approvalMessage: MessageResponse | undefined;
+    let editResult: EditResult | undefined;
+
+    if (intent.mode === 'edit' && intent.editHint) {
+      const editHint = intent.editHint;
+
+      // Unsupported image edits: reply gracefully without touching artifact.
+      if (editHint.type === 'unsupported_image_edit') {
+        const replyRow = await this.chatRepo.appendMessage({
+          workspaceId,
+          threadId: thread.id,
+          role: 'assistant',
+          kind: 'text',
+          content: "That edit needs image editing, which isn't available yet. I can change text, card layout, or background color.",
+          metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
+        });
+        approvalMessage = mapMessageRow(replyRow, projectId);
+        return { message, intent, approvalMessage };
+      }
+
+      // Require an artifact repo to apply edits.
+      if (!this.artifactRepo) {
+        const replyRow = await this.chatRepo.appendMessage({
+          workspaceId,
+          threadId: thread.id,
+          role: 'assistant',
+          kind: 'text',
+          content: "I couldn't apply that edit right now. Please try again.",
+          metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
+        });
+        approvalMessage = mapMessageRow(replyRow, projectId);
+        return { message, intent, approvalMessage };
+      }
+
+      const artifactSvc = new ArtifactService(this.artifactRepo);
+
+      try {
+        // Fetch current committed document (throws NOT_FOUND if no artifact yet).
+        const current = await artifactSvc.getProjectArtifact(ctx, projectId);
+
+        // Build kernel action(s) for the edit intent.
+        const actions = buildEditActions(editHint, current.document, input.selectedCardIndex ?? 0);
+
+        if (actions.length === 0) {
+          // Intent recognised but could not be mapped to a concrete action.
+          const replyRow = await this.chatRepo.appendMessage({
+            workspaceId,
+            threadId: thread.id,
+            role: 'assistant',
+            kind: 'text',
+            content: "I couldn't apply that edit. Try being more specific, or check that the selected card has the layer you're editing.",
+            metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
+          });
+          approvalMessage = mapMessageRow(replyRow, projectId);
+          return { message, intent, approvalMessage };
+        }
+
+        // Apply actions sequentially (v1 edits produce at most one action).
+        let latestDocument = current.document;
+        let latestVersion = current.version;
+        const artifactId = current.artifactId;
+        for (const action of actions) {
+          const applied = await artifactSvc.applyAction(ctx, artifactId, {
+            baseVersion: latestVersion,
+            action,
+          });
+          latestDocument = applied.document;
+          latestVersion = applied.version;
+        }
+
+        editResult = { document: latestDocument, version: latestVersion, artifactId };
+
+        // Append assistant confirmation.
+        const confirmText = buildEditConfirmation(editHint);
+        const confirmRow = await this.chatRepo.appendMessage({
+          workspaceId,
+          threadId: thread.id,
+          role: 'assistant',
+          kind: 'text',
+          content: confirmText,
+          metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
+        });
+        approvalMessage = mapMessageRow(confirmRow, projectId);
+      } catch (err) {
+        const isNotFound = err instanceof ApiError && err.code === 'NOT_FOUND';
+        const isConflict =
+          err instanceof ApiError && (err.code === 'VERSION_CONFLICT' || err.code === 'CONFLICT');
+        const content = isNotFound
+          ? "There's no design to edit yet — approve a generation first."
+          : isConflict
+            ? "That edit couldn't be applied — the design was updated recently. Try again."
+            : "I couldn't apply that edit right now. Please try again.";
+        const replyRow = await this.chatRepo.appendMessage({
+          workspaceId,
+          threadId: thread.id,
+          role: 'assistant',
+          kind: 'text',
+          content,
+          metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
+        });
+        approvalMessage = mapMessageRow(replyRow, projectId);
+      }
+
+      return { message, intent, approvalMessage, editResult };
+    }
+
     // For generation intent, build and persist a lightweight approval card.
     // No AI calls. No credits move. No generation job starts.
-    let approvalMessage: MessageResponse | undefined;
     if (intent.mode === 'generation') {
       // Load brand context if the project has a brand system attached.
       const brandContext = await this.loadBrandContext(workspaceId, project.brand_system_id);

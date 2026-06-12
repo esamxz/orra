@@ -238,9 +238,9 @@ describe('WorkspacePage chat persistence', () => {
       expect(screen.getByText('Hello real project')).not.toBeNull();
     });
 
-    // API should have been called
+    // API should have been called (selectedCardIndex: 0 from mocked workspaceStore)
     await waitFor(() => {
-      expect(chatApi.appendProjectMessage).toHaveBeenCalledWith('proj-1', { content: 'Hello real project' });
+      expect(chatApi.appendProjectMessage).toHaveBeenCalledWith('proj-1', { content: 'Hello real project', selectedCardIndex: 0 });
     });
   });
 
@@ -450,7 +450,7 @@ describe('W4 workspace setup states', () => {
   it('empty project with assets shows asset-aware copy', () => {
     mockMessages([]);
     vi.mocked(useProjectAssetsModule.useProjectAssets).mockReturnValue({
-      assets: [{ id: 'asset-1', fileName: 'photo.png', kind: 'upload', contentType: 'image/png', sizeBytes: 1000, projectId: 'proj-1', brandSystemId: null, workspaceId: 'ws-1', r2Key: 'k', status: 'confirmed', createdAt: '2026-01-01' }],
+      assets: [{ id: 'asset-1', fileName: 'photo.png', kind: 'upload', contentType: 'image/png', sizeBytes: 1000, projectId: 'proj-1', brandSystemId: null, workspaceId: 'ws-1', status: 'confirmed', createdAt: '2026-01-01' }],
       state: 'idle',
       error: null,
       previewUrls: {},

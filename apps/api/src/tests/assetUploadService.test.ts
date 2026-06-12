@@ -243,8 +243,7 @@ describe('AssetUploadService', () => {
     expect(result.asset.projectId).toBe('proj-1');
     expect(result.asset.kind).toBe('upload');
     expect(result.asset.fileName).toBe('hero.png');
-    expect(result.asset.r2Key).toContain('workspace/ws-1/projects/proj-1/assets/');
-    expect(result.asset.r2Key).toContain('hero.png');
+    expect('r2Key' in result.asset).toBe(false);
     expect(result.upload.method).toBe('PUT');
     expect(result.upload.url).toContain('fake-r2.orra.local');
     expect(result.upload.headers['Content-Type']).toBe('image/png');
@@ -284,7 +283,7 @@ describe('AssetUploadService', () => {
     expect(result.asset.brandSystemId).toBe('brand-1');
     expect(result.asset.kind).toBe('logo');
     expect(result.asset.fileName).toBe('logo.png');
-    expect(result.asset.r2Key).toContain('workspace/ws-1/brands/brand-1/assets/');
+    expect('r2Key' in result.asset).toBe(false);
     expect(result.upload.method).toBe('PUT');
   });
 
@@ -417,9 +416,8 @@ describe('AssetUploadService', () => {
       kind: 'upload',
     });
 
-    expect(result.asset.r2Key).toContain('my-file-name.png');
-    expect(result.asset.r2Key).not.toContain(' ');
-    expect(result.asset.r2Key).not.toContain('@');
+    expect('r2Key' in result.asset).toBe(false);
+    expect(result.asset.fileName).toBe('my file @name.png');
   });
 
   // ---------------------------------------------------------------------------
@@ -455,7 +453,7 @@ describe('AssetUploadService', () => {
       kind: 'upload',
     });
 
-    inspector.register(intent.asset.r2Key, { sizeBytes: 1024, contentType: 'image/png' });
+    inspector.registerAll({ sizeBytes: 1024, contentType: 'image/png' });
 
     const confirmed = await service.confirmProjectAssetUpload(ctx, 'proj-1', intent.asset.id, {
       expectedSizeBytes: 1024,
@@ -465,6 +463,7 @@ describe('AssetUploadService', () => {
     expect(confirmed.status).toBe('uploaded');
     expect(confirmed.id).toBe(intent.asset.id);
     expect(confirmed.sizeBytes).toBe(1024);
+    expect('r2Key' in confirmed).toBe(false);
   });
 
   it('confirms a brand asset upload successfully', async () => {
@@ -497,7 +496,7 @@ describe('AssetUploadService', () => {
       kind: 'logo',
     });
 
-    inspector.register(intent.asset.r2Key, { sizeBytes: 2048, contentType: 'image/png' });
+    inspector.registerAll({ sizeBytes: 2048, contentType: 'image/png' });
 
     const confirmed = await service.confirmBrandAssetUpload(ctx, 'brand-1', intent.asset.id, {
       expectedSizeBytes: 2048,
@@ -505,6 +504,7 @@ describe('AssetUploadService', () => {
 
     expect(confirmed.status).toBe('uploaded');
     expect(confirmed.id).toBe(intent.asset.id);
+    expect('r2Key' in confirmed).toBe(false);
   });
 
   it('idempotent confirmation returns existing uploaded asset', async () => {
@@ -536,7 +536,7 @@ describe('AssetUploadService', () => {
       kind: 'upload',
     });
 
-    inspector.register(intent.asset.r2Key, { sizeBytes: 1024, contentType: 'image/png' });
+    inspector.registerAll({ sizeBytes: 1024, contentType: 'image/png' });
 
     await service.confirmProjectAssetUpload(ctx, 'proj-1', intent.asset.id, {});
     const second = await service.confirmProjectAssetUpload(ctx, 'proj-1', intent.asset.id, {});
@@ -612,7 +612,7 @@ describe('AssetUploadService', () => {
       kind: 'upload',
     });
 
-    inspector.register(intent.asset.r2Key, { sizeBytes: 2048, contentType: 'image/png' });
+    inspector.registerAll({ sizeBytes: 2048, contentType: 'image/png' });
 
     await expect(
       service.confirmProjectAssetUpload(ctx, 'proj-1', intent.asset.id, {
@@ -655,7 +655,7 @@ describe('AssetUploadService', () => {
       kind: 'upload',
     });
 
-    inspector.register(intent.asset.r2Key, { sizeBytes: 1024, contentType: 'image/jpeg' });
+    inspector.registerAll({ sizeBytes: 1024, contentType: 'image/jpeg' });
 
     await expect(
       service.confirmProjectAssetUpload(ctx, 'proj-1', intent.asset.id, {
@@ -706,7 +706,7 @@ describe('AssetUploadService', () => {
       }
     );
 
-    inspector.register(intent.asset.r2Key, { sizeBytes: 1024, contentType: 'image/png' });
+    inspector.registerAll({ sizeBytes: 1024, contentType: 'image/png' });
 
     await expect(
       service.confirmProjectAssetUpload(ctx, 'proj-1', intent.asset.id, {})

@@ -14,16 +14,20 @@ import {
   AssetConfirmBodySchema,
   ProjectAssetPreviewParamSchema,
 } from '../schemas/asset.js';
+import { GenerationEstimateBodySchema } from '../schemas/generation.js';
 import { validateJson, validateQuery, validateParam } from '../middleware/validate.js';
 import { ProjectService } from '../services/projectService.js';
 import { AssetUploadService } from '../services/assetUploadService.js';
 import { ProjectMemoryService } from '../services/projectMemoryService.js';
-import { createServiceContext, getRepositories } from '../services/service-context.js';
+import { CreditService } from '../services/creditService.js';
+import { estimateGenerationCredits } from '../services/generationService.js';
+import { createServiceContext, getRepositories, requireAuth } from '../services/service-context.js';
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
 import type { Repositories } from '../repositories/types.js';
 import { createR2Signer } from '../r2/r2Signer.js';
 import { createR2ObjectInspector } from '../r2/r2ObjectInspector.js';
+import { ApiError } from '../errors.js';
 
 // ---------------------------------------------------------------------------
 // Project routes — protected
@@ -189,5 +193,62 @@ projectRoutes.get('/:id/memory', validateParam(ProjectIdParamSchema), async (c) 
   const memory = await memoryService.getMemory(ctx, id);
   return c.json({ ok: true, data: memory });
 });
+
+// POST /v1/projects/:id/generation-estimate — read-only credit estimate (W8)
+// Returns estimated credits for a generation action without creating a job or reserving credits.
+// Requires auth and project ownership. No side effects.
+projectRoutes.post(
+  '/:id/generation-estimate',
+  validateParam(ProjectIdParamSchema),
+  validateJson(GenerationEstimateBodySchema),
+  async (c) => {
+    const { id: projectId } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const ctx = buildServiceContext(c);
+    const auth = requireAuth(ctx);
+    const repos = getRepositories(ctx);
+
+    const project = await repos.project.findByIdForWorkspace({
+      id: projectId,
+      workspaceId: auth.workspaceId,
+    });
+    if (!project) {
+      throw new ApiError('NOT_FOUND', 'Project not found.');
+    }
+
+    const estimatedCredits = estimateGenerationCredits(
+      project.type,
+      body.generationScope,
+      undefined
+    );
+
+    const creditService = new CreditService(repos.credit);
+    const creditStatus = await creditService.getCreditStatus(ctx);
+    const totalRemaining = creditStatus.balance.totalRemaining;
+    const canAfford = totalRemaining >= estimatedCredits;
+
+    const response: {
+      estimatedCredits: number;
+      generationScope: typeof body.generationScope;
+      targetCardId?: string;
+      canAfford: boolean;
+      reason?: string;
+    } = {
+      estimatedCredits,
+      generationScope: body.generationScope,
+      canAfford,
+    };
+
+    if (body.targetCardId) {
+      response.targetCardId = body.targetCardId;
+    }
+
+    if (!canAfford) {
+      response.reason = `You need ${estimatedCredits} credits but have ${totalRemaining} available.`;
+    }
+
+    return c.json({ ok: true, data: response });
+  }
+);
 
 export default projectRoutes;

@@ -354,7 +354,7 @@ describe('POST /v1/projects/:id/assets/upload-intent', () => {
     expect(json.ok).toBe(true);
 
     const data = json.data as {
-      asset: { workspaceId: string; projectId: string; kind: string; r2Key: string; fileName: string };
+      asset: { workspaceId: string; projectId: string; kind: string; fileName: string; id: string };
       upload: { method: string; url: string; headers: Record<string, string>; expiresAt: string };
     };
 
@@ -362,8 +362,7 @@ describe('POST /v1/projects/:id/assets/upload-intent', () => {
     expect(data.asset.projectId).toBe('11111111-1111-1111-1111-111111111111');
     expect(data.asset.kind).toBe('upload');
     expect(data.asset.fileName).toBe('hero.png');
-    expect(data.asset.r2Key).toContain('workspace/ws-fake-1/projects/11111111-1111-1111-1111-111111111111/assets/');
-    expect(data.asset.r2Key).toContain('hero.png');
+    expect('r2Key' in data.asset).toBe(false);
     expect(data.upload.method).toBe('PUT');
     expect(data.upload.url).toContain('fake-r2.orra.local');
     expect(data.upload.headers['Content-Type']).toBe('image/png');
@@ -686,7 +685,7 @@ describe('POST /v1/brand-systems/:id/assets/upload-intent', () => {
     expect(json.ok).toBe(true);
 
     const data = json.data as {
-      asset: { workspaceId: string; brandSystemId: string; kind: string; r2Key: string; fileName: string };
+      asset: { workspaceId: string; brandSystemId: string; kind: string; fileName: string; id: string };
       upload: { method: string; url: string; headers: Record<string, string>; expiresAt: string };
     };
 
@@ -694,7 +693,7 @@ describe('POST /v1/brand-systems/:id/assets/upload-intent', () => {
     expect(data.asset.brandSystemId).toBe('11111111-1111-1111-1111-111111111111');
     expect(data.asset.kind).toBe('logo');
     expect(data.asset.fileName).toBe('logo.png');
-    expect(data.asset.r2Key).toContain('workspace/ws-fake-1/brands/11111111-1111-1111-1111-111111111111/assets/');
+    expect('r2Key' in data.asset).toBe(false);
     expect(data.upload.method).toBe('PUT');
   });
 
@@ -851,11 +850,10 @@ describe('POST /v1/projects/:projectId/assets/:assetId/confirm', () => {
     );
 
     const intentJson = (await intentRes.json()) as ApiResponse;
-    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
-    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+    const assetId = (intentJson.data as { asset: { id: string } }).asset.id;
 
-    // Step 2: simulate browser upload by registering the object
-    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 1024, contentType: 'image/png' });
+    // Step 2: simulate browser upload — register wildcard since r2Key is server-internal
+    getFakeR2ObjectInspector().registerAll({ sizeBytes: 1024, contentType: 'image/png' });
 
     // Step 3: confirm
     const confirmRes = await app.request(
@@ -1041,10 +1039,9 @@ describe('POST /v1/brand-systems/:brandSystemId/assets/:assetId/confirm', () => 
     );
 
     const intentJson = (await intentRes.json()) as ApiResponse;
-    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
-    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+    const assetId = (intentJson.data as { asset: { id: string } }).asset.id;
 
-    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 2048, contentType: 'image/png' });
+    getFakeR2ObjectInspector().registerAll({ sizeBytes: 2048, contentType: 'image/png' });
 
     const confirmRes = await app.request(
       `/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,
@@ -1228,9 +1225,10 @@ describe('GET /v1/projects/:id/assets', () => {
     );
 
     const json = (await res.json()) as ApiResponse;
-    const data = json.data as Array<{ r2Key: string }>;
+    const data = json.data as Array<{ id: string; projectId: string }>;
     expect(data).toHaveLength(1);
-    expect(data[0].r2Key).toBe('key-1');
+    expect(data[0].projectId).toBe('11111111-1111-1111-1111-111111111111');
+    expect('r2Key' in data[0]).toBe(false);
   });
 });
 
@@ -1279,11 +1277,10 @@ describe('GET /v1/projects/:projectId/assets/:assetId/preview-url', () => {
     );
 
     const intentJson = (await intentRes.json()) as ApiResponse;
-    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
-    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+    const assetId = (intentJson.data as { asset: { id: string } }).asset.id;
 
-    // Register in fake R2 and confirm
-    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 1024, contentType: 'image/png' });
+    // Register wildcard in fake R2 and confirm (r2Key is server-internal)
+    getFakeR2ObjectInspector().registerAll({ sizeBytes: 1024, contentType: 'image/png' });
 
     const confirmRes = await app.request(
       `/v1/projects/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,
@@ -1562,10 +1559,9 @@ describe('GET /v1/brand-systems/:brandSystemId/assets/:assetId/preview-url', () 
     );
 
     const intentJson = (await intentRes.json()) as ApiResponse;
-    const assetId = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.id;
-    const r2Key = (intentJson.data as { asset: { id: string; r2Key: string } }).asset.r2Key;
+    const assetId = (intentJson.data as { asset: { id: string } }).asset.id;
 
-    getFakeR2ObjectInspector().register(r2Key, { sizeBytes: 2048, contentType: 'image/png' });
+    getFakeR2ObjectInspector().registerAll({ sizeBytes: 2048, contentType: 'image/png' });
 
     await app.request(
       `/v1/brand-systems/11111111-1111-1111-1111-111111111111/assets/${assetId}/confirm`,

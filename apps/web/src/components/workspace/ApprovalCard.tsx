@@ -10,21 +10,26 @@ interface Specs {
   visualDirection?: string;
   styleNotes?: string[];
   memorySummary?: string;
+  estimatedCredits?: number;
 }
 
 interface Props {
   specs: Specs | null;
   ctaSet: boolean;
   disabled?: boolean;
+  canAfford?: boolean;
   onApprove: () => void;
   onAddCta: () => void;
   onEdit: () => void;
   onCreateCardByCard?: () => void;
 }
 
-export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, onCreateCardByCard, ctaSet, disabled }: Props) {
+export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, onCreateCardByCard, ctaSet, disabled, canAfford }: Props) {
   if (!specs) return null;
   const isCarousel = specs.cardCount != null;
+  const credits = specs.estimatedCredits;
+  const insufficientCredits = canAfford === false;
+  const primaryDisabled = disabled || insufficientCredits;
   return (
     <div className="approval" style={{ opacity: disabled ? 0.6 : 1 }}>
       <div className="ap-head">
@@ -56,16 +61,27 @@ export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, onCre
           </div>
         )}
       </div>
+      {insufficientCredits && (
+        <p className="ap-credit-warn" style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--warn, #e07b3a)' }}>
+          Not enough credits. Upgrade to continue.
+        </p>
+      )}
       <div className="ap-foot">
         {isCarousel ? (
           <>
-            <button className="btn btn-primary" disabled={disabled} onClick={onApprove}>{<Icon.check s={16} />} Create all cards</button>
+            <button className="btn btn-primary" disabled={primaryDisabled} onClick={onApprove}>
+              {<Icon.check s={16} />} {credits != null ? `Create all cards · ${credits} credits` : 'Create all cards'}
+            </button>
             {onCreateCardByCard && (
-              <button className="btn btn-soft btn-sm" disabled={disabled} onClick={onCreateCardByCard}>{<Icon.carousel s={16} />} Create card by card</button>
+              <button className="btn btn-soft btn-sm" disabled={disabled} onClick={onCreateCardByCard}>
+                {<Icon.carousel s={16} />} Create card by card · pay per card
+              </button>
             )}
           </>
         ) : (
-          <button className="btn btn-primary" disabled={disabled} onClick={onApprove}>{<Icon.check s={16} />} Approve & create</button>
+          <button className="btn btn-primary" disabled={primaryDisabled} onClick={onApprove}>
+            {<Icon.check s={16} />} {credits != null ? `Generate post · ${credits} credits` : 'Approve & create'}
+          </button>
         )}
         {!ctaSet && <button className="btn btn-ghost btn-sm" disabled={disabled} onClick={onAddCta}>Add CTA</button>}
         <button className="btn btn-ghost btn-sm" disabled={disabled} onClick={onEdit}>Edit direction</button>

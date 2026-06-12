@@ -80,6 +80,8 @@ export interface ChatMessageDto {
 
 export interface AppendProjectMessageInput {
   content: string;
+  /** 0-based index of the currently selected card. Sent for card/text edits. */
+  selectedCardIndex?: number;
 }
 
 export interface ListProjectMessagesParams {
@@ -91,7 +93,7 @@ export interface ListProjectMessagesParams {
 // ---------------------------------------------------------------------------
 // These mirror the backend intent DTOs.
 
-export type DirectorMode = 'conversation' | 'generation';
+export type DirectorMode = 'conversation' | 'generation' | 'edit';
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
@@ -108,10 +110,18 @@ export interface DirectorIntentResult {
   generationHint?: GenerationHint;
 }
 
+export interface EditResultDto {
+  document: ArtifactDocument;
+  version: number;
+  artifactId: string;
+}
+
 export interface AppendProjectMessageResponse {
   message: ChatMessageDto;
   intent: DirectorIntentResult;
   approvalMessage?: ChatMessageDto;
+  /** Present when a chat-directed edit was applied to the artifact. */
+  editResult?: EditResultDto;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +168,20 @@ export interface CreateGenerationJobInput {
   idempotencyKey?: string;
   generationScope?: GenerationScope;
   targetCardId?: string;
+}
+
+export interface GenerationEstimateInput {
+  generationScope: GenerationScope;
+  targetCardId?: string;
+  approvalMessageId?: string;
+}
+
+export interface GenerationEstimateResponse {
+  estimatedCredits: number;
+  generationScope: GenerationScope;
+  targetCardId?: string;
+  canAfford: boolean;
+  reason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +273,6 @@ export interface AssetDto {
   fileName: string;
   contentType: string | null;
   sizeBytes: number | null;
-  r2Key: string;
   status: string;
   createdAt: string;
 }

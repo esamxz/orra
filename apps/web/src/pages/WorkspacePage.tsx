@@ -289,6 +289,10 @@ export default function WorkspacePage() {
   const [prepareError, setPrepareError] = useState<string | null>(null);
   const editContextRef = useRef<{ cardId: string; layerId: string; originalContent: string } | null>(null);
 
+  // W8: per-card generation confirmation state
+  const [cardGenConfirm, setCardGenConfirm] = useState<{ cardId: string } | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+
   const [exportOpen, setExportOpen] = useState(false);
   const [versOpen, setVersOpen] = useState(false);
   const [chatWidth, setChatWidth] = useState(372);
@@ -480,7 +484,14 @@ export default function WorkspacePage() {
       if (taRef.current) taRef.current.style.height = 'auto';
 
       try {
-        const saved = await appendProjectMessage(projectId, { content: text });
+        const saved = await appendProjectMessage(projectId, {
+          content: text,
+          selectedCardIndex: activeCardIndex,
+        });
+        // If the response includes an edit result, apply it to the in-memory document.
+        if (saved.editResult) {
+          resetArtifact(saved.editResult.document);
+        }
         setRealMessages((prev) => {
           const replaced = prev.map((m) =>
             m.id === tempId ? mapApiMessageToUi(saved.message) : m,
@@ -614,14 +625,21 @@ export default function WorkspacePage() {
   }, [projectId, preparingSetup, realMessages]);
 
   /* ----- per-card generation (card-by-card mode) ----- */
-  const handleGenerateCard = async (cardId: string) => {
+  // W8: open confirmation dialog instead of firing immediately
+  const handleGenerateCard = (cardId: string) => {
     if (!projectId || !approvedMessageId) return;
+    setCardGenConfirm({ cardId });
+  };
+
+  const confirmGenerateCard = async () => {
+    if (!cardGenConfirm || !projectId || !approvedMessageId) return;
+    setIsConfirming(true);
     try {
       const job = await createGenerationJob({
         projectId,
         approvalMessageId: approvedMessageId,
         generationScope: 'selected_card',
-        targetCardId: cardId,
+        targetCardId: cardGenConfirm.cardId,
       });
       setActiveJobId(job.id);
       setRealMessages((prev) => [
@@ -640,6 +658,9 @@ export default function WorkspacePage() {
       } else {
         flash(err instanceof ApiClientError ? err.message : 'Failed to queue card generation.');
       }
+    } finally {
+      setIsConfirming(false);
+      setCardGenConfirm(null);
     }
   };
 
@@ -1108,15 +1129,21 @@ export default function WorkspacePage() {
                   visualDirection: m.approvalCard.visualDirection,
                   styleNotes: m.approvalCard.styleNotes,
                   memorySummary: m.approvalCard.memorySummary,
+                  estimatedCredits: m.approvalCard.estimatedCredits,
                 } : specs;
                 const isReal = !!m.approvalCard;
                 const isActing = actingMessageId === m.id;
+                const ec = m.approvalCard?.estimatedCredits;
+                const canAfford = (ec != null && creditData != null)
+                  ? creditData.balance.totalRemaining >= ec
+                  : undefined;
                 return (
                   <div key={m.id} className="msg ai" style={{display:'block'}}>
                     <ApprovalCard
                       specs={approvalSpecs}
                       ctaSet={isReal ? !!m.approvalCard?.cta : ctaSet}
                       disabled={isActing}
+                      canAfford={isReal ? canAfford : undefined}
                       onApprove={() => isReal ? handleApprovalAction(m.id, 'approve_and_create') : approve(m.topic || '')}
                       onAddCta={() => isReal ? handleApprovalAction(m.id, 'add_cta', 'Visit the link in bio') : (setCtaSet(true),flash('CTA added to plan'))}
                       onEdit={() => isReal ? handleApprovalAction(m.id, 'edit_direction', 'Adjust direction') : (taRef.current&&taRef.current.focus(), flash('Edit your direction below'))}
@@ -1338,6 +1365,37 @@ export default function WorkspacePage() {
               onDeleteCard={delCard}
               onGenerateCard={isCardByCardMode ? handleGenerateCard : undefined}
             />
+          )}
+
+          {/* W8: per-card generation confirmation dialog */}
+          {cardGenConfirm && (
+            <div className="card-gen-confirm" style={{
+              position: 'absolute', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+              background: 'var(--surface-2, #1d2a30)', border: '1px solid var(--line-soft)',
+              borderRadius: 10, padding: '14px 18px', display: 'flex', flexDirection: 'column',
+              gap: 10, zIndex: 100, minWidth: 240, boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
+            }}>
+              <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-main)' }}>
+                Generate this card for 10 credits?
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={isConfirming}
+                  onClick={() => setCardGenConfirm(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  data-testid="confirm-generate-card-btn"
+                  disabled={isConfirming}
+                  onClick={confirmGenerateCard}
+                >
+                  {isConfirming ? 'Generating…' : 'Generate card'}
+                </button>
+              </div>
+            </div>
           )}
         </section>
       </div>
