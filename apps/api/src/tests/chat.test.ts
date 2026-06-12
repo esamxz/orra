@@ -1171,6 +1171,110 @@ describe('Chat route error responses', () => {
     expect(text).not.toContain('postgres');
     expect(text).not.toContain('SQL');
   });
+
+});
+
+// ---------------------------------------------------------------------------
+// W5: create_card_by_card approval action
+// ---------------------------------------------------------------------------
+
+describe('POST /approval-action — W5 create_card_by_card', () => {
+  async function setupWithApprovalMessage() {
+    const repos = createFakeRepositories(
+      [
+        {
+          id: '11111111-1111-1111-1111-111111111111',
+          workspace_id: 'ws-fake-1',
+          name: 'Carousel Project',
+          type: 'carousel',
+          ratio: { name: '4:5', w: 1080, h: 1350 },
+          brand_system_id: null,
+          source_template_id: null,
+          autosave_state: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      [
+        {
+          id: 'thread-w5',
+          workspace_id: 'ws-fake-1',
+          project_id: '11111111-1111-1111-1111-111111111111',
+          title: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      [
+        {
+          id: '22222222-2222-2222-2222-222222222222',
+          workspace_id: 'ws-fake-1',
+          thread_id: 'thread-w5',
+          role: 'assistant',
+          kind: 'approval_summary',
+          content: 'Ready to create a carousel.',
+          metadata: {
+            approvalCard: { summaryLine: 'Ready to create a carousel.' },
+            approvalState: { status: 'pending', updatedAt: '2026-01-01T00:00:00Z' },
+          } as unknown as import('@orra/db').Json,
+          seq: null,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ]
+    );
+    const app = buildApp(repos);
+    return { app, repos };
+  }
+
+  it('create_card_by_card transitions approval to approved with cardByCardMode flag', async () => {
+    const { app } = await setupWithApprovalMessage();
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages/22222222-2222-2222-2222-222222222222/approval-action',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'create_card_by_card' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as { metadata: Record<string, unknown> };
+    expect((data.metadata.approvalState as Record<string, unknown>).status).toBe('approved');
+    expect(data.metadata.cardByCardMode).toBe(true);
+  });
+
+  it('create_card_by_card is rejected when approval is already approved', async () => {
+    const { app } = await setupWithApprovalMessage();
+    // First approval
+    await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages/22222222-2222-2222-2222-222222222222/approval-action',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_and_create' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    // Second attempt with create_card_by_card — should be CONFLICT
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages/22222222-2222-2222-2222-222222222222/approval-action',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create_card_by_card' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.error!.code).toBe('CONFLICT');
+  });
 });
 
 // ---------------------------------------------------------------------------

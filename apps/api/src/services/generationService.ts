@@ -19,8 +19,13 @@ import type { BrandContextDto } from '@orra/shared';
 //
 function estimateCredits(
   projectType: string,
-  approvalMetadata: Record<string, unknown>
+  approvalMetadata: Record<string, unknown>,
+  generationScope?: string
 ): number {
+  if (generationScope === 'selected_card') {
+    return 10;
+  }
+
   const intent = approvalMetadata.intent as Record<string, unknown> | undefined;
   const hint = intent?.generationHint as Record<string, unknown> | undefined;
   const artifactType = hint?.artifactType as string | undefined;
@@ -126,6 +131,8 @@ export interface CreateStubGenerationJobInput {
   projectId: string;
   approvalMessageId: string;
   idempotencyKey?: string;
+  generationScope?: 'full_artifact' | 'selected_card';
+  targetCardId?: string;
 }
 
 export interface GenerationJobDto {
@@ -230,7 +237,7 @@ export class GenerationService {
     const approvalCard = metadata.approvalCard as
       | Record<string, unknown>
       | undefined;
-    const estimatedCredits = estimateCredits(project.type, metadata);
+    const estimatedCredits = estimateCredits(project.type, metadata, input.generationScope);
 
     // 6. Load brand context if the project has a brand system.
     const brandContext = await loadBrandContextForJob(
@@ -253,6 +260,8 @@ export class GenerationService {
         estimatedCredits,
         summaryLine: approvalCard?.summaryLine ?? null,
         brandContext,
+        generationScope: input.generationScope ?? 'full_artifact',
+        ...(input.targetCardId !== undefined && { targetCardId: input.targetCardId }),
       } as unknown as import('@orra/db').Json,
     });
 

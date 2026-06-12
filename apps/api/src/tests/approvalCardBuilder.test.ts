@@ -355,4 +355,28 @@ describe('buildApprovalCard: Phase 14D direction hints', () => {
     expect(card.visualDirection).toBeUndefined();
     expect(card.styleNotes).toBeUndefined();
   });
+
+  // W5: carousel approval action variants
+  it('carousel project approval card includes create_card_by_card action', () => {
+    const intent = makeGenerationIntent({ artifactType: 'carousel', requestedCardCount: 5 });
+    const card = buildApprovalCard({
+      content: 'Create a 5-card carousel about wellness',
+      intent,
+      projectType: 'carousel',
+      ratioName: '4:5',
+    });
+    expect(card.actions).toContain('create_card_by_card');
+    expect(card.actions).toContain('approve_and_create');
+  });
+
+  it('post project approval card does not include create_card_by_card', () => {
+    const intent = makeGenerationIntent({ artifactType: 'post' });
+    const card = buildApprovalCard({
+      content: 'Create a post about focus',
+      intent,
+      projectType: 'post',
+      ratioName: '4:5',
+    });
+    expect(card.actions).not.toContain('create_card_by_card');
+  });
 });

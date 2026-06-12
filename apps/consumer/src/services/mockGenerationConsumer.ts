@@ -5,7 +5,7 @@ import type { ProjectMemoryRepository } from '@orra/api/src/repositories/project
 import type { ChatRepository } from '@orra/api/src/repositories/chatRepository.js';
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
-import { generateMockArtifactDocument } from './mockArtifactGenerator.js';
+import { generateMockArtifactDocument, generateMockSingleCard } from './mockArtifactGenerator.js';
 import { createAIProviderRouter, buildArtifactSummary, AIProviderError } from '@orra/ai';
 import type { AIProviderRouter, RecentChatMessage, TextPlanResult } from '@orra/ai';
 
@@ -219,11 +219,37 @@ export class MockGenerationConsumer {
       });
 
       // 8. Generate plan-driven document from AI plan result
-      const mockDocument = generateMockArtifactDocument({
-        plan: aiPlan,
-        brandContext,
-        currentDocument,
-      });
+      const generationScope = plan.generationScope as string | undefined;
+      const targetCardId = plan.targetCardId as string | undefined;
+      let mockDocument: ArtifactDocument;
+
+      if (generationScope === 'selected_card' && targetCardId) {
+        const targetIdx = currentDocument.cards.findIndex((c) => c.id === targetCardId);
+        if (targetIdx === -1) {
+          throw new Error(`selected_card generation failed: targetCardId ${targetCardId} not found in current artifact`);
+        }
+        const updatedCard = generateMockSingleCard({
+          cardIndex: targetIdx,
+          total: currentDocument.cards.length,
+          plan: aiPlan,
+          brandContext,
+          currentDocument,
+        });
+        const updatedCards = currentDocument.cards.map((c, i) =>
+          i === targetIdx ? { ...updatedCard, id: c.id } : c
+        );
+        mockDocument = {
+          ...currentDocument,
+          cards: updatedCards,
+          version: currentDocument.version + 1,
+        };
+      } else {
+        mockDocument = generateMockArtifactDocument({
+          plan: aiPlan,
+          brandContext,
+          currentDocument,
+        });
+      }
 
       // 8b. Belt-and-suspenders: validate generated document before committing.
       // The generator already self-validates; this guards against future bugs.

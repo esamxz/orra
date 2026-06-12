@@ -19,10 +19,12 @@ interface Props {
   onApprove: () => void;
   onAddCta: () => void;
   onEdit: () => void;
+  onCreateCardByCard?: () => void;
 }
 
-export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, ctaSet, disabled }: Props) {
+export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, onCreateCardByCard, ctaSet, disabled }: Props) {
   if (!specs) return null;
+  const isCarousel = specs.cardCount != null;
   return (
     <div className="approval" style={{ opacity: disabled ? 0.6 : 1 }}>
       <div className="ap-head">
@@ -55,7 +57,16 @@ export default function ApprovalCard({ specs, onApprove, onAddCta, onEdit, ctaSe
         )}
       </div>
       <div className="ap-foot">
-        <button className="btn btn-primary" disabled={disabled} onClick={onApprove}>{<Icon.check s={16} />} Approve & create</button>
+        {isCarousel ? (
+          <>
+            <button className="btn btn-primary" disabled={disabled} onClick={onApprove}>{<Icon.check s={16} />} Create all cards</button>
+            {onCreateCardByCard && (
+              <button className="btn btn-soft btn-sm" disabled={disabled} onClick={onCreateCardByCard}>{<Icon.carousel s={16} />} Create card by card</button>
+            )}
+          </>
+        ) : (
+          <button className="btn btn-primary" disabled={disabled} onClick={onApprove}>{<Icon.check s={16} />} Approve & create</button>
+        )}
         {!ctaSet && <button className="btn btn-ghost btn-sm" disabled={disabled} onClick={onAddCta}>Add CTA</button>}
         <button className="btn btn-ghost btn-sm" disabled={disabled} onClick={onEdit}>Edit direction</button>
       </div>

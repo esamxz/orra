@@ -122,7 +122,10 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
   const brand = buildBrandLabel(input.brandContext);
   const cta = 'Not set';
   const assumptions = buildAssumptions(input.brandContext, DEFAULT_ASSUMPTIONS);
-  const actions = [...ALL_ACTIONS];
+  const isCarousel = input.intent.generationHint?.artifactType === 'carousel';
+  const actions: ApprovalAction[] = isCarousel
+    ? ['approve_and_create', 'create_card_by_card', 'add_cta', 'edit_direction', 'cancel']
+    : [...ALL_ACTIONS];
 
   // Phase 14D: surface direction hints from intent, brand, and memory.
   // These fields are optional and deterministic — no AI calls.

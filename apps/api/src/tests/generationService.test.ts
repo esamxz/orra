@@ -1924,3 +1924,127 @@ describe('GenerationService', () => {
     expect(plan!.brandContext).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// W5: generationScope / targetCardId seam
+// ---------------------------------------------------------------------------
+
+describe('createStubGenerationJob — W5 generation scope', () => {
+  function makeApprovedMessage(id: string, threadId: string, _projectId?: string) {
+    return {
+      id,
+      thread_id: threadId,
+      workspace_id: 'ws-1',
+      role: 'assistant' as const,
+      kind: 'approval_summary' as const,
+      content: 'Plan ready.',
+      metadata: {
+        approvalState: { status: 'approved', selectedAction: 'approve_and_create', updatedAt: '2026-01-01' },
+        approvalCard: { summaryLine: 'Ready to create a 5-card carousel about wellness.' },
+      } as unknown as Json,
+      seq: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+  }
+
+  function makeProject(type: string) {
+    return {
+      id: 'proj-1',
+      workspace_id: 'ws-1',
+      name: 'Test Project',
+      type,
+      status: 'active' as const,
+      brand_system_id: null,
+      metadata: {} as Json,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+  }
+
+  function buildService(projectType: string) {
+    const jobRepo = createFakeGenerationJobRepository();
+    const thread = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const message = makeApprovedMessage('msg-1', 'thread-1');
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const project = makeProject(projectType);
+    const projectRepo = createFakeProjectRepository([project as unknown as ProjectRow]);
+    const creditRepo = createFakeCreditRepository([
+      {
+        workspace_id: 'ws-1',
+        subscription_available: 200,
+        topup_available: 0,
+        reserved: 0,
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const creditService = new CreditService(creditRepo);
+    const fakeQueue = { async send() {} };
+    const env = {
+      ENVIRONMENT: 'production',
+      GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+    } as unknown as import('../env.js').Env;
+    const service = new GenerationService(jobRepo, chatRepo, projectRepo, creditService, env);
+    return { service, jobRepo };
+  }
+
+  it('selected_card scope estimates 10 credits regardless of carousel card count', async () => {
+    const { service } = buildService('carousel');
+    const ctx = fakeAuthContext('ws-1');
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+      generationScope: 'selected_card',
+      targetCardId: 'aaaaaaaa-0000-0000-0000-000000000001',
+    });
+    expect(result.reservedCredits).toBe(10);
+  });
+
+  it('selected_card scope stores generationScope and targetCardId in plan', async () => {
+    const { service, jobRepo } = buildService('carousel');
+    const ctx = fakeAuthContext('ws-1');
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+      generationScope: 'selected_card',
+      targetCardId: 'aaaaaaaa-0000-0000-0000-000000000001',
+    });
+    const row = await jobRepo.findByIdForWorkspace({ id: result.id, workspaceId: 'ws-1' });
+    const plan = row!.plan as Record<string, unknown>;
+    expect(plan.generationScope).toBe('selected_card');
+    expect(plan.targetCardId).toBe('aaaaaaaa-0000-0000-0000-000000000001');
+  });
+
+  it('full_artifact scope does not store targetCardId in plan', async () => {
+    const { service, jobRepo } = buildService('carousel');
+    const ctx = fakeAuthContext('ws-1');
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+      generationScope: 'full_artifact',
+    });
+    const row = await jobRepo.findByIdForWorkspace({ id: result.id, workspaceId: 'ws-1' });
+    const plan = row!.plan as Record<string, unknown>;
+    expect(plan.generationScope).toBe('full_artifact');
+    expect(plan.targetCardId).toBeUndefined();
+  });
+
+  it('default (no generationScope) stores full_artifact in plan', async () => {
+    const { service, jobRepo } = buildService('post');
+    const ctx = fakeAuthContext('ws-1');
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+    });
+    const row = await jobRepo.findByIdForWorkspace({ id: result.id, workspaceId: 'ws-1' });
+    const plan = row!.plan as Record<string, unknown>;
+    expect(plan.generationScope).toBe('full_artifact');
+  });
+});

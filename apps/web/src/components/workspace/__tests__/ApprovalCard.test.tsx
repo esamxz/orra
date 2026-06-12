@@ -258,4 +258,78 @@ describe('ApprovalCard', () => {
     const approval = container.querySelector('.approval') as HTMLElement;
     expect(approval.style.opacity).toBe('0.6');
   });
+
+  // W5: carousel approval variants
+  it('renders "Create all cards" button when cardCount is present', () => {
+    render(
+      <ApprovalCard
+        specs={makeSpecs({ cardCount: 5 })}
+        ctaSet={false}
+        onApprove={vi.fn()}
+        onAddCta={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Create all cards/i })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /Approve & create/i })).toBeNull();
+  });
+
+  it('renders "Create card by card" button when cardCount is present and onCreateCardByCard provided', () => {
+    render(
+      <ApprovalCard
+        specs={makeSpecs({ cardCount: 5 })}
+        ctaSet={false}
+        onApprove={vi.fn()}
+        onAddCta={vi.fn()}
+        onEdit={vi.fn()}
+        onCreateCardByCard={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Create card by card/i })).not.toBeNull();
+  });
+
+  it('does not render "Create card by card" when onCreateCardByCard is absent', () => {
+    render(
+      <ApprovalCard
+        specs={makeSpecs({ cardCount: 5 })}
+        ctaSet={false}
+        onApprove={vi.fn()}
+        onAddCta={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Create card by card/i })).toBeNull();
+  });
+
+  it('calls onCreateCardByCard when "Create card by card" is clicked', () => {
+    const onCreateCardByCard = vi.fn();
+    render(
+      <ApprovalCard
+        specs={makeSpecs({ cardCount: 3 })}
+        ctaSet={false}
+        onApprove={vi.fn()}
+        onAddCta={vi.fn()}
+        onEdit={vi.fn()}
+        onCreateCardByCard={onCreateCardByCard}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Create card by card/i }));
+    expect(onCreateCardByCard).toHaveBeenCalledOnce();
+  });
+
+  it('renders "Approve & create" for single post (no cardCount)', () => {
+    render(
+      <ApprovalCard
+        specs={makeSpecs()}
+        ctaSet={false}
+        onApprove={vi.fn()}
+        onAddCta={vi.fn()}
+        onEdit={vi.fn()}
+        onCreateCardByCard={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Approve & create/i })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /Create all cards/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Create card by card/i })).toBeNull();
+  });
 });

@@ -181,6 +181,7 @@ export const ApprovalActionSchema = z.enum([
   'add_cta',
   'edit_direction',
   'cancel',
+  'create_card_by_card',
 ]);
 
 export const ApprovalCardSchema = z.object({

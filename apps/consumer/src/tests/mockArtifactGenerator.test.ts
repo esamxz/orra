@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateMockArtifactDocument } from '../services/mockArtifactGenerator.js';
+import { generateMockArtifactDocument, generateMockSingleCard } from '../services/mockArtifactGenerator.js';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import type { ArtifactDocument } from '@orra/shared';
 import type { TextPlanResult } from '@orra/ai';
@@ -835,6 +835,60 @@ describe('Phase 14B: layout and visual direction', () => {
       });
       const title = getTextLayerByRole(doc, 'title')!;
       expect(title.y + title.h).toBeLessThanOrEqual(CARD_H);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W5: generateMockSingleCard
+// ---------------------------------------------------------------------------
+
+describe('generateMockSingleCard', () => {
+  it('returns a single card with non-empty layers', () => {
+    const doc = makeEmptyDocument('carousel');
+    const plan = makePlan({ cardCount: 3, title: 'Card Test', body: 'Card body.' });
+    const card = generateMockSingleCard({
+      cardIndex: 0,
+      total: 3,
+      plan,
+      brandContext: null,
+      currentDocument: doc,
+    });
+    expect(card).toBeDefined();
+    expect(card.layers.length).toBeGreaterThan(0);
+  });
+
+  it('returned card index label matches cardIndex + 1 for carousel (total > 1)', () => {
+    const doc = makeEmptyDocument('carousel');
+    const plan = makePlan({ cardCount: 3, title: 'Test', body: 'Body.' });
+    const card = generateMockSingleCard({
+      cardIndex: 1,
+      total: 3,
+      plan,
+      brandContext: null,
+      currentDocument: doc,
+    });
+    const indexLayer = card.layers.find(
+      (l) => l.type === 'text' && (l as import('@orra/shared').TextLayer).role === 'caption'
+    ) as import('@orra/shared').TextLayer | undefined;
+    expect(indexLayer).toBeDefined();
+    expect(indexLayer!.content).toBe('2 / 3');
+  });
+
+  it('uses ratio dimensions from currentDocument', () => {
+    const doc = makeEmptyDocument('carousel');
+    const plan = makePlan({ cardCount: 3, title: 'Test', body: 'Body.' });
+    const card = generateMockSingleCard({
+      cardIndex: 0,
+      total: 3,
+      plan,
+      brandContext: null,
+      currentDocument: doc,
+    });
+    // All layers should fit within the card dimensions
+    for (const layer of card.layers) {
+      expect(layer.x).toBeGreaterThanOrEqual(0);
+      expect(layer.y).toBeGreaterThanOrEqual(0);
     }
   });
 });

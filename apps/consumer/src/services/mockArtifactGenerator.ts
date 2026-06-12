@@ -256,6 +256,35 @@ function buildCard(
   };
 }
 
+export interface MockSingleCardInput {
+  /** Zero-based index of the card to generate (used for layout and index label). */
+  cardIndex: number;
+  /** Total card count in the carousel (used for index label and style resolution). */
+  total: number;
+  /** The full AI text plan — drives content for this card. */
+  plan: TextPlanResult;
+  /** Optional brand context to influence colors and fonts. */
+  brandContext: BrandContextDto | null;
+  /** The current artifact document — provides ratio dimensions. */
+  currentDocument: ArtifactDocument;
+}
+
+/**
+ * Generate a single replacement Card using the AI plan.
+ * Does NOT modify the document — the caller is responsible for splicing
+ * the returned card back into the document at the correct index.
+ */
+export function generateMockSingleCard(input: MockSingleCardInput): Card {
+  const { cardIndex, total, plan, brandContext, currentDocument } = input;
+  const style = resolvePlanStyle({
+    layoutDirection: plan.layoutDirection,
+    visualDirection: plan.visualDirection,
+    brandContext,
+    cardIndex,
+  });
+  return buildCard(cardIndex, total, currentDocument.ratio.w, currentDocument.ratio.h, plan, style);
+}
+
 /**
  * Produce a plan-driven deterministic ArtifactDocument.
  *

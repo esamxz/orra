@@ -118,7 +118,7 @@ export interface AppendProjectMessageResponse {
 // Approval action types
 // ---------------------------------------------------------------------------
 
-export type ApprovalAction = 'approve_and_create' | 'cancel' | 'add_cta' | 'edit_direction';
+export type ApprovalAction = 'approve_and_create' | 'cancel' | 'add_cta' | 'edit_direction' | 'create_card_by_card';
 
 export interface ApprovalActionInput {
   action: ApprovalAction;
@@ -150,10 +150,14 @@ export interface GenerationJobDto {
   updatedAt: string;
 }
 
+export type GenerationScope = 'full_artifact' | 'selected_card';
+
 export interface CreateGenerationJobInput {
   projectId: string;
   approvalMessageId: string;
   idempotencyKey?: string;
+  generationScope?: GenerationScope;
+  targetCardId?: string;
 }
 
 // ---------------------------------------------------------------------------

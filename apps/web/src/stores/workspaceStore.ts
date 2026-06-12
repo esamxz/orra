@@ -11,11 +11,13 @@ export interface WorkspaceSelectionState {
   activeCardIndex: number;
   selectedLayerId: string | null;
   selectedLayerType: string | null;
+  isCardByCardMode: boolean;
 
   setActiveCard: (index: number, cards?: Card[]) => void;
   selectLayer: (layerId: string, layerType: string) => void;
   clearSelection: () => void;
   syncSelectionWithCard: (card: Card) => void;
+  setCardByCardMode: (enabled: boolean) => void;
 }
 
 export function isLayerSelectable(layer: Layer): boolean {
@@ -35,6 +37,7 @@ export const useWorkspaceStore = create<WorkspaceSelectionState>((set, get) => (
   activeCardIndex: 0,
   selectedLayerId: null,
   selectedLayerType: null,
+  isCardByCardMode: false,
 
   setActiveCard: (index, cards) => {
     set({ activeCardIndex: index });
@@ -61,5 +64,9 @@ export const useWorkspaceStore = create<WorkspaceSelectionState>((set, get) => (
     if (!layer) {
       set({ selectedLayerId: null, selectedLayerType: null });
     }
+  },
+
+  setCardByCardMode: (enabled) => {
+    set({ isCardByCardMode: enabled });
   },
 }));

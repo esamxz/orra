@@ -31,8 +31,8 @@ import {
 } from '../data/mockArtifacts';
 import type { Action, TextLayer } from '@orra/shared';
 import KonvaStage from '../components/workspace/KonvaStage';
-import MiniArtifactPreview from '../components/workspace/MiniArtifactPreview';
 import ApprovalCard from '../components/workspace/ApprovalCard';
+import CarouselRail from '../components/workspace/CarouselRail';
 import Inspector from '../components/workspace/Inspector';
 import ExportMenu from '../components/workspace/ExportMenu';
 import VersionHistoryPopover from '../components/workspace/VersionHistoryPopover';
@@ -134,6 +134,7 @@ export default function WorkspacePage() {
   const [realMessages, setRealMessages] = useState<UiMessage[]>([]);
   const [actingMessageId, setActingMessageId] = useState<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | undefined>(undefined);
+  const [approvedMessageId, setApprovedMessageId] = useState<string | null>(null);
   const lastIntentRef = useRef<DirectorIntentResult | null>(null);
 
   const projectAssetUpload = useAssetUpload();
@@ -276,10 +277,12 @@ export default function WorkspacePage() {
   // Selection state from workspace store
   const activeCardIndex = useWorkspaceStore((s) => s.activeCardIndex);
   const selectedLayerId = useWorkspaceStore((s) => s.selectedLayerId);
+  const isCardByCardMode = useWorkspaceStore((s) => s.isCardByCardMode);
   const setActiveCard = useWorkspaceStore((s) => s.setActiveCard);
   const selectLayer = useWorkspaceStore((s) => s.selectLayer);
   const clearSelection = useWorkspaceStore((s) => s.clearSelection);
   const syncSelectionWithCard = useWorkspaceStore((s) => s.syncSelectionWithCard);
+  const setCardByCardMode = useWorkspaceStore((s) => s.setCardByCardMode);
 
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [preparingSetup, setPreparingSetup] = useState(false);
@@ -545,13 +548,16 @@ export default function WorkspacePage() {
           ? 'Plan approved'
           : action === 'cancel'
             ? 'Plan cancelled'
-            : 'Plan updated',
+            : action === 'create_card_by_card'
+              ? 'Card-by-card mode activated'
+              : 'Plan updated',
       );
       reloadMemory();
 
       // Phase 9G: create generation job and start polling after approval
       // Phase 10B: credit reservation before enqueue
       if (action === 'approve_and_create') {
+        setApprovedMessageId(messageId);
         try {
           const job = await createGenerationJob({ projectId, approvalMessageId: messageId });
           setActiveJobId(job.id);
@@ -573,6 +579,11 @@ export default function WorkspacePage() {
             flash(msg);
           }
         }
+      }
+
+      if (action === 'create_card_by_card') {
+        setApprovedMessageId(messageId);
+        setCardByCardMode(true);
       }
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : 'Action failed. Please try again.';
@@ -601,6 +612,36 @@ export default function WorkspacePage() {
       setPreparingSetup(false);
     }
   }, [projectId, preparingSetup, realMessages]);
+
+  /* ----- per-card generation (card-by-card mode) ----- */
+  const handleGenerateCard = async (cardId: string) => {
+    if (!projectId || !approvedMessageId) return;
+    try {
+      const job = await createGenerationJob({
+        projectId,
+        approvalMessageId: approvedMessageId,
+        generationScope: 'selected_card',
+        targetCardId: cardId,
+      });
+      setActiveJobId(job.id);
+      setRealMessages((prev) => [
+        ...prev,
+        {
+          id: `job-${job.id}`,
+          role: 'ai',
+          type: 'generating',
+          text: `Generating card (${job.id.slice(0, 8)}…)`,
+        },
+      ]);
+      flash('Generating card…');
+    } catch (err) {
+      if (err instanceof ApiClientError && err.code === 'INSUFFICIENT_CREDITS') {
+        flash('Not enough credits for this card.');
+      } else {
+        flash(err instanceof ApiClientError ? err.message : 'Failed to queue card generation.');
+      }
+    }
+  };
 
   /* ----- approve & generate ----- */
   const approve = (_topic: string) => {
@@ -1079,6 +1120,7 @@ export default function WorkspacePage() {
                       onApprove={() => isReal ? handleApprovalAction(m.id, 'approve_and_create') : approve(m.topic || '')}
                       onAddCta={() => isReal ? handleApprovalAction(m.id, 'add_cta', 'Visit the link in bio') : (setCtaSet(true),flash('CTA added to plan'))}
                       onEdit={() => isReal ? handleApprovalAction(m.id, 'edit_direction', 'Adjust direction') : (taRef.current&&taRef.current.focus(), flash('Edit your direction below'))}
+                      onCreateCardByCard={isReal ? () => handleApprovalAction(m.id, 'create_card_by_card') : undefined}
                     />
                   </div>
                 );
@@ -1283,33 +1325,19 @@ export default function WorkspacePage() {
           </div>
 
           {/* CAROUSEL RAIL */}
-          {phase==='generated' && isCarousel && artifact && (
-            <div className="rail">
-              <div className="rail-head">
-                {<Icon.carousel s={16} style={{color:'var(--muted)'}} />}
-                <b>Carousel</b>
-                <span className="count">{artifact.cards.length} cards</span>
-                <div className="actions">
-                  <button className="btn-icon" style={{width:30,height:30}} title="Duplicate current" onClick={()=>dupCard(activeCardIndex)}>{<Icon.copy s={16} />}</button>
-                  <button className="btn-icon" style={{width:30,height:30}} title="Delete current" onClick={()=>delCard(activeCardIndex)}>{<Icon.trash s={16} />}</button>
-                </div>
-              </div>
-              <div className="rail-track">
-                {artifact.cards.map((c,i)=>{
-                  const t = frameSize(ratio, 78, 120);
-                  return (
-                    <div key={c.id} className={'rail-item'+(i===activeCardIndex?' active':'')} onClick={()=>{setActiveCard(i, artifact.cards);}}>
-                      <div className="rail-thumb" style={{width:t.w, height:t.h, position:'relative'}}>
-                        <MiniArtifactPreview card={c} />
-                        <span className="rail-num">{i+1}</span>
-                        <button className="del" title="Delete card" onClick={(e)=>delCard(i,e)}>{<Icon.x s={12} />}</button>
-                      </div>
-                    </div>
-                  );
-                })}
-                <button className="rail-add" onClick={addCard} title="Add card">{<Icon.plus s={20} />}</button>
-              </div>
-            </div>
+          {isCarousel && artifact && (
+            <CarouselRail
+              artifact={artifact}
+              activeCardIndex={activeCardIndex}
+              ratio={ratio}
+              isCardByCardMode={isCardByCardMode}
+              activeJobId={activeJobId}
+              onSelectCard={(i) => setActiveCard(i, artifact.cards)}
+              onAddCard={addCard}
+              onDuplicateCard={dupCard}
+              onDeleteCard={delCard}
+              onGenerateCard={isCardByCardMode ? handleGenerateCard : undefined}
+            />
           )}
         </section>
       </div>

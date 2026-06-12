@@ -53,6 +53,8 @@ generationRoutes.post(
       projectId: body.projectId,
       approvalMessageId: body.approvalMessageId,
       idempotencyKey: body.idempotencyKey,
+      generationScope: body.generationScope,
+      targetCardId: body.targetCardId,
     });
     return c.json({ ok: true, data: job }, 201);
   }

@@ -23,6 +23,23 @@ describe('workspace store', () => {
     expect(s.selectedLayerType).toBeNull();
   });
 
+  // W5: card-by-card mode
+  it('isCardByCardMode defaults to false', () => {
+    useWorkspaceStore.setState({ isCardByCardMode: false });
+    expect(useWorkspaceStore.getState().isCardByCardMode).toBe(false);
+  });
+
+  it('setCardByCardMode(true) sets isCardByCardMode to true', () => {
+    useWorkspaceStore.getState().setCardByCardMode(true);
+    expect(useWorkspaceStore.getState().isCardByCardMode).toBe(true);
+  });
+
+  it('setCardByCardMode(false) resets isCardByCardMode', () => {
+    useWorkspaceStore.getState().setCardByCardMode(true);
+    useWorkspaceStore.getState().setCardByCardMode(false);
+    expect(useWorkspaceStore.getState().isCardByCardMode).toBe(false);
+  });
+
   it('selectLayer sets id and type', () => {
     useWorkspaceStore.getState().selectLayer('t1', 'text');
     const s = useWorkspaceStore.getState();

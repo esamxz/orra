@@ -291,6 +291,8 @@ function createFakeArtifactRepository(
   let nextVersionId = 1;
   const versions: ArtifactVersionRow[] = version ? [version] : [];
   const artifacts: ArtifactRow[] = artifact ? [artifact] : [];
+  // Tracks only versions added by commitVersion() calls (not the seed version).
+  const committedVersions: ArtifactVersionRow[] = [];
 
   return {
     async createArtifactForProject() {
@@ -318,6 +320,7 @@ function createFakeArtifactRepository(
         created_at: new Date().toISOString(),
       };
       versions.push(versionRow);
+      committedVersions.push(versionRow);
       // Update current_version_id on the artifact
       const art = artifacts.find((a) => a.id === input.artifactId);
       if (art) {
@@ -347,8 +350,9 @@ function createFakeArtifactRepository(
       return versions.find((v) => v.id === id) ?? null;
     },
     // Test helper: return the document from the most recently committed version
+    // (null if no commitVersion() call was made during the test).
     getLastCommittedDocument() {
-      const last = versions[versions.length - 1];
+      const last = committedVersions[committedVersions.length - 1];
       return last?.document ?? null;
     },
   };
@@ -2583,5 +2587,165 @@ describe('[provider_plan] log safety with Gemini router', () => {
       expect(call[1]).not.toHaveProperty('rawText');
       expect(call[1]).not.toHaveProperty('response');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W5: per-card (selected_card) generation scope
+// ---------------------------------------------------------------------------
+
+describe('MockGenerationConsumer — W5 selected_card scope', () => {
+  function makeCarouselDocument(): ArtifactDocument {
+    return {
+      schemaVersion: 1,
+      artifactId: '11111111-1111-1111-1111-111111111111',
+      type: 'carousel',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      cards: [
+        { id: 'aaaaaaaa-0000-0000-0000-000000000001', index: 0, baseColor: '#1d2a30', layers: [] },
+        { id: 'aaaaaaaa-0000-0000-0000-000000000002', index: 1, baseColor: '#354e53', layers: [] },
+        { id: 'aaaaaaaa-0000-0000-0000-000000000003', index: 2, baseColor: '#5e7680', layers: [] },
+      ],
+      version: 1,
+    };
+  }
+
+  function makeSelectedCardJob(targetCardId: string): GenerationJobRow {
+    return makeJob('queued', {
+      plan: {
+        approvalMessageId: 'msg-1',
+        summaryLine: 'Ready to create a carousel.',
+        generationScope: 'selected_card',
+        targetCardId,
+      } as unknown as import('@orra/db').Json,
+    });
+  }
+
+  it('selected_card scope updates only the target card and preserves others', async () => {
+    const doc = makeCarouselDocument();
+    const { router } = createSpyRouter();
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: doc as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+    const targetCardId = 'aaaaaaaa-0000-0000-0000-000000000002';
+    const job = makeSelectedCardJob(targetCardId);
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    expect(committed).not.toBeNull();
+    // Total card count unchanged
+    expect(committed.cards).toHaveLength(3);
+    // Cards at index 0 and 2 keep their original IDs
+    expect(committed.cards[0].id).toBe('aaaaaaaa-0000-0000-0000-000000000001');
+    expect(committed.cards[2].id).toBe('aaaaaaaa-0000-0000-0000-000000000003');
+    // Target card (index 1) keeps its original ID but gets new layers
+    expect(committed.cards[1].id).toBe(targetCardId);
+    expect(committed.cards[1].layers.length).toBeGreaterThan(0);
+    // Unchanged cards still have empty layers
+    expect(committed.cards[0].layers).toHaveLength(0);
+    expect(committed.cards[2].layers).toHaveLength(0);
+  });
+
+  it('selected_card scope with unknown targetCardId marks job failed, does not commit', async () => {
+    const doc = makeCarouselDocument();
+    const { router } = createSpyRouter();
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: doc as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+    const unknownCardId = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+    const job = makeSelectedCardJob(unknownCardId);
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    errorSpy.mockRestore();
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('failed');
+    // No new version committed
+    expect(artifactRepo.getLastCommittedDocument()).toBeNull();
+  });
+
+  it('full_artifact scope still generates all cards (regression)', async () => {
+    const doc = makeCarouselDocument();
+    const { router } = createSpyRouter();
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: doc as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+    const job = makeJob('queued', {
+      plan: {
+        approvalMessageId: 'msg-1',
+        summaryLine: 'Ready to create a carousel.',
+        generationScope: 'full_artifact',
+      } as unknown as import('@orra/db').Json,
+    });
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const consumer = new MockGenerationConsumer(jobRepo, artifactRepo, undefined, router);
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    expect(committed).not.toBeNull();
+    // All 3 cards get new layers (full generation)
+    for (const card of committed.cards) {
+      expect(card.layers.length).toBeGreaterThan(0);
+    }
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
   });
 });

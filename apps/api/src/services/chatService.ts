@@ -481,6 +481,11 @@ export class ChatService {
         }
         break;
       }
+      case 'create_card_by_card': {
+        newStatus = 'approved';
+        newMetadata.cardByCardMode = true;
+        break;
+      }
       default: {
         throw new ApiError('VALIDATION', `Unsupported action: ${input.action}`);
       }
