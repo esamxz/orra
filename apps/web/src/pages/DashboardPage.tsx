@@ -438,11 +438,9 @@ export default function DashboardPage() {
               <h2>Trend templates</h2>
               <p>Starting prompts with reference visuals. Tweak anything once you're in.</p>
             </div>
-            {/* See all — W6 owns the full templates library page */}
             <button
               className="btn btn-ghost btn-sm dash-see-all"
-              disabled
-              title="Full template library coming in W6"
+              onClick={() => navigate('/templates')}
             >
               See all
             </button>

@@ -307,13 +307,19 @@ describe('DashboardPage', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // W2.1 trend templates See all
+  // W6 trend templates See all
   // ---------------------------------------------------------------------------
-  it('trend templates section renders a disabled See all button', () => {
+  it('trend templates section renders an enabled See all button', () => {
     renderDashboard();
     const seeAll = screen.getByRole('button', { name: /see all/i });
     expect(seeAll).not.toBeNull();
-    expect(seeAll.hasAttribute('disabled')).toBe(true);
+    expect(seeAll.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('clicking See all navigates to /templates', () => {
+    renderDashboard();
+    fireEvent.click(screen.getByRole('button', { name: /see all/i }));
+    expect(mockNavigate).toHaveBeenCalledWith('/templates');
   });
 
   // ---------------------------------------------------------------------------

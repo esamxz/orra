@@ -1,5 +1,6 @@
 /* ORRA — sample content + social card renderer */
 import React from 'react';
+import { getFeaturedTemplates } from './trendTemplates';
 
 export const BRANDS = [
   { id:'still', name:'Still Studio', initial:'S', logoBg:'#1d2a30', logoFg:'#eef1f1',
@@ -13,20 +14,15 @@ export const BRANDS = [
     tone:['Minimal','Bold','Mono'] },
 ];
 
-export const TEMPLATES = [
-  { id:'t1', tag:'Carousel', cat:'Wellness', title:'Quiet self-improvement', variant:'cover',
-    desc:'Slow, reflective listicle carousel with calm typography and lots of breathing room.',
-    prompt:'Create a 5-card carousel about quiet self-improvement habits. Calm, premium, focused tone. Instagram 4:5. Minimal type, generous whitespace.' },
-  { id:'t2', tag:'Single post', cat:'Quote', title:'Editorial quote card', variant:'mist',
-    desc:'A single statement post — large serif quote over a soft duotone field.',
-    prompt:'Design a single editorial quote post. One short, striking line in large serif. Muted blue-gray duotone background. Square 1:1.' },
-  { id:'t3', tag:'Carousel', cat:'Product', title:'Soft product launch', variant:'steel',
-    desc:'Three-card launch sequence: hook, feature, call to action. Understated and confident.',
-    prompt:'Create a 3-card product launch carousel. Card 1 hook, card 2 the key feature, card 3 a clear CTA. Premium, restrained. 4:5.' },
-  { id:'t4', tag:'Carousel', cat:'Education', title:'Step-by-step explainer', variant:'pale',
-    desc:'Numbered teaching carousel that walks through a process, one idea per card.',
-    prompt:'Create a numbered explainer carousel that teaches a 4-step process, one step per card. Clean, instructive, calm. 4:5.' },
-];
+export const TEMPLATES = getFeaturedTemplates().map((t) => ({
+  id: t.id,
+  tag: t.projectType === 'carousel' ? 'Carousel' : 'Single post',
+  cat: t.category,
+  title: t.title,
+  variant: t.previewVariant,
+  desc: t.description,
+  prompt: t.prompt,
+}));
 
 export const PROJECTS = [
   { id:'p1', name:'Morning rituals', mode:'Carousel', when:'2 hours ago', variant:'cover', cards:5 },

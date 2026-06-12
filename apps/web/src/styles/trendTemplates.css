@@ -1,0 +1,312 @@
+/* ============================================================
+   ORRA — Trend Templates library page
+   Calm, premium, minimal. Dark-first, blue-gray palette.
+   ============================================================ */
+
+.tmpl-page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(900px 500px at 50% -60px, rgba(200,209,216,0.5), transparent 65%),
+    var(--paper);
+}
+
+/* ----- top bar ----- */
+.tmpl-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 28px;
+  height: 56px;
+  flex: none;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.tmpl-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.tmpl-back-btn:hover {
+  color: var(--ink);
+  background: var(--inset);
+}
+
+.tmpl-topbar-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.tmpl-topbar-spacer {
+  flex: 1;
+}
+
+/* ----- page header ----- */
+.tmpl-header {
+  padding: 44px 40px 20px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.tmpl-header h1 {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+.tmpl-header p {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 480px;
+}
+
+/* ----- controls: search + category filters ----- */
+.tmpl-controls {
+  padding: 0 40px 24px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tmpl-search-wrap {
+  position: relative;
+  max-width: 360px;
+}
+
+.tmpl-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+  display: flex;
+}
+
+.tmpl-search {
+  width: 100%;
+  padding: 9px 12px 9px 36px;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-lg);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.tmpl-search::placeholder {
+  color: var(--muted);
+}
+
+.tmpl-search:focus {
+  border-color: var(--accent, #5e7680);
+  box-shadow: 0 0 0 3px rgba(94,118,128,0.15);
+}
+
+.tmpl-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tmpl-cat {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.14s ease;
+  white-space: nowrap;
+}
+
+.tmpl-cat:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
+.tmpl-cat.active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+/* ----- template grid ----- */
+.tmpl-body {
+  padding: 0 40px 60px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  flex: 1;
+}
+
+.tmpl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+/* ----- template card ----- */
+.tmpl-card {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  box-shadow: var(--sh-1);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.16s ease, box-shadow 0.2s ease;
+}
+
+.tmpl-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--sh-3);
+}
+
+.tmpl-preview {
+  aspect-ratio: 16/9;
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  container-type: inline-size;
+}
+
+.tmpl-preview .tmpl-cat-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.9);
+  color: var(--ink);
+  box-shadow: var(--sh-1);
+  z-index: 1;
+}
+
+.tmpl-preview-title {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  right: 16px;
+  font-family: var(--font-display);
+  font-size: 6cqw;
+  font-weight: 500;
+  line-height: 1.04;
+  z-index: 1;
+}
+
+.tmpl-card-body {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.tmpl-card-body h3 {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+  color: var(--ink);
+}
+
+.tmpl-card-desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.tmpl-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 0 12px;
+}
+
+.tmpl-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tmpl-hint::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+  opacity: 0.6;
+}
+
+.tmpl-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.tmpl-platform-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ----- empty state ----- */
+.tmpl-empty {
+  padding: 60px 0;
+  text-align: center;
+}
+
+.tmpl-empty p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.tmpl-empty button {
+  margin-top: 12px;
+}
