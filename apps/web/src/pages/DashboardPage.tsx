@@ -57,6 +57,7 @@ export default function DashboardPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [brandUploadStatus, setBrandUploadStatus] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingFileUrls, setPendingFileUrls] = useState<string[]>([]);
   const [assetError, setAssetError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -106,6 +107,14 @@ export default function DashboardPage() {
     el.style.height = 'auto';
     el.style.height = Math.max(72, el.scrollHeight) + 'px';
   }, [prompt]);
+
+  useEffect(() => {
+    const urls = pendingFiles.map((file) => URL.createObjectURL(file));
+    setPendingFileUrls(urls);
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [pendingFiles]);
 
   // ---------------------------------------------------------------------------
   // Create project and navigate to workspace
@@ -277,15 +286,12 @@ export default function DashboardPage() {
           />
           {pendingFiles.length > 0 && (
             <div className="pending-assets-tray">
-              {pendingFiles.map((file, idx) => {
-                const objectUrl = URL.createObjectURL(file);
-                return (
+              {pendingFiles.map((file, idx) => (
                   <div key={`${file.name}-${idx}`} className="pending-asset-chip">
                     <img
-                      src={objectUrl}
+                      src={pendingFileUrls[idx] ?? ''}
                       alt={file.name}
                       className="pending-asset-thumb"
-                      onLoad={() => URL.revokeObjectURL(objectUrl)}
                     />
                     <span className="pending-asset-name">{file.name}</span>
                     <button
@@ -297,8 +303,7 @@ export default function DashboardPage() {
                       <Icon.x s={12} />
                     </button>
                   </div>
-                );
-              })}
+              ))}
             </div>
           )}
 

@@ -11,7 +11,7 @@ import { useAssetUpload } from '../hooks/useAssetUpload';
 import { useProjectAssets } from '../hooks/useProjectAssets';
 import { useAssetPreviewUrls } from '../hooks/useAssetPreviewUrls';
 import { useProjectMemory } from '../hooks/useProjectMemory';
-import { appendProjectMessage, submitApprovalAction } from '../api/chat';
+import { appendProjectMessage, prepareProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { updateProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
@@ -282,6 +282,8 @@ export default function WorkspacePage() {
   const syncSelectionWithCard = useWorkspaceStore((s) => s.syncSelectionWithCard);
 
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
+  const [preparingSetup, setPreparingSetup] = useState(false);
+  const [prepareError, setPrepareError] = useState<string | null>(null);
   const editContextRef = useRef<{ cardId: string; layerId: string; originalContent: string } | null>(null);
 
   const [exportOpen, setExportOpen] = useState(false);
@@ -382,6 +384,17 @@ export default function WorkspacePage() {
   const displayMessages = useMemo(() => {
     return projectId ? realMessages : messages;
   }, [projectId, realMessages, messages]);
+
+  // True when the project has user message(s) but no AI/assistant response yet.
+  const firstPromptPending = useMemo(() => {
+    if (!projectId || realMessages.length === 0) return false;
+    return !realMessages.some((m) => m.role === 'ai');
+  }, [projectId, realMessages]);
+
+  // True when the project has uploaded assets but no chat messages yet.
+  const hasAssetsButNoMessages = useMemo(() => {
+    return !!(projectId && realMessages.length === 0 && projectAssets.assets.length > 0);
+  }, [projectId, realMessages, projectAssets.assets]);
 
   useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [displayMessages]);
 
@@ -568,6 +581,26 @@ export default function WorkspacePage() {
       setActingMessageId(null);
     }
   };
+
+  /* ----- W4: prepare existing first message ----- */
+  const handlePrepareSetup = useCallback(async () => {
+    if (!projectId || preparingSetup) return;
+    const firstUserMsg = realMessages.find((m) => m.role === 'user');
+    if (!firstUserMsg) return;
+    setPreparingSetup(true);
+    setPrepareError(null);
+    try {
+      const result = await prepareProjectMessage(projectId, firstUserMsg.id);
+      if (result.approvalMessage) {
+        setRealMessages((prev) => [...prev, mapApiMessageToUi(result.approvalMessage!)]);
+      }
+    } catch (err) {
+      const msg = err instanceof ApiClientError ? err.message : 'Could not process this project. Please try again.';
+      setPrepareError(msg);
+    } finally {
+      setPreparingSetup(false);
+    }
+  }, [projectId, preparingSetup, realMessages]);
 
   /* ----- approve & generate ----- */
   const approve = (_topic: string) => {
@@ -967,7 +1000,34 @@ export default function WorkspacePage() {
             {displayMessages.length === 0 && !(projectId && messagesState === 'loading') && (
               <div style={{textAlign:'center',color:'var(--muted)',padding:'28px 10px'}}>
                 <div style={{width:46,height:46,borderRadius:14,background:'var(--primary-06)',color:'var(--primary)',display:'grid',placeItems:'center',margin:'0 auto 14px'}}>{<Icon.message s={22} />}</div>
-                <p style={{fontSize:14,lineHeight:1.55,margin:0}}>Describe the post or carousel you want.<br/>Orra plans first, then builds the layers.</p>
+                {hasAssetsButNoMessages
+                  ? <p style={{fontSize:14,lineHeight:1.55,margin:0}}>Your images are ready.<br/>Tell Orra what to make with them.</p>
+                  : <p style={{fontSize:14,lineHeight:1.55,margin:0}}>Describe the post or carousel you want.<br/>Orra plans first, then builds the layers.</p>
+                }
+              </div>
+            )}
+            {/* W4: setup card — shown when first prompt exists but no AI response yet */}
+            {firstPromptPending && (
+              <div className="msg ai" style={{display:'block'}}>
+                {preparingSetup ? (
+                  <div className="bubble">
+                    <span className="thinking"><span className="dots"><i/><i/><i/></span></span> Planning…
+                  </div>
+                ) : (
+                  <div style={{background:'var(--inset)',border:'1px solid var(--line-soft)',borderRadius:10,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+                    <p style={{fontSize:13.5,color:'var(--ink)',margin:0,fontWeight:500}}>
+                      Ready to prepare this project?
+                    </p>
+                    <button className="btn btn-primary btn-sm" onClick={handlePrepareSetup}>
+                      <Icon.spark s={14} /> Create setup plan
+                    </button>
+                  </div>
+                )}
+                {prepareError && (
+                  <div style={{padding:'6px 12px',fontSize:12.5,color:'var(--danger,#c44)',marginTop:4}}>
+                    {prepareError}
+                  </div>
+                )}
               </div>
             )}
             {displayMessages.map(m => {

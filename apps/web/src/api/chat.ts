@@ -33,6 +33,16 @@ export async function appendProjectMessage(
   });
 }
 
+export async function prepareProjectMessage(
+  projectId: string,
+  messageId: string,
+): Promise<AppendProjectMessageResponse> {
+  return apiClient.request<AppendProjectMessageResponse>(
+    `/projects/${projectId}/messages/${messageId}/prepare`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
 export async function submitApprovalAction(
   projectId: string,
   messageId: string,

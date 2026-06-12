@@ -1172,3 +1172,237 @@ describe('Chat route error responses', () => {
     expect(text).not.toContain('SQL');
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /v1/projects/:id/messages/:messageId/prepare
+// ---------------------------------------------------------------------------
+
+const PREPARE_PROJ_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const PREPARE_PROJ_ROW = {
+  id: PREPARE_PROJ_ID,
+  workspace_id: 'ws-fake-1',
+  name: 'Test Project',
+  type: 'post' as const,
+  ratio: { name: '4:5' as const, w: 1080, h: 1350 },
+  brand_system_id: null,
+  source_template_id: null,
+  autosave_state: null,
+  created_at: '2026-01-01',
+  updated_at: '2026-01-01',
+};
+const PREPARE_THREAD = {
+  id: 'thread-prep',
+  workspace_id: 'ws-fake-1',
+  project_id: PREPARE_PROJ_ID,
+  title: null,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+// A user text message with a valid UUID ID
+const USER_MSG_GEN_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const USER_MSG_GEN = {
+  id: USER_MSG_GEN_ID,
+  workspace_id: 'ws-fake-1',
+  thread_id: 'thread-prep',
+  role: 'user' as const,
+  kind: 'text' as const,
+  content: 'Create a 5-card carousel about discipline',
+  metadata: {} as import('@orra/db').Json,
+  seq: null,
+  created_at: '2026-01-01T00:00:00Z',
+};
+const USER_MSG_CONV_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const USER_MSG_CONV = {
+  id: USER_MSG_CONV_ID,
+  workspace_id: 'ws-fake-1',
+  thread_id: 'thread-prep',
+  role: 'user' as const,
+  kind: 'text' as const,
+  content: 'What should I post about?',
+  metadata: {} as import('@orra/db').Json,
+  seq: null,
+  created_at: '2026-01-01T00:00:00Z',
+};
+
+describe('POST /:id/messages/:messageId/prepare', () => {
+  it('requires authentication', async () => {
+    const repos = createFakeRepositories([PREPARE_PROJ_ROW], [PREPARE_THREAD], [USER_MSG_GEN]);
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_GEN_ID}/prepare`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.error!.code).toBe('UNAUTHENTICATED');
+  });
+
+  it('returns 404 for non-existent project', async () => {
+    const repos = createFakeRepositories([]);
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_GEN_ID}/prepare`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 for message not belonging to this project', async () => {
+    // Project exists but no messages
+    const repos = createFakeRepositories([PREPARE_PROJ_ROW], [PREPARE_THREAD], []);
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_GEN_ID}/prepare`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for a non-user-text message (approval_summary)', async () => {
+    const approvalMsgId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+    const repos = createFakeRepositories(
+      [PREPARE_PROJ_ROW],
+      [PREPARE_THREAD],
+      [
+        USER_MSG_GEN,
+        {
+          id: approvalMsgId,
+          workspace_id: 'ws-fake-1',
+          thread_id: 'thread-prep',
+          role: 'assistant' as const,
+          kind: 'approval_summary' as const,
+          content: 'Ready.',
+          metadata: {
+            approvalCard: { summaryLine: 'Ready.' },
+            approvalState: { status: 'pending', updatedAt: '2026-01-01T00:00:00Z' },
+            sourceUserMessageId: USER_MSG_GEN_ID,
+          } as unknown as import('@orra/db').Json,
+          seq: null,
+          created_at: '2026-01-01T00:01:00Z',
+        },
+      ]
+    );
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${approvalMsgId}/prepare`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('creates approval_summary for a generation-intent user message', async () => {
+    const repos = createFakeRepositories([PREPARE_PROJ_ROW], [PREPARE_THREAD], [USER_MSG_GEN]);
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_GEN_ID}/prepare`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse<{
+      message: { id: string; role: string };
+      intent: { mode: string };
+      approvalMessage: { role: string; kind: string };
+    }>;
+    expect(json.ok).toBe(true);
+    expect(json.data.intent.mode).toBe('generation');
+    expect(json.data.approvalMessage.role).toBe('assistant');
+    expect(json.data.approvalMessage.kind).toBe('approval_summary');
+  });
+
+  it('creates a clarification text message for conversation-intent user message', async () => {
+    const repos = createFakeRepositories([PREPARE_PROJ_ROW], [PREPARE_THREAD], [USER_MSG_CONV]);
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_CONV_ID}/prepare`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse<{
+      intent: { mode: string };
+      approvalMessage: { role: string; kind: string; content: string };
+    }>;
+    expect(json.ok).toBe(true);
+    expect(json.data.intent.mode).toBe('conversation');
+    expect(json.data.approvalMessage.role).toBe('assistant');
+    expect(json.data.approvalMessage.kind).toBe('text');
+    expect(json.data.approvalMessage.content).toContain("I'd love to help");
+  });
+
+  it('is idempotent: calling prepare twice returns the same response id', async () => {
+    const repos = createFakeRepositories([PREPARE_PROJ_ROW], [PREPARE_THREAD], [USER_MSG_GEN]);
+    const app = buildApp(repos);
+    const url = `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_GEN_ID}/prepare`;
+    const headers = { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' };
+    const env = { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>;
+
+    const first = await app.request(url, { method: 'POST', headers, body: '{}' }, env);
+    const firstJson = (await first.json()) as ApiResponse<{ approvalMessage: { id: string } }>;
+
+    const second = await app.request(url, { method: 'POST', headers, body: '{}' }, env);
+    const secondJson = (await second.json()) as ApiResponse<{ approvalMessage: { id: string } }>;
+
+    expect(firstJson.data.approvalMessage.id).toBe(secondJson.data.approvalMessage.id);
+  });
+
+  it('does not create a generation job', async () => {
+    const repos = createFakeRepositories([PREPARE_PROJ_ROW], [PREPARE_THREAD], [USER_MSG_GEN]);
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_GEN_ID}/prepare`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect((json.data as Record<string, unknown>)).not.toHaveProperty('jobId');
+  });
+
+  it('does not reserve credits', async () => {
+    const repos = createFakeRepositories([PREPARE_PROJ_ROW], [PREPARE_THREAD], [USER_MSG_GEN]);
+    const app = buildApp(repos);
+    const res = await app.request(
+      `/v1/projects/${PREPARE_PROJ_ID}/messages/${USER_MSG_GEN_ID}/prepare`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test_valid', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect((json.data as Record<string, unknown>)).not.toHaveProperty('creditsReserved');
+  });
+});

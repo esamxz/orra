@@ -6,6 +6,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import WorkspacePage from '../WorkspacePage';
 import * as chatApi from '../../api/chat';
 import * as useProjectMessagesModule from '../../hooks/useProjectMessages';
+import * as useProjectAssetsModule from '../../hooks/useProjectAssets';
 
 const mockParams: { projectId?: string } = {};
 vi.mock('react-router-dom', async () => {
@@ -138,6 +139,17 @@ vi.mock('../../api/chat');
 
 vi.mock('../../hooks/useProjectMessages', () => ({
   useProjectMessages: vi.fn(),
+}));
+
+vi.mock('../../hooks/useProjectAssets', () => ({
+  useProjectAssets: vi.fn(() => ({
+    assets: [],
+    state: 'idle',
+    error: null,
+    previewUrls: {},
+    reload: vi.fn(),
+    getPreviewUrl: vi.fn(),
+  })),
 }));
 
 describe('WorkspacePage chat persistence', () => {
@@ -385,5 +397,209 @@ describe('WorkspacePage chat persistence', () => {
     // Send button should be disabled
     const sendBtn = screen.getAllByRole('button', { name: /Send/i })[0] as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W4: Workspace setup states
+// ---------------------------------------------------------------------------
+
+describe('W4 workspace setup states', () => {
+  function mockMessages(msgs: unknown[]) {
+    vi.mocked(useProjectMessagesModule.useProjectMessages).mockReturnValue({
+      messages: msgs as never,
+      state: 'idle',
+      error: null,
+      reload: vi.fn(),
+    });
+  }
+
+  function renderPage(projectId?: string) {
+    mockParams.projectId = projectId;
+    return render(
+      <MemoryRouter
+        initialEntries={[{ pathname: projectId ? `/workspace/${projectId}` : '/workspace' }]}
+      >
+        <Routes>
+          <Route path="/workspace/:projectId?" element={<WorkspacePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDispatch.mockReturnValue(true);
+    mockParams.projectId = undefined;
+    vi.mocked(useProjectAssetsModule.useProjectAssets).mockReturnValue({
+      assets: [],
+      state: 'idle',
+      error: null,
+      previewUrls: {},
+      reload: vi.fn(),
+      getPreviewUrl: vi.fn(),
+    } as never);
+  });
+
+  it('empty project with no messages and no assets shows default prompt copy', () => {
+    mockMessages([]);
+    renderPage('proj-1');
+    expect(screen.getByText(/Describe the post or carousel you want/i)).not.toBeNull();
+  });
+
+  it('empty project with assets shows asset-aware copy', () => {
+    mockMessages([]);
+    vi.mocked(useProjectAssetsModule.useProjectAssets).mockReturnValue({
+      assets: [{ id: 'asset-1', fileName: 'photo.png', kind: 'upload', contentType: 'image/png', sizeBytes: 1000, projectId: 'proj-1', brandSystemId: null, workspaceId: 'ws-1', r2Key: 'k', status: 'confirmed', createdAt: '2026-01-01' }],
+      state: 'idle',
+      error: null,
+      previewUrls: {},
+      reload: vi.fn(),
+      getPreviewUrl: vi.fn(),
+    } as never);
+    renderPage('proj-1');
+    expect(screen.getByText(/Your images are ready/i)).not.toBeNull();
+  });
+
+  it('shows setup card when first prompt exists but no AI response yet', () => {
+    mockMessages([
+      {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Create a post about discipline',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    renderPage('proj-1');
+    expect(screen.getByText(/Ready to prepare this project/i)).not.toBeNull();
+    expect(screen.getByRole('button', { name: /create setup plan/i })).not.toBeNull();
+  });
+
+  it('clicking Create setup plan calls prepareProjectMessage with correct arguments', async () => {
+    mockMessages([
+      {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Create a post',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    vi.mocked(chatApi.prepareProjectMessage).mockResolvedValueOnce({
+      message: { id: 'msg-1', projectId: 'proj-1', threadId: 'thread-1', role: 'user', kind: 'text', content: 'Create a post', metadata: {}, seq: 1, createdAt: '2026-01-01T00:00:00Z' },
+      intent: { mode: 'generation', confidence: 'high', reason: 'test' },
+      approvalMessage: { id: 'msg-2', projectId: 'proj-1', threadId: 'thread-1', role: 'assistant', kind: 'approval_summary', content: 'Ready.', metadata: { approvalCard: { summaryLine: 'Ready.', format: '4:5', style: 'Focused', brand: 'No brand', cta: 'Not set' }, approvalState: { status: 'pending', updatedAt: '' }, sourceUserMessageId: 'msg-1', intent: { mode: 'generation' } }, seq: 2, createdAt: '2026-01-01T00:00:00Z' },
+    } as never);
+
+    renderPage('proj-1');
+    fireEvent.click(screen.getByRole('button', { name: /create setup plan/i }));
+    await waitFor(() => {
+      expect(chatApi.prepareProjectMessage).toHaveBeenCalledWith('proj-1', 'msg-1');
+    });
+  });
+
+  it('after successful prepare with generation intent, approval card renders', async () => {
+    mockMessages([
+      {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Create a post',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    vi.mocked(chatApi.prepareProjectMessage).mockResolvedValueOnce({
+      message: { id: 'msg-1', projectId: 'proj-1', threadId: 'thread-1', role: 'user', kind: 'text', content: 'Create a post', metadata: {}, seq: 1, createdAt: '2026-01-01T00:00:00Z' },
+      intent: { mode: 'generation', confidence: 'high', reason: 'test' },
+      approvalMessage: { id: 'msg-2', projectId: 'proj-1', threadId: 'thread-1', role: 'assistant', kind: 'approval_summary', content: 'Ready.', metadata: { approvalCard: { summaryLine: 'Ready.', format: '4:5', style: 'Focused', brand: 'No brand', cta: 'Not set' }, approvalState: { status: 'pending', updatedAt: '' }, sourceUserMessageId: 'msg-1', intent: { mode: 'generation' } }, seq: 2, createdAt: '2026-01-01T00:00:00Z' },
+    } as never);
+
+    renderPage('proj-1');
+    fireEvent.click(screen.getByRole('button', { name: /create setup plan/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId('approval-card')).not.toBeNull();
+    });
+  });
+
+  it('prepare action does not call generation API', async () => {
+    mockMessages([
+      {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Create a post',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    vi.mocked(chatApi.prepareProjectMessage).mockResolvedValueOnce({
+      message: { id: 'msg-1', projectId: 'proj-1', threadId: 'thread-1', role: 'user', kind: 'text', content: 'Create a post', metadata: {}, seq: 1, createdAt: '2026-01-01T00:00:00Z' },
+      intent: { mode: 'generation', confidence: 'high', reason: 'test' },
+      approvalMessage: { id: 'msg-2', projectId: 'proj-1', threadId: 'thread-1', role: 'assistant', kind: 'approval_summary', content: 'Ready.', metadata: { approvalCard: { summaryLine: 'Ready.', format: '4:5', style: 'Focused', brand: 'No brand', cta: 'Not set' }, approvalState: { status: 'pending', updatedAt: '' }, sourceUserMessageId: 'msg-1', intent: { mode: 'generation' } }, seq: 2, createdAt: '2026-01-01T00:00:00Z' },
+    } as never);
+
+    renderPage('proj-1');
+    fireEvent.click(screen.getByRole('button', { name: /create setup plan/i }));
+    await waitFor(() => expect(chatApi.prepareProjectMessage).toHaveBeenCalledTimes(1));
+    // No generation API import exists for this call
+    expect(chatApi.appendProjectMessage).not.toHaveBeenCalled();
+  });
+
+  it('existing project with approval_summary renders approval card without setup card', () => {
+    mockMessages([
+      {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Create a post',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        kind: 'approval_summary',
+        content: 'Ready.',
+        metadata: {
+          approvalCard: { summaryLine: 'Ready.', format: '4:5', style: 'Focused', brand: 'No brand', cta: 'Not set' },
+          approvalState: { status: 'pending', updatedAt: '' },
+          sourceUserMessageId: 'msg-1',
+          intent: { mode: 'generation' },
+        },
+        seq: 2,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    renderPage('proj-1');
+    expect(screen.getByTestId('approval-card')).not.toBeNull();
+    expect(screen.queryByText(/Ready to prepare this project/i)).toBeNull();
+  });
+
+  it('does not show setup card when no messages (empty project)', () => {
+    mockMessages([]);
+    renderPage('proj-1');
+    expect(screen.queryByText(/Ready to prepare this project/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /create setup plan/i })).toBeNull();
   });
 });

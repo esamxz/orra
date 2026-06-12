@@ -512,4 +512,102 @@ export class ChatService {
 
     return mapMessageRow(updatedRow, projectId);
   }
+
+  /**
+   * Process an existing first user message through director/planning logic.
+   * Idempotent: if an assistant response already references this messageId,
+   * returns it without creating a duplicate.
+   * Does NOT create a generation job and does NOT reserve credits.
+   */
+  async prepareMessage(
+    ctx: ServiceContext,
+    projectId: string,
+    messageId: string
+  ): Promise<AppendUserMessageResult> {
+    const auth = requireAuth(ctx);
+    const workspaceId = auth.workspaceId;
+
+    const project = await this.projectRepo.findByIdForWorkspace({ id: projectId, workspaceId });
+    if (!project) throw new ApiError('NOT_FOUND', 'Project not found.');
+
+    const messageRow = await this.chatRepo.findMessageByIdForProject({ workspaceId, projectId, messageId });
+    if (!messageRow) throw new ApiError('NOT_FOUND', 'Message not found.');
+
+    if (messageRow.role !== 'user' || messageRow.kind !== 'text') {
+      throw new ApiError('VALIDATION', 'Only user text messages can be prepared.');
+    }
+
+    const content = messageRow.content ?? '';
+    const message = mapMessageRow(messageRow, projectId);
+    const intent = classifyDirectorIntent(content);
+
+    const thread = await this.chatRepo.ensureThreadForProject({ workspaceId, projectId });
+
+    // Idempotency: return existing response if one already references this message.
+    const existingRows = await this.chatRepo.listMessagesByThread({
+      workspaceId,
+      threadId: thread.id,
+      limit: 100,
+    });
+    const existingResponse = existingRows.find((r) => {
+      const meta = r.metadata && typeof r.metadata === 'object' ? (r.metadata as Record<string, unknown>) : null;
+      return meta?.sourceUserMessageId === messageId;
+    });
+    if (existingResponse) {
+      return { message, intent, approvalMessage: mapMessageRow(existingResponse, projectId) };
+    }
+
+    let approvalMessage: MessageResponse | undefined;
+
+    if (intent.mode === 'generation') {
+      const brandContext = await this.loadBrandContext(workspaceId, project.brand_system_id);
+
+      let memorySummary: string | null = null;
+      if (this.projectMemoryService) {
+        try {
+          const mem = await this.projectMemoryService.getMemory(ctx, projectId);
+          if (mem?.summary) memorySummary = mem.summary.slice(0, 120);
+        } catch { /* intentionally silent */ }
+      }
+
+      const approvalCard = buildApprovalCard({
+        content,
+        intent,
+        projectType: project.type,
+        ratioName: (project.ratio as { name: string }).name ?? '4:5',
+        brandContext,
+        projectName: project.name,
+        memorySummary,
+      });
+
+      const approvalRow = await this.chatRepo.appendMessage({
+        workspaceId,
+        threadId: thread.id,
+        role: 'assistant',
+        kind: 'approval_summary',
+        content: approvalCard.summaryLine,
+        metadata: {
+          approvalCard,
+          sourceUserMessageId: message.id,
+          intent,
+          approvalState: { status: 'pending', updatedAt: new Date().toISOString() },
+        } as unknown as import('@orra/db').Json,
+      });
+
+      approvalMessage = mapMessageRow(approvalRow, projectId);
+    } else {
+      const clarRow = await this.chatRepo.appendMessage({
+        workspaceId,
+        threadId: thread.id,
+        role: 'assistant',
+        kind: 'text',
+        content: "I'd love to help! What would you like to create? For example: \"Create a 5-card carousel about focus\" or \"Make a post about discipline\".",
+        metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
+      });
+
+      approvalMessage = mapMessageRow(clarRow, projectId);
+    }
+
+    return { message, intent, approvalMessage };
+  }
 }

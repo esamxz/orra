@@ -108,4 +108,23 @@ chatRoutes.post(
   }
 );
 
+// POST /v1/projects/:id/messages/:messageId/prepare
+//
+// Runs director/planning logic on an existing user message without duplicating it.
+// Idempotent — calling twice returns the existing assistant response.
+// No generation job, no credit reservation.
+chatRoutes.post(
+  '/:id/messages/:messageId/prepare',
+  validateParam(MessageIdParamSchema),
+  async (c) => {
+    const { id, messageId } = c.req.valid('param');
+    const ctx = buildServiceContext(c);
+    const repos = getRepositories(ctx);
+    const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService);
+    const result = await service.prepareMessage(ctx, id, messageId);
+    return c.json({ ok: true, data: result }, 201);
+  }
+);
+
 export default chatRoutes;
