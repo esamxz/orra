@@ -134,4 +134,42 @@ describe('CORS middleware — environment-aware origin policy', () => {
     );
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeFalsy();
   });
+
+  it('wildcard pattern matches single-segment subdomain', async () => {
+    const res = await app.request(
+      '/test',
+      { method: 'GET', headers: { origin: 'https://33e8803f.orra-web.pages.dev' } },
+      {
+        ENVIRONMENT: 'staging',
+        ALLOWED_ORIGINS: 'https://orra-web.pages.dev,https://*.orra-web.pages.dev',
+      } as unknown as Record<string, unknown>
+    );
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://33e8803f.orra-web.pages.dev'
+    );
+  });
+
+  it('wildcard pattern does not match a different domain', async () => {
+    const res = await app.request(
+      '/test',
+      { method: 'GET', headers: { origin: 'https://evil.pages.dev' } },
+      {
+        ENVIRONMENT: 'staging',
+        ALLOWED_ORIGINS: 'https://*.orra-web.pages.dev',
+      } as unknown as Record<string, unknown>
+    );
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeFalsy();
+  });
+
+  it('wildcard pattern does not match multi-segment subdomain', async () => {
+    const res = await app.request(
+      '/test',
+      { method: 'GET', headers: { origin: 'https://a.b.orra-web.pages.dev' } },
+      {
+        ENVIRONMENT: 'staging',
+        ALLOWED_ORIGINS: 'https://*.orra-web.pages.dev',
+      } as unknown as Record<string, unknown>
+    );
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeFalsy();
+  });
 });

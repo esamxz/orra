@@ -26,7 +26,7 @@
     "staging": {
       "vars": {
         "ENVIRONMENT": "staging",
-        "R2_ACCOUNT_ID": "<your-account-id>",
+        "R2_ACCOUNT_ID": "745be7de68c0f2a97f14964da20be6d7",
         "R2_BUCKET_NAME": "orra-assets-staging"
       },
       "queues": {
@@ -47,7 +47,7 @@
     "production": {
       "vars": {
         "ENVIRONMENT": "production",
-        "R2_ACCOUNT_ID": "<your-account-id>",
+        "R2_ACCOUNT_ID": "745be7de68c0f2a97f14964da20be6d7",
         "R2_BUCKET_NAME": "orra-assets"
       },
       "queues": {

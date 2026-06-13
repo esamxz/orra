@@ -21,6 +21,15 @@ function parseAllowedOrigins(env: Env): string[] {
   return [...new Set([...devOrigins, ...fromEnv])];
 }
 
+// Supports exact origins and single-segment wildcard patterns like https://*.example.com
+function originIsAllowed(origin: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => {
+    if (!pattern.includes('*')) return origin === pattern;
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^.]+');
+    return new RegExp(`^${escaped}$`).test(origin);
+  });
+}
+
 export const corsMiddleware = createMiddleware(
   async (c: Context, next: Next): Promise<Response | void> => {
     const env = c.env as Env;
@@ -28,7 +37,7 @@ export const corsMiddleware = createMiddleware(
     const origin = c.req.header('origin') || '';
 
     // Reflect the origin if it is allowed; otherwise omit (browser blocks)
-    const allowOrigin = allowedOrigins.includes(origin) ? origin : '';
+    const allowOrigin = originIsAllowed(origin, allowedOrigins) ? origin : '';
 
     if (c.req.method === 'OPTIONS') {
       return new Response(null, {
