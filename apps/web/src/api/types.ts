@@ -135,10 +135,9 @@ export interface ApprovalActionInput {
   value?: string;
 }
 
-export interface ApprovalActionResponse {
-  ok: true;
-  data: ChatMessageDto;
-}
+// The apiClient.request<T> already unwraps the { ok, data } envelope,
+// so ApprovalActionResponse is the inner data shape, not the envelope.
+export type ApprovalActionResponse = ChatMessageDto;
 
 // ---------------------------------------------------------------------------
 // Generation job types

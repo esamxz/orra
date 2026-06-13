@@ -486,10 +486,9 @@ describe('WorkspacePage — W8 selected-card confirmation', () => {
       getPreviewUrl: vi.fn(),
     } as never);
 
-    // submitApprovalAction returns the updated message (approved)
-    vi.mocked(chatApi.submitApprovalAction).mockResolvedValue({
-      data: CAROUSEL_APPROVAL_APPROVED,
-    } as never);
+    // submitApprovalAction returns the updated ChatMessageDto directly
+    // (apiClient.request already unwraps the { ok, data } envelope)
+    vi.mocked(chatApi.submitApprovalAction).mockResolvedValue(CAROUSEL_APPROVAL_APPROVED as never);
   });
 
   async function setupCardByCardAndClickGenerate() {

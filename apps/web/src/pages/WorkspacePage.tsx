@@ -552,9 +552,9 @@ export default function WorkspacePage() {
     if (!projectId) return;
     setActingMessageId(messageId);
     try {
-      const res = await submitApprovalAction(projectId, messageId, { action, value });
+      const updatedMessage = await submitApprovalAction(projectId, messageId, { action, value });
       setRealMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? mapApiMessageToUi(res.data) : m)),
+        prev.map((m) => (m.id === messageId ? mapApiMessageToUi(updatedMessage) : m)),
       );
       flash(
         action === 'approve_and_create'
