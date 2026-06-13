@@ -370,9 +370,11 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (!polledArtifact) return;
     resetArtifact(polledArtifact.document);
+    setActiveCard(0);
+    clearSelection();
     setPhase('generated');
     flash('Updated design loaded');
-  }, [polledArtifact, resetArtifact, flash]);
+  }, [polledArtifact, resetArtifact, setActiveCard, clearSelection, flash]);
 
   // Phase 9H: surface calm error when artifact reload fails after success.
   useEffect(() => {

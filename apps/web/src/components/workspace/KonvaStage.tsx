@@ -208,6 +208,7 @@ export default function KonvaStage({
   function draw(doc: ArtifactDocument, cardIndex: number, selId: string | null, editId: string | null) {
     const stage = stageRef.current;
     if (!stage) return;
+    if (!doc.cards[cardIndex]) return;
 
     const renderData = buildCardRenderData(doc, cardIndex);
     const docW = renderData.width;
