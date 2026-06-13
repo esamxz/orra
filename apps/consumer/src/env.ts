@@ -53,6 +53,9 @@ export const ConsumerEnvSchema = z
     FLUX_API_KEY: z.string().optional(),
     FLUX_API_BASE_URL: z.string().optional(),
     FLUX_MODEL: z.string().optional(),
+    // Emergency escape hatch: allows fake providers in production for debugging.
+    // Must be explicitly set to 'true'. Default in production is to block fake.
+    ALLOW_FAKE_PROVIDER_IN_PRODUCTION: z.literal('true').optional(),
   })
   .superRefine((data, ctx) => {
     if (data.AI_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {
@@ -68,6 +71,27 @@ export const ConsumerEnvSchema = z
         message: 'FLUX_API_KEY is required when IMAGE_PROVIDER=flux',
         path: ['FLUX_API_KEY'],
       });
+    }
+    // Production must not run fake providers by accident.
+    if (data.ENVIRONMENT === 'production' && data.ALLOW_FAKE_PROVIDER_IN_PRODUCTION !== 'true') {
+      const ai = (data.AI_PROVIDER ?? 'fake').trim().toLowerCase();
+      if (ai === 'fake' || ai === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'AI_PROVIDER=fake is not allowed in production. Set AI_PROVIDER=gemini with GEMINI_API_KEY, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
+          path: ['AI_PROVIDER'],
+        });
+      }
+      const img = (data.IMAGE_PROVIDER ?? 'fake').trim().toLowerCase();
+      if (img === 'fake' || img === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'IMAGE_PROVIDER=fake is not allowed in production. Set IMAGE_PROVIDER=flux with FLUX_API_KEY, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
+          path: ['IMAGE_PROVIDER'],
+        });
+      }
     }
   });
 

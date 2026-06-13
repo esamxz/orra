@@ -27,6 +27,10 @@ export const EnvSchema = z.object({
   // Credits granted to a workspace on first creation. Absent or 0 means no grant.
   // Set to a positive integer for staging/private-alpha testing.
   INITIAL_CREDIT_GRANT: z.coerce.number().int().nonnegative().optional(),
+  // Comma-separated email allowlist for private-alpha access control.
+  // If unset, all valid Clerk users are allowed (staging-safe default).
+  // Set in staging/production to restrict access to listed emails only.
+  PRIVATE_ALPHA_EMAIL_ALLOWLIST: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema> & {
@@ -54,10 +58,24 @@ export function validateApiEnv(env: unknown): Env {
   const parsed = result.data;
 
   if (parsed.ENVIRONMENT === 'staging' || parsed.ENVIRONMENT === 'production') {
+    // Dev-only flags must never be set in staging or production.
+    if (parsed.DEV_AUTH_ENABLED === 'true') {
+      throw new Error(
+        `DEV_AUTH_ENABLED is not allowed in ${parsed.ENVIRONMENT} environment`
+      );
+    }
+    if (parsed.DEV_GENERATION_QUEUE_DISABLED === 'true') {
+      throw new Error(
+        `DEV_GENERATION_QUEUE_DISABLED is not allowed in ${parsed.ENVIRONMENT} environment`
+      );
+    }
+
     const missing: string[] = [];
     if (!parsed.SUPABASE_URL) missing.push('SUPABASE_URL');
     if (!parsed.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
     if (!parsed.CLERK_JWKS_URL) missing.push('CLERK_JWKS_URL');
+    if (!parsed.CLERK_JWT_ISSUER) missing.push('CLERK_JWT_ISSUER');
+    if (!parsed.ALLOWED_ORIGINS) missing.push('ALLOWED_ORIGINS');
     if (missing.length > 0) {
       throw new Error(
         `Missing required environment variables for ${parsed.ENVIRONMENT}: ${missing.join(', ')}`

@@ -82,6 +82,7 @@
 //   R2_SECRET_ACCESS_KEY        — R2 S3-compatible secret key
 //   ALLOWED_ORIGINS             — Comma-separated allowed CORS origins for this env
 //   INITIAL_CREDIT_GRANT        — Credits granted on first workspace creation (default 0)
+//   PRIVATE_ALPHA_EMAIL_ALLOWLIST — Comma-separated emails for private-alpha access (optional; if unset, all Clerk users are allowed)
 //
 // R2 bucket CORS policy required for browser uploads:
 //   Allowed methods: PUT

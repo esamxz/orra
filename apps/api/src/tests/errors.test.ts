@@ -77,4 +77,54 @@ describe('error handling', () => {
     const json = await res.json() as ApiErrorResponse;
     expect(json.error.details).toEqual({ field: 'name' });
   });
+
+  it('staging 500 returns the actual error message for smoke debugging', async () => {
+    const app = new Hono<{ Bindings: Env }>();
+    app.use(requestIdMiddleware);
+    app.get('/test-boom', () => {
+      throw new Error('Staging detail for debugging');
+    });
+    app.onError((await import('../middleware/error-handler.js')).errorHandler);
+
+    const stagingEnv = { ENVIRONMENT: 'staging' } as unknown as Record<string, unknown>;
+    const res = await app.request('/test-boom', { method: 'GET' }, stagingEnv);
+    expect(res.status).toBe(500);
+    const json = await res.json() as ApiErrorResponse;
+    expect(json.error.code).toBe('INTERNAL');
+    expect(json.error.message).toBe('Staging detail for debugging');
+  });
+
+  it('production 500 returns generic message, not the actual error', async () => {
+    const app = new Hono<{ Bindings: Env }>();
+    app.use(requestIdMiddleware);
+    app.get('/test-boom', () => {
+      throw new Error('Sensitive internal detail');
+    });
+    app.onError((await import('../middleware/error-handler.js')).errorHandler);
+
+    const prodEnv = { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>;
+    const res = await app.request('/test-boom', { method: 'GET' }, prodEnv);
+    expect(res.status).toBe(500);
+    const json = await res.json() as ApiErrorResponse;
+    expect(json.error.code).toBe('INTERNAL');
+    expect(json.error.message).toBe('An unexpected error occurred.');
+    expect(JSON.stringify(json)).not.toContain('Sensitive internal detail');
+  });
+
+  it('production error response does not expose secret-pattern strings', async () => {
+    const app = new Hono<{ Bindings: Env }>();
+    app.use(requestIdMiddleware);
+    app.get('/test-secret-leak', () => {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiJ9.secret');
+    });
+    app.onError((await import('../middleware/error-handler.js')).errorHandler);
+
+    const prodEnv = { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>;
+    const res = await app.request('/test-secret-leak', { method: 'GET' }, prodEnv);
+    expect(res.status).toBe(500);
+    const body = await res.text();
+    expect(body).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
+    expect(body).not.toContain('eyJhbGciOiJIUzI1NiJ9');
+    expect(body).toContain('An unexpected error occurred.');
+  });
 });

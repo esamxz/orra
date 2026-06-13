@@ -69,6 +69,16 @@ export function createAuthMiddleware(
       const result = await verifier.verifyToken(token, env);
 
       if (result.ok) {
+        // Private-alpha allowlist: if set, only listed emails may proceed.
+        // Checked before bootstrap to avoid creating DB records for rejected users.
+        const allowlist = (env as Env).PRIVATE_ALPHA_EMAIL_ALLOWLIST;
+        if (allowlist && result.email) {
+          const permitted = allowlist.split(',').map((e) => e.trim().toLowerCase());
+          if (!permitted.includes(result.email.toLowerCase())) {
+            throw new ApiError('FORBIDDEN', 'Access restricted to authorized users.');
+          }
+        }
+
         const requestId = getRequestId(c) || 'unknown';
         const serviceCtx = createServiceContext(c.env as Env, requestId, undefined, overrides);
 

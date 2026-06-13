@@ -25,6 +25,13 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
     // with a clear message rather than throwing inside the first job.
     validateConsumerEnv(env);
 
+    // Log provider mode so it's visible in Cloudflare observability — no secret values.
+    console.log('[startup] provider_mode', JSON.stringify({
+      environment: env.ENVIRONMENT ?? 'development',
+      aiProvider: env.AI_PROVIDER ?? 'fake',
+      imageProvider: env.IMAGE_PROVIDER ?? 'fake',
+    }));
+
     const db = createDbClient(env as unknown as import('@orra/api/src/env.js').Env);
     const jobRepo = new SupabaseGenerationJobRepository(db);
     const artifactRepo = new SupabaseArtifactRepository(db);
