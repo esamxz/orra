@@ -1,10 +1,10 @@
 import type { ServiceContext } from './service-context.js';
 import { requireAuth } from './service-context.js';
-import { ApiError } from '../errors.js';
+import { ApiError, isApiError } from '../errors.js';
 import type { ArtifactRepository } from '../repositories/artifactRepository.js';
 import type { ArtifactDocument, Ratio } from '@orra/shared';
 import { ArtifactDocumentSchema, applyAction } from '@orra/shared';
-import type { ArtifactRow } from '@orra/db';
+import type { ArtifactRow, ArtifactVersionRow } from '@orra/db';
 import { buildInitialArtifactDocument } from '../artifact-document/factory.js';
 
 // ---------------------------------------------------------------------------
@@ -216,7 +216,6 @@ export class ArtifactService {
     try {
       result = applyAction(document, input.action);
     } catch (err) {
-      // Map KernelError validation failures to ApiError VALIDATION.
       if (err instanceof Error && err.name === 'KernelError') {
         throw new ApiError(
           'VALIDATION',
@@ -224,7 +223,8 @@ export class ArtifactService {
           { code: (err as { code?: string }).code }
         );
       }
-      throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ApiError('INTERNAL', `Kernel error: ${msg}`);
     }
 
     // 5. Validate the updated document before persisting.
@@ -232,15 +232,22 @@ export class ArtifactService {
 
     // 6. Commit atomically: insert version + update current_version_id in one RPC.
     const newArtifactVersionNumber = current.version.version + 1;
-    const committedVersion = await this.artifactRepo.commitVersion({
-      workspaceId,
-      artifactId,
-      expectedCurrentVersionId: current.version.id,
-      version: newArtifactVersionNumber,
-      document: updatedDocument,
-      reason: 'manual_edit',
-      createdBy: 'user',
-    });
+    let committedVersion: ArtifactVersionRow | null;
+    try {
+      committedVersion = await this.artifactRepo.commitVersion({
+        workspaceId,
+        artifactId,
+        expectedCurrentVersionId: current.version.id,
+        version: newArtifactVersionNumber,
+        document: updatedDocument,
+        reason: 'manual_edit',
+        createdBy: 'user',
+      });
+    } catch (err) {
+      if (isApiError(err)) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ApiError('INTERNAL', `Commit failed: ${msg}`);
+    }
 
     if (!committedVersion) {
       // Atomic commit failed because another write changed current_version_id

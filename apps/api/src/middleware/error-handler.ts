@@ -30,11 +30,15 @@ export const errorHandler: ErrorHandler = (err, c) => {
   // Unknown errors: log stack internally, return generic INTERNAL
   console.error('Unhandled error:', err);
 
+  const isStaging = (c.env as { ENVIRONMENT?: string })?.ENVIRONMENT === 'staging';
+  const message =
+    isStaging && err instanceof Error ? err.message : 'An unexpected error occurred.';
+
   const body = {
     ok: false as const,
     error: {
       code: 'INTERNAL' as ApiErrorCode,
-      message: 'An unexpected error occurred.',
+      message,
       requestId,
     },
   };

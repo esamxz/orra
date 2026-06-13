@@ -894,4 +894,84 @@ describe('ArtifactService', () => {
       'INTERNAL'
     );
   });
+
+  // -------------------------------------------------------------------------
+  // D2 regression: commit_artifact_version ambiguous "id" column fix
+  // The original Postgres function used RETURNING artifact_versions.id INTO
+  // v_new_version_id, which was ambiguous with the implicit RETURNS TABLE OUT
+  // variable also named "id". The fix pre-generates the UUID with
+  // gen_random_uuid() and supplies it explicitly in the INSERT.
+  // This test ensures addCard commits a new version without that failure.
+  // -------------------------------------------------------------------------
+
+  it('regression: addCard action commits without ambiguous id column (D2 fix)', async () => {
+    const artifactId = '11111111-1111-1111-1111-111111111111';
+    const existingCardId = '22222222-2222-2222-2222-222222222221';
+    const newCardId = randomUUID();
+
+    const carouselDocument = {
+      schemaVersion: 1,
+      artifactId,
+      type: 'carousel' as const,
+      ratio: { name: '1:1' as const, w: 1080, h: 1080 },
+      cards: [
+        {
+          id: existingCardId,
+          index: 0,
+          baseColor: '#1d2a30',
+          layers: [],
+        },
+      ],
+      version: 1,
+    };
+
+    const repo = createFakeArtifactRepository({
+      artifacts: [
+        {
+          id: artifactId,
+          workspace_id: 'ws-1',
+          project_id: 'proj-1',
+          current_version_id: 'ver-1',
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      versions: [
+        {
+          id: 'ver-1',
+          workspace_id: 'ws-1',
+          artifact_id: artifactId,
+          version: 1,
+          document: carouselDocument,
+          reason: 'manual_checkpoint',
+          created_by: 'user',
+          brand_context_snapshot: null,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+
+    const service = new ArtifactService(repo);
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.applyAction(ctx, artifactId, {
+      baseVersion: 1,
+      action: {
+        type: 'addCard',
+        card: { id: newCardId, index: 1, baseColor: '#354e53', layers: [] },
+      },
+    });
+
+    // Commit must succeed and return a new version (null would indicate the
+    // Postgres RPC failed due to ambiguous column reference).
+    expect(result.currentVersionId).toBeTruthy();
+    expect(result.currentVersionId).not.toBe('ver-1');
+    expect(result.document.cards).toHaveLength(2);
+    expect(result.document.cards[1].id).toBe(newCardId);
+    expect(result.artifactVersionNumber).toBe(2);
+
+    // Confirm the artifact pointer was updated.
+    const updated = await repo.getCurrentVersion({ artifactId, workspaceId: 'ws-1' });
+    expect(updated!.version.id).toBe(result.currentVersionId);
+  });
 });
