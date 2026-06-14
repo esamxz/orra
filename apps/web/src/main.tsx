@@ -1,7 +1,9 @@
+import './instrument';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { ClerkProvider } from '@clerk/clerk-react';
+import { reactErrorHandler } from '@sentry/react';
 import App from './App';
 import './styles/orra.css';
 import './styles/fonts.css';
@@ -24,8 +26,14 @@ function Root() {
   );
 }
 
+const errorHandlerOptions = {
+  onUncaughtError: reactErrorHandler(),
+  onCaughtError: reactErrorHandler(),
+  onRecoverableError: reactErrorHandler(),
+};
+
 if (PUBLISHABLE_KEY) {
-  createRoot(container).render(
+  createRoot(container, errorHandlerOptions).render(
     <StrictMode>
       <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
         <BrowserRouter>
@@ -35,5 +43,5 @@ if (PUBLISHABLE_KEY) {
     </StrictMode>,
   );
 } else {
-  createRoot(container).render(<Root />);
+  createRoot(container, errorHandlerOptions).render(<Root />);
 }

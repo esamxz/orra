@@ -58,6 +58,12 @@ export const ConsumerEnvSchema = z
     // Emergency escape hatch: allows fake providers in production for debugging.
     // Must be explicitly set to 'true'. Default in production is to block fake.
     ALLOW_FAKE_PROVIDER_IN_PRODUCTION: z.literal('true').optional(),
+    // O0: Observability — all optional; omit to disable silently.
+    OBSERVABILITY_ENABLED: z.literal('true').optional(),
+    SENTRY_DSN: z.string().optional(),
+    SENTRY_ENVIRONMENT: z.string().optional(),
+    POSTHOG_PROJECT_TOKEN: z.string().optional(),
+    POSTHOG_HOST: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.AI_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {

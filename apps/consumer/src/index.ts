@@ -1,3 +1,4 @@
+import { withSentry } from '@sentry/cloudflare';
 import { createDbClient } from '@orra/api/src/db/client.js';
 import { SupabaseGenerationJobRepository } from '@orra/api/src/repositories/generationJobRepository.js';
 import { SupabaseArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
@@ -7,6 +8,7 @@ import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
 import { createAIProviderRouter, createImageProviderRouter } from '@orra/ai';
 import type { ConsumerEnv } from './env.js';
 import { validateConsumerEnv } from './env.js';
+import { scrubSentryEvent } from './lib/observability.js';
 
 // ---------------------------------------------------------------------------
 // Queue consumer Worker entry point
@@ -19,7 +21,7 @@ export interface QueueMessage {
   jobId: string;
 }
 
-const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
+const baseHandler = {
   async queue(batch, env, _ctx) {
     // Validate env before creating any service so misconfiguration fails fast
     // with a clear message rather than throwing inside the first job.
@@ -56,6 +58,8 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
         timeoutMs: env.AI_PROVIDER_TIMEOUT_MS,
       }),
       projectMemoryRepo,
+      undefined, // chatRepo — not wired in this phase
+      env,
     );
 
     for (const message of batch.messages) {
@@ -69,6 +73,18 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
       }
     }
   },
-};
+} satisfies ExportedHandler<ConsumerEnv, QueueMessage>;
 
-export default handler;
+export default withSentry<ConsumerEnv, QueueMessage>(
+  (env) => ({
+    dsn: env.SENTRY_DSN ?? '',
+    environment: env.SENTRY_ENVIRONMENT ?? env.ENVIRONMENT ?? 'development',
+    enabled: env.OBSERVABILITY_ENABLED === 'true' && !!env.SENTRY_DSN,
+    tracesSampleRate: 0.1,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    beforeSend(event: any) {
+      return scrubSentryEvent(event as Record<string, unknown>) as typeof event;
+    },
+  }),
+  baseHandler,
+);

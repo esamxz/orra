@@ -16,9 +16,11 @@
     "@orra/ai": "workspace:*",
     "@orra/db": "workspace:*",
     "@orra/shared": "workspace:*",
+    "@sentry/cloudflare": "^10.57.0",
     "@supabase/supabase-js": "^2.49.4",
     "hono": "^4.12.23",
     "jose": "^6.0.10",
+    "posthog-node": "^5.37.0",
     "zod": "^3.25.72"
   },
   "exports": {

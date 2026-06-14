@@ -28,6 +28,8 @@ Set via `wrangler secret put --env staging` / `--env production`. Never commit v
 | `ALLOWED_ORIGINS` | staging, production | Comma-separated CORS origins (required) |
 | `INITIAL_CREDIT_GRANT` | optional | Credits on first workspace creation; default 0 |
 | `PRIVATE_ALPHA_EMAIL_ALLOWLIST` | optional | Comma-separated emails; if unset, all Clerk users allowed |
+| `SENTRY_DSN` | optional (O0) | Sentry error monitoring DSN — set when `OBSERVABILITY_ENABLED=true` |
+| `POSTHOG_PROJECT_TOKEN` | optional (O0) | PostHog analytics token — set when `OBSERVABILITY_ENABLED=true` |
 
 ---
 
@@ -43,6 +45,46 @@ Set via `wrangler secret put --env staging` / `--env production`. Never commit v
 | `IMAGE_PROVIDER` | production | Must be `gemini` (not `fake`) in production |
 | `GEMINI_IMAGE_MODEL` | optional | Defaults to `gemini-2.5-flash-image`; override to pin a specific model |
 | `ALLOW_FAKE_PROVIDER_IN_PRODUCTION` | emergency only | Set to `'true'` only for debugging; remove after |
+| `SENTRY_DSN` | optional (O0) | Sentry error monitoring DSN — shared with API if using one project |
+| `POSTHOG_PROJECT_TOKEN` | optional (O0) | PostHog analytics token — set when `OBSERVABILITY_ENABLED=true` |
+
+---
+
+## Observability (O0) — Staging Setup
+
+Added in O0. All observability vars are optional — app runs normally without them.
+
+### API and Consumer (Cloudflare Workers)
+
+Set in `wrangler.jsonc` `staging.vars`:
+```
+OBSERVABILITY_ENABLED=true
+SENTRY_ENVIRONMENT=staging
+```
+
+Set via `wrangler secret put --env staging`:
+```
+wrangler secret put SENTRY_DSN --env staging
+wrangler secret put POSTHOG_PROJECT_TOKEN --env staging
+```
+
+### Web (Vite/React)
+
+Set in `.env.staging` (used by `pnpm --filter @orra/web run build:staging`):
+```
+VITE_OBSERVABILITY_ENABLED=true
+VITE_SENTRY_DSN=<your DSN>
+VITE_SENTRY_ENVIRONMENT=staging
+VITE_POSTHOG_KEY=<your key>
+VITE_POSTHOG_HOST=https://us.i.posthog.com
+```
+
+**Privacy rules enforced in code:**
+- No raw prompt text in any event
+- No R2 keys, signed URLs, or API keys in any event
+- `beforeSend` scrubber on Sentry removes sensitive fields
+- PostHog has text input capture disabled
+- Session replay disabled in staging
 
 ---
 
@@ -137,6 +179,8 @@ Before any production deployment:
 - [ ] `PRIVATE_ALPHA_EMAIL_ALLOWLIST` is set (or explicit decision to allow open access)
 - [ ] Wrangler dry-run passes: `pnpm --filter @orra/api run deploy:production:dry-run`
 - [ ] Wrangler dry-run passes: `pnpm --filter @orra/consumer run deploy:production:dry-run`
+- [ ] (O0) If enabling observability: `SENTRY_DSN` and `POSTHOG_PROJECT_TOKEN` set as secrets in both API and consumer
+- [ ] (O0) If enabling observability: `VITE_SENTRY_DSN` and `VITE_POSTHOG_KEY` set in web build env
 - [ ] All staging smoke tests pass with the build being promoted
 
 ---
