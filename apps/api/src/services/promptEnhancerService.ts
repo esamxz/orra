@@ -1,10 +1,62 @@
+import type { AIProvider, PromptEnhancementInput } from '@orra/ai';
+import { isAIProviderError } from '@orra/ai';
 import { ApiError } from '../errors.js';
 import type { EnhancePromptRequest, EnhancePromptResponse } from '@orra/shared';
 
 // ---------------------------------------------------------------------------
-// Prompt enhancer service (P0)
+// Prompt enhancer service (P0 / P0.2)
 // ---------------------------------------------------------------------------
-// Deterministic, rule-based. No AI calls. No DB mutations. No side effects.
+// mode=deterministic: rule-based, no AI calls (P0 baseline, default)
+// mode=ai:           routes through AIProvider.enhancePrompt() (P0.2)
+
+export async function enhancePrompt(
+  input: EnhancePromptRequest,
+  options?: { provider?: AIProvider; mode?: 'ai' | 'deterministic' },
+): Promise<EnhancePromptResponse> {
+  const normalized = input.prompt.replace(/\s+/g, ' ').trim();
+
+  if (!normalized) {
+    throw new ApiError('VALIDATION', 'Prompt cannot be empty.');
+  }
+
+  const mode = options?.mode ?? 'deterministic';
+
+  if (mode === 'ai') {
+    const provider = options!.provider!;
+    const enhancementInput: PromptEnhancementInput = {
+      prompt: normalized,
+      selectedType: input.selectedType,
+      aspectRatio: input.aspectRatio,
+      hasAssets: input.hasAssets,
+      assetCount: input.assetCount,
+    };
+
+    try {
+      const output = await provider.enhancePrompt(enhancementInput);
+      return {
+        originalPrompt: normalized,
+        enhancedPrompt: output.enhancedPrompt,
+        inferredType: output.inferredType,
+        ...(output.cardCount !== undefined ? { cardCount: output.cardCount } : {}),
+      };
+    } catch (err) {
+      if (isAIProviderError(err)) {
+        throw new ApiError(
+          'PROVIDER_FAILURE',
+          'AI prompt enhancement is temporarily unavailable. Please try again in a moment.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  // Deterministic fallback (original P0 rule-based logic)
+  return enhancePromptDeterministic(input, normalized);
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic rule-based enhancement (P0)
+// ---------------------------------------------------------------------------
 
 type InferredType = 'single_post' | 'carousel' | 'generic_visual';
 
@@ -13,13 +65,10 @@ const TONE_KEYWORDS = [
   'motivational', 'serious', 'editorial', 'soft', 'raw', 'vibrant',
 ];
 
-export function enhancePrompt(input: EnhancePromptRequest): EnhancePromptResponse {
-  const normalized = input.prompt.replace(/\s+/g, ' ').trim();
-
-  if (!normalized) {
-    throw new ApiError('VALIDATION', 'Prompt cannot be empty.');
-  }
-
+function enhancePromptDeterministic(
+  input: EnhancePromptRequest,
+  normalized: string,
+): EnhancePromptResponse {
   const inferredType = detectType(normalized, input.selectedType);
   const cardCount = inferredType === 'carousel' ? extractCardCount(normalized) : undefined;
   const tone = detectTone(normalized);
@@ -32,7 +81,6 @@ export function enhancePrompt(input: EnhancePromptRequest): EnhancePromptRespons
   let notes: string | undefined;
 
   if (isDetailed) {
-    // Already detailed — preserve intent, just normalize
     enhancedPrompt = normalized;
     notes = 'Prompt was already detailed. Whitespace normalized.';
   } else if (inferredType === 'carousel') {
@@ -74,13 +122,8 @@ export function enhancePrompt(input: EnhancePromptRequest): EnhancePromptRespons
     inferredType,
   };
 
-  if (cardCount !== undefined) {
-    result.cardCount = cardCount;
-  }
-
-  if (notes) {
-    result.notes = notes;
-  }
+  if (cardCount !== undefined) result.cardCount = cardCount;
+  if (notes) result.notes = notes;
 
   return result;
 }

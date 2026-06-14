@@ -17,6 +17,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@orra/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@orra/db':
         specifier: workspace:*
         version: link:../../packages/db

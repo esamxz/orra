@@ -70,8 +70,24 @@ export interface MockDocumentResult {
   documentPatchPlan?: unknown;
 }
 
+// P0.2: dashboard-time prompt enhancement — no projectId, ratio, or projectType needed
+export interface PromptEnhancementInput {
+  prompt: string;
+  selectedType?: 'single_post' | 'carousel' | 'generic_visual';
+  aspectRatio?: string;
+  hasAssets?: boolean;
+  assetCount?: number;
+}
+
+export interface PromptEnhancementOutput {
+  enhancedPrompt: string;
+  inferredType: 'single_post' | 'carousel' | 'generic_visual';
+  cardCount?: number;
+}
+
 export interface AIProvider {
   readonly name: AIProviderName;
   planText(input: TextPlanRequest): Promise<TextPlanResult>;
   generateImageOrDocument(input: MockDocumentRequest): Promise<MockDocumentResult>;
+  enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput>;
 }

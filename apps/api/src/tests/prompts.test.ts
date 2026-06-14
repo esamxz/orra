@@ -5,7 +5,9 @@ import { createAuthMiddleware } from '../middleware/auth.js';
 import { requestIdMiddleware } from '../middleware/request-id.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { createFakeVerifier } from '../auth/verifier.js';
-import promptsRoute from '../routes/prompts.js';
+import promptsRoute, { createPromptsRoute } from '../routes/prompts.js';
+import type { AIProvider } from '@orra/ai';
+import { AIProviderError } from '@orra/ai';
 import type { Repositories } from '../repositories/types.js';
 import type { EnhancePromptResponse } from '@orra/shared';
 
@@ -365,5 +367,115 @@ describe('POST /v1/prompts/enhance', () => {
       const json = (await res.json()) as ApiResponse<EnhancePromptResponse>;
       expect(json.ok).toBe(true);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AI mode tests (P0.2)
+// ---------------------------------------------------------------------------
+
+const AI_ENV = {
+  ENVIRONMENT: 'development',
+  PROMPT_ENHANCER_MODE: 'ai',
+  AI_PROVIDER: 'fake',
+} as unknown as Record<string, unknown>;
+
+function buildAiApp(testProvider?: AIProvider) {
+  const app = new Hono<{ Bindings: Env }>();
+  app.use(requestIdMiddleware);
+  app.use(createAuthMiddleware(fakeVerifier, { repositories: createMinimalFakeRepositories() }));
+  app.route('/v1/prompts', createPromptsRoute({ testProvider }));
+  app.onError(errorHandler);
+  return app;
+}
+
+async function enhanceAi(app: ReturnType<typeof buildAiApp>, body: unknown) {
+  return app.request(
+    '/v1/prompts/enhance',
+    { method: 'POST', headers: AUTH_HEADER, body: JSON.stringify(body) },
+    AI_ENV,
+  );
+}
+
+describe('POST /v1/prompts/enhance — AI mode', () => {
+  it('routes through FakeAIProvider and returns a result', async () => {
+    const app = buildAiApp();
+    const res = await enhanceAi(app, { prompt: 'Post about discipline' });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse<EnhancePromptResponse>;
+    expect(json.ok).toBe(true);
+    expect(json.data!.enhancedPrompt.trim()).not.toBe('');
+    expect(json.data!.originalPrompt).toBe('Post about discipline');
+  });
+
+  it('preserves single_post inferredType for a post prompt', async () => {
+    const app = buildAiApp();
+    const res = await enhanceAi(app, { prompt: 'Create a post about discipline' });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse<EnhancePromptResponse>;
+    expect(json.data!.inferredType).toBe('single_post');
+    expect(json.data!.cardCount).toBeUndefined();
+  });
+
+  it('preserves carousel inferredType with cardCount for carousel prompt', async () => {
+    const app = buildAiApp();
+    const res = await enhanceAi(app, { prompt: 'Make a 5 card carousel about focus' });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse<EnhancePromptResponse>;
+    expect(json.data!.inferredType).toBe('carousel');
+    expect(json.data!.cardCount).toBe(5);
+  });
+
+  it('returns 502 with friendly message when AIProviderError is thrown', async () => {
+    const failingProvider: AIProvider = {
+      name: 'gemini' as const,
+      async planText() { throw new Error('not used'); },
+      async generateImageOrDocument() { throw new Error('not used'); },
+      async enhancePrompt() {
+        throw new AIProviderError({
+          code: 'PROVIDER_HTTP_ERROR',
+          provider: 'gemini',
+          message: 'Gemini returned HTTP 429',
+          retryable: true,
+        });
+      },
+    };
+
+    const app = buildAiApp(failingProvider);
+    const res = await app.request(
+      '/v1/prompts/enhance',
+      { method: 'POST', headers: AUTH_HEADER, body: JSON.stringify({ prompt: 'Post about focus' }) },
+      { ENVIRONMENT: 'development', PROMPT_ENHANCER_MODE: 'ai' } as unknown as Record<string, unknown>,
+    );
+    expect(res.status).toBe(502);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error?.code).toBe('PROVIDER_FAILURE');
+    expect(json.error?.message).toContain('temporarily unavailable');
+  });
+
+  it('does not leak API keys in the response', async () => {
+    const app = buildAiApp();
+    const res = await enhanceAi(app, { prompt: 'Post about focus' });
+    const text = await res.text();
+    expect(text).not.toContain('GEMINI_API_KEY');
+    expect(text).not.toContain('geminiApiKey');
+  });
+
+  it('does not create projects or mutate DB in AI mode', async () => {
+    const repos = createMinimalFakeRepositories();
+    let createCalled = false;
+    repos.project = {
+      create: async () => { createCalled = true; throw new Error('should not be called'); },
+    } as unknown as Repositories['project'];
+
+    const aiApp = new Hono<{ Bindings: Env }>();
+    aiApp.use(requestIdMiddleware);
+    aiApp.use(createAuthMiddleware(fakeVerifier, { repositories: repos }));
+    aiApp.route('/v1/prompts', createPromptsRoute());
+    aiApp.onError(errorHandler);
+
+    await enhanceAi(aiApp, { prompt: 'Post about focus' });
+    expect(createCalled).toBe(false);
   });
 });

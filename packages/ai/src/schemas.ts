@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+// P0.2: schema for validating the JSON object returned by Gemini for prompt enhancement
+export const PromptEnhancementResultSchema = z.object({
+  enhancedPrompt: z.string().min(1).max(4000),
+  inferredType: z.enum(['single_post', 'carousel', 'generic_visual']),
+  cardCount: z.number().int().min(2).max(10).optional(),
+});
+
 // Phase 14A: per-card content schema
 export const PlannedCardSchema = z.object({
   headline: z.string().min(1).max(200),

@@ -13,6 +13,7 @@
     "deploy:staging:dry-run": "wrangler deploy --env staging --dry-run"
   },
   "dependencies": {
+    "@orra/ai": "workspace:*",
     "@orra/db": "workspace:*",
     "@orra/shared": "workspace:*",
     "@supabase/supabase-js": "^2.49.4",

@@ -9,7 +9,7 @@
 
 export interface AIProviderObservation {
   provider: string;
-  operation: 'planText' | 'generateImage';
+  operation: 'planText' | 'generateImage' | 'enhancePrompt';
   status: 'started' | 'succeeded' | 'failed';
   durationMs?: number;           // present on succeeded and failed
   retryable?: boolean;           // present on failed

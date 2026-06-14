@@ -31,6 +31,13 @@ export const EnvSchema = z.object({
   // If unset, all valid Clerk users are allowed (staging-safe default).
   // Set in staging/production to restrict access to listed emails only.
   PRIVATE_ALPHA_EMAIL_ALLOWLIST: z.string().optional(),
+  // P0.2: prompt enhancement via AI provider seam.
+  // Default is deterministic. Set to 'ai' in staging/production with a real provider.
+  PROMPT_ENHANCER_MODE: z.enum(['ai', 'deterministic']).optional(),
+  AI_PROVIDER: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_TEXT_MODEL: z.string().optional(),
+  AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema> & {
@@ -81,6 +88,23 @@ export function validateApiEnv(env: unknown): Env {
         `Missing required environment variables for ${parsed.ENVIRONMENT}: ${missing.join(', ')}`
       );
     }
+
+    // AI provider guards for staging/production
+    const aiProvider = parsed.AI_PROVIDER ?? 'fake';
+    if (parsed.PROMPT_ENHANCER_MODE === 'ai' && aiProvider === 'fake') {
+      throw new Error(
+        `AI_PROVIDER=fake is not allowed in ${parsed.ENVIRONMENT} when PROMPT_ENHANCER_MODE=ai`
+      );
+    }
+  }
+
+  // Gemini key guard applies in all environments
+  if (
+    parsed.PROMPT_ENHANCER_MODE === 'ai' &&
+    (parsed.AI_PROVIDER ?? 'fake') === 'gemini' &&
+    !parsed.GEMINI_API_KEY
+  ) {
+    throw new Error('GEMINI_API_KEY is required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=gemini');
   }
 
   return parsed as Env;

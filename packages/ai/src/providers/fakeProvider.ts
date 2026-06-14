@@ -1,4 +1,4 @@
-import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, MockDocumentRequest, MockDocumentResult } from '../types.js';
+import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, MockDocumentRequest, MockDocumentResult, PromptEnhancementInput, PromptEnhancementOutput } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Fake AI provider
@@ -94,4 +94,97 @@ export class FakeAIProvider implements AIProvider {
   async generateImageOrDocument(_input: MockDocumentRequest): Promise<MockDocumentResult> {
     return { kind: 'mock_document' };
   }
+
+  async enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput> {
+    const normalized = input.prompt.replace(/\s+/g, ' ').trim();
+    const inferredType = fakeDetectType(normalized, input.selectedType);
+    const cardCount = inferredType === 'carousel' ? fakeExtractCardCount(normalized) : undefined;
+    const tone = fakeDetectTone(normalized);
+    const ratioLabel = input.aspectRatio ? `${input.aspectRatio} ` : '';
+    const wordCount = normalized.split(/\s+/).length;
+
+    let enhancedPrompt: string;
+
+    if (wordCount > 80) {
+      enhancedPrompt = normalized;
+    } else if (inferredType === 'carousel') {
+      const count = cardCount ?? 5;
+      const topic = fakeExtractTopic(normalized);
+      enhancedPrompt =
+        `Create a ${count}-card carousel about ${topic}. ` +
+        `Use a ${tone} tone and clear visual direction. ` +
+        `Structure it as: Card 1 hook, middle cards key points, final card takeaway. ` +
+        `Keep each card focused, readable, and visually consistent.`;
+    } else {
+      const topic = fakeExtractTopic(normalized);
+      enhancedPrompt =
+        `Create a ${tone} ${ratioLabel}social post about ${topic}. ` +
+        `Use a bold minimal layout with strong visual contrast. ` +
+        `Include a strong headline, short supporting text, and a clear focal point. ` +
+        `Keep the design clean and focused.`;
+    }
+
+    if (input.hasAssets) {
+      enhancedPrompt +=
+        ' Use the attached image(s) as visual reference or source material.' +
+        ' Preserve important details. Do not alter logos or brand marks.';
+    }
+
+    return {
+      enhancedPrompt: enhancedPrompt.trim(),
+      inferredType,
+      ...(cardCount !== undefined ? { cardCount } : {}),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Enhancement helpers — deterministic, no network, shared with FakeAIProvider
+// ---------------------------------------------------------------------------
+
+const FAKE_ENHANCEMENT_TONES = [
+  'professional', 'clean', 'minimal', 'bold', 'playful', 'fun',
+  'motivational', 'serious', 'editorial', 'soft', 'raw', 'vibrant',
+];
+
+function fakeDetectType(
+  normalized: string,
+  selectedType?: string,
+): 'single_post' | 'carousel' | 'generic_visual' {
+  if (selectedType === 'single_post') return 'single_post';
+  if (selectedType === 'carousel') return 'carousel';
+  if (selectedType === 'generic_visual') return 'generic_visual';
+  if (/\b(carousel|slides?|cards?)\b/i.test(normalized)) return 'carousel';
+  return 'single_post';
+}
+
+function fakeExtractCardCount(normalized: string): number {
+  const match = normalized.match(/\b(\d+)\s*(?:card|slide|page)s?\b/i);
+  if (match) {
+    const n = parseInt(match[1], 10);
+    return Math.min(10, Math.max(2, n));
+  }
+  return 5;
+}
+
+function fakeDetectTone(normalized: string): string {
+  for (const kw of FAKE_ENHANCEMENT_TONES) {
+    if (new RegExp(`\\b${kw}\\b`, 'i').test(normalized)) return kw;
+  }
+  return 'clean, focused';
+}
+
+function fakeExtractTopic(normalized: string): string {
+  const aboutMatch = normalized.match(/\babout\s+(.+?)(?=\s*(?:\.|,|;|$))/i);
+  if (aboutMatch) {
+    const topic = aboutMatch[1].trim();
+    return topic.length > 120 ? topic.slice(0, 120) : topic;
+  }
+  const stripped = normalized
+    .replace(/^(?:create|make|design|build|generate|write|show|craft|produce)\s+/i, '')
+    .replace(/^(?:a|an|the)\s+/i, '')
+    .replace(/^(?:\d+[- ]?(?:card|slide|page)s?\s+)?(?:carousel|post|social post|image|visual)\s+/i, '')
+    .trim();
+  const result = stripped || normalized;
+  return result.length > 120 ? result.slice(0, 120) : result;
 }

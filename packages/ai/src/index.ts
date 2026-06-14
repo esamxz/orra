@@ -8,6 +8,8 @@ export type {
   AIProvider,
   RecentChatMessage,
   CurrentArtifactSummary,
+  PromptEnhancementInput,
+  PromptEnhancementOutput,
 } from './types.js';
 
 export type {
@@ -38,7 +40,7 @@ export type { AIProviderErrorCode } from './errors.js';
 export type { AIProviderObservation, AIProviderObserver } from './observability.js';
 export { NoopAIProviderObserver } from './observability.js';
 
-export { TextPlanResultSchema, PlannedCardSchema } from './schemas.js';
+export { TextPlanResultSchema, PlannedCardSchema, PromptEnhancementResultSchema } from './schemas.js';
 
 export { extractJsonObjectFromText } from './json.js';
 export { normalizeTextPlanResult } from './normalization.js';

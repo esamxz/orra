@@ -1668,6 +1668,9 @@ function createSpyRouter(): { router: AIProviderRouter; calls: { projectType: st
     async generateImageOrDocument() {
       return { kind: 'mock_document' as const };
     },
+    async enhancePrompt() {
+      throw new Error('not used');
+    },
   };
   const router: AIProviderRouter = { getProvider: () => provider };
   return { router, calls };
@@ -1682,6 +1685,9 @@ function createFailingRouter(): AIProviderRouter {
       },
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
+      },
+      async enhancePrompt() {
+        throw new Error('not used');
       },
     }),
   };
@@ -1798,6 +1804,9 @@ function createCapturingRouter(): {
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
       },
+      async enhancePrompt() {
+        throw new Error('not used');
+      },
     }),
   };
 
@@ -1909,6 +1918,9 @@ describe('Gemini router integration', () => {
             message: 'no images',
           });
         },
+        async enhancePrompt() {
+          throw new Error('not used');
+        },
       }),
     };
   }
@@ -2004,6 +2016,9 @@ function createExtendedCapturingRouter(): {
       },
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
+      },
+      async enhancePrompt() {
+        throw new Error('not used');
       },
     }),
   };
@@ -2185,6 +2200,9 @@ function createPlanContentRouter(planOverrides: Partial<TextPlanResult> = {}): A
     async generateImageOrDocument() {
       return { kind: 'mock_document' as const };
     },
+    async enhancePrompt() {
+      throw new Error('not used');
+    },
   };
   return { getProvider: () => provider };
 }
@@ -2287,6 +2305,9 @@ function createAIProviderErrorRouter(code: string): AIProviderRouter {
       },
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
+      },
+      async enhancePrompt() {
+        throw new Error('not used');
       },
     }),
   };

@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import type { Env } from '../env.js';
 import { EnhancePromptRequestSchema } from '@orra/shared';
+import type { AIProvider } from '@orra/ai';
+import { createAIProviderRouter } from '@orra/ai';
 import { validateJson } from '../middleware/validate.js';
 import { enhancePrompt } from '../services/promptEnhancerService.js';
 import { success } from '../response.js';
@@ -8,15 +10,35 @@ import { success } from '../response.js';
 // ---------------------------------------------------------------------------
 // Prompts route — protected
 // ---------------------------------------------------------------------------
-// POST /v1/prompts/enhance  — deterministic prompt enhancement (P0)
-// No DB mutations. No credit reservation. No AI calls.
+// POST /v1/prompts/enhance  — prompt enhancement (P0/P0.2)
+// No DB mutations. No credit reservation.
+// mode=deterministic (default): rule-based, no AI calls.
+// mode=ai: routes through AIProviderRouter (GeminiTextProvider or FakeAIProvider).
 
-const promptsRoute = new Hono<{ Bindings: Env }>();
+export function createPromptsRoute(opts?: { testProvider?: AIProvider }): Hono<{ Bindings: Env }> {
+  const route = new Hono<{ Bindings: Env }>();
 
-promptsRoute.post('/enhance', validateJson(EnhancePromptRequestSchema), async (c) => {
-  const body = c.req.valid('json');
-  const result = enhancePrompt(body);
-  return success(c, result);
-});
+  route.post('/enhance', validateJson(EnhancePromptRequestSchema), async (c) => {
+    const body = c.req.valid('json');
+    const mode = (c.env.PROMPT_ENHANCER_MODE ?? 'deterministic') as 'ai' | 'deterministic';
 
-export default promptsRoute;
+    let provider: AIProvider | undefined = opts?.testProvider;
+
+    if (!provider && mode === 'ai') {
+      const router = createAIProviderRouter({
+        provider: c.env.AI_PROVIDER ?? 'fake',
+        geminiApiKey: c.env.GEMINI_API_KEY,
+        geminiModel: c.env.GEMINI_TEXT_MODEL,
+        timeoutMs: c.env.AI_PROVIDER_TIMEOUT_MS,
+      });
+      provider = router.getProvider();
+    }
+
+    const result = await enhancePrompt(body, { provider, mode });
+    return success(c, result);
+  });
+
+  return route;
+}
+
+export default createPromptsRoute();

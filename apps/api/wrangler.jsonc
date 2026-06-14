@@ -30,7 +30,11 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "R2_ACCOUNT_ID": "745be7de68c0f2a97f14964da20be6d7",
-        "R2_BUCKET_NAME": "orra-assets-staging"
+        "R2_BUCKET_NAME": "orra-assets-staging",
+        "PROMPT_ENHANCER_MODE": "ai",
+        "AI_PROVIDER": "gemini",
+        "GEMINI_TEXT_MODEL": "gemini-2.0-flash-lite"
+        // GEMINI_API_KEY is a secret — set via: wrangler secret put GEMINI_API_KEY --env staging
       },
       "queues": {
         "producers": [
@@ -51,7 +55,11 @@
       "vars": {
         "ENVIRONMENT": "production",
         "R2_ACCOUNT_ID": "745be7de68c0f2a97f14964da20be6d7",
-        "R2_BUCKET_NAME": "orra-assets"
+        "R2_BUCKET_NAME": "orra-assets",
+        "PROMPT_ENHANCER_MODE": "ai",
+        "AI_PROVIDER": "gemini",
+        "GEMINI_TEXT_MODEL": "gemini-2.0-flash-lite"
+        // GEMINI_API_KEY is a secret — set via: wrangler secret put GEMINI_API_KEY --env production
       },
       "queues": {
         "producers": [
@@ -71,7 +79,7 @@
   }
 }
 
-// Secrets (set via `wrangler secret put` — never commit real values):
+// Secrets (set via `wrangler secret put [--env staging|production]` — never commit real values):
 //   SUPABASE_URL                — Supabase project URL
 //   SUPABASE_SERVICE_ROLE_KEY   — Supabase service role key
 //   CLERK_SECRET_KEY            — Clerk secret key
@@ -83,6 +91,7 @@
 //   ALLOWED_ORIGINS             — Comma-separated allowed CORS origins for this env
 //   INITIAL_CREDIT_GRANT        — Credits granted on first workspace creation (default 0)
 //   PRIVATE_ALPHA_EMAIL_ALLOWLIST — Comma-separated emails for private-alpha access (optional; if unset, all Clerk users are allowed)
+//   GEMINI_API_KEY               — Gemini API key for prompt enhancement (required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=gemini)
 //
 // R2 bucket CORS policy required for browser uploads:
 //   Allowed methods: PUT

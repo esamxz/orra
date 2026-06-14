@@ -8,11 +8,14 @@ import type {
   MockDocumentResult,
   RecentChatMessage,
   CurrentArtifactSummary,
+  PromptEnhancementInput,
+  PromptEnhancementOutput,
 } from '../types.js';
 import type { ProjectContextMemory } from '@orra/shared';
 import { AIProviderError } from '../errors.js';
 import { extractJsonObjectFromText } from '../json.js';
 import { normalizeTextPlanResult } from '../normalization.js';
+import { PromptEnhancementResultSchema } from '../schemas.js';
 import type { AIProviderObserver } from '../observability.js';
 import { NoopAIProviderObserver } from '../observability.js';
 
@@ -175,6 +178,125 @@ export class GeminiTextProvider implements AIProvider {
     });
   }
 
+  async enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput> {
+    const prompt = this.buildEnhancementPrompt(input);
+    const t0 = Date.now();
+
+    this.observer.observe({
+      provider: 'gemini',
+      operation: 'enhancePrompt',
+      status: 'started',
+      model: this.model,
+      promptChars: prompt.length,
+    });
+
+    const url = `${this.baseUrl}/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new AIProviderError({
+            code: 'PROVIDER_TIMEOUT',
+            provider: 'gemini',
+            message: `Gemini request timed out after ${this.timeoutMs}ms`,
+            retryable: true,
+          });
+        }
+        throw new AIProviderError({
+          code: 'PROVIDER_HTTP_ERROR',
+          provider: 'gemini',
+          message: `Gemini network error: ${err instanceof Error ? err.message : 'unknown'}`,
+          retryable: true,
+        });
+      }
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        throw new AIProviderError({
+          code: 'PROVIDER_HTTP_ERROR',
+          provider: 'gemini',
+          message: `Gemini returned HTTP ${response.status}`,
+          retryable: response.status >= 500,
+        });
+      }
+
+      let raw: unknown;
+      try {
+        raw = await response.json();
+      } catch {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'gemini',
+          message: 'Gemini response body was not valid JSON',
+        });
+      }
+
+      const envelope = GeminiEnvelopeSchema.safeParse(raw);
+      if (!envelope.success) {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'gemini',
+          message: 'Gemini response did not match expected envelope shape',
+        });
+      }
+
+      const rawText = envelope.data.candidates[0].content.parts[0].text;
+      const extracted = extractJsonObjectFromText(rawText, 'gemini');
+
+      const parsed = PromptEnhancementResultSchema.safeParse(extracted);
+      if (!parsed.success) {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'gemini',
+          message: 'Gemini enhancement response failed schema validation',
+        });
+      }
+
+      const result = parsed.data;
+
+      this.observer.observe({
+        provider: 'gemini',
+        operation: 'enhancePrompt',
+        status: 'succeeded',
+        durationMs: Date.now() - t0,
+        model: this.model,
+        promptChars: prompt.length,
+        responseChars: rawText.length,
+      });
+
+      return {
+        enhancedPrompt: result.enhancedPrompt,
+        inferredType: result.inferredType,
+        ...(result.cardCount !== undefined ? { cardCount: result.cardCount } : {}),
+      };
+    } catch (err) {
+      const durationMs = Date.now() - t0;
+      this.observer.observe({
+        provider: 'gemini',
+        operation: 'enhancePrompt',
+        status: 'failed',
+        durationMs,
+        errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNKNOWN',
+        retryable: err instanceof AIProviderError ? err.retryable : false,
+      });
+      throw err;
+    }
+  }
+
   private buildPrompt(input: TextPlanRequest): string {
     const brandSection = input.brandContext
       ? `Brand tone: ${input.brandContext.tone ?? 'not specified'}\nVisual direction: ${input.brandContext.visualDirection ?? 'not specified'}`
@@ -238,5 +360,37 @@ Do not include image prompts, layer coordinates, or ArtifactDocument JSON.`;
         ? ` Existing text: ${summary.textSnippets.map((s) => `"${s.slice(0, 100)}"`).join(', ')}.`
         : '';
     return `\nCurrent artifact: ${summary.cardCount} card(s), ${summary.textLayerCount} text layer(s), ${summary.imageLayerCount} image layer(s).${snippetPart}\n`;
+  }
+
+  private buildEnhancementPrompt(input: PromptEnhancementInput): string {
+    const selectedTypeHint = input.selectedType ? `\nUser selected type: ${input.selectedType}` : '';
+    const ratioHint = input.aspectRatio ? `\nAspect ratio: ${input.aspectRatio}` : '';
+    const assetHint = input.hasAssets
+      ? `\nAttached assets: ${input.assetCount ?? 1} image(s) attached by the user.`
+      : '';
+
+    return `You are a creative brief writer for a visual content creation tool.
+
+Expand and clarify the following rough user prompt into a richer creative brief suitable for generating a social media visual.
+
+User prompt: "${input.prompt}"${selectedTypeHint}${ratioHint}${assetHint}
+
+Rules:
+- Preserve the user's original topic and intent exactly.
+- If selectedType is "single_post" or the user prompt mentions "post", set inferredType to "single_post".
+- If selectedType is "carousel" or the user prompt mentions "carousel", "slides", or "cards", set inferredType to "carousel".
+- If neither applies, default inferredType to "single_post".
+- Never change single_post to carousel or vice versa against the user's stated intent.
+- Only add cardCount when inferredType is "carousel". For single_post, never include cardCount.
+- Do not invent fake statistics, percentage claims, named studies, brand names, URLs, CTAs, or product details not mentioned by the user.
+- Do not invent audience demographics, company names, or specific data points.
+- Keep the enhanced prompt concise (2-5 sentences). Do not write a paragraph-by-paragraph essay.
+- If the original prompt is already detailed (over 80 words), polish lightly without rewriting.
+- If assets are attached, mention using them as visual reference.
+
+Return a JSON object with exactly these fields:
+- enhancedPrompt: string (1-4000 chars) — the expanded creative brief
+- inferredType: "single_post" | "carousel" | "generic_visual"
+- cardCount: integer (2-10, only when inferredType is "carousel")`;
   }
 }
