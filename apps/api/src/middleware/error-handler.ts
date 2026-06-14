@@ -1,7 +1,5 @@
 import type { Context, ErrorHandler } from 'hono';
 import { isApiError, type ApiErrorCode } from '../errors.js';
-import { captureApiError, trackBackendEvent } from '../lib/observability.js';
-import type { Env } from '../env.js';
 
 // ---------------------------------------------------------------------------
 // Global error handler
@@ -26,23 +24,11 @@ export const errorHandler: ErrorHandler = (err, c) => {
         ...(err.details ? { details: err.details } : {}),
       },
     };
-    if (err.status >= 500) {
-      const env = c.env as Env | undefined;
-      if (env) {
-        captureApiError(err, { route: c.req.path, method: c.req.method, status: err.status, errorCode: err.code, requestId });
-        trackBackendEvent(env, 'api_error_5xx', { status: err.status, errorCode: err.code, requestId });
-      }
-    }
     return c.json(body, err.status as Parameters<typeof c.json>[1]);
   }
 
   // Unknown errors: log stack internally, return generic INTERNAL
   console.error('Unhandled error:', err);
-  const env = c.env as Env | undefined;
-  if (env) {
-    captureApiError(err, { route: c.req.path, method: c.req.method, status: 500, errorCode: 'INTERNAL', requestId });
-    trackBackendEvent(env, 'api_error_5xx', { status: 500, errorCode: 'INTERNAL', requestId });
-  }
 
   const isStaging = (c.env as { ENVIRONMENT?: string })?.ENVIRONMENT === 'staging';
   const message =

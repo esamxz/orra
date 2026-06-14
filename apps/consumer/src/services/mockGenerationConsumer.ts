@@ -8,8 +8,6 @@ import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateMockArtifactDocument, generateMockSingleCard } from './mockArtifactGenerator.js';
 import { createAIProviderRouter, buildArtifactSummary, AIProviderError } from '@orra/ai';
 import type { AIProviderRouter, RecentChatMessage, TextPlanResult } from '@orra/ai';
-import type { ConsumerEnv } from '../env.js';
-import { captureConsumerError, trackConsumerEvent } from '../lib/observability.js';
 
 // ---------------------------------------------------------------------------
 // Mock generation consumer
@@ -58,8 +56,7 @@ export class MockGenerationConsumer {
     private creditRepo?: CreditRepository,
     private aiRouter: AIProviderRouter = createAIProviderRouter(),
     private projectMemoryRepo?: ProjectMemoryRepository,
-    private chatRepo?: ChatRepository,
-    private env?: ConsumerEnv
+    private chatRepo?: ChatRepository
   ) {}
 
   /**
@@ -328,9 +325,6 @@ export class MockGenerationConsumer {
       }
 
       console.info(`Job ${message.jobId} completed successfully. Result version ${committedVersion.id}, captured ${capturedCredits} credits.`);
-      if (this.env) {
-        trackConsumerEvent(this.env, 'generation_job_succeeded', { jobId: message.jobId });
-      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error during mock generation';
       console.error(`Job ${message.jobId} failed during processing: ${errMsg}`);
@@ -365,17 +359,6 @@ export class MockGenerationConsumer {
         code: 'MOCK_GENERATION_FAILED',
         message: errMsg,
       });
-
-      // Capture error and track event — fail open so this never breaks retry logic
-      const errorCode = err instanceof AIProviderError ? err.code : 'MOCK_GENERATION_FAILED';
-      captureConsumerError(err, {
-        jobId: message.jobId,
-        errorCode,
-        retryable: true,
-      });
-      if (this.env) {
-        trackConsumerEvent(this.env, 'generation_job_failed', { jobId: message.jobId, errorCode });
-      }
     }
   }
 }

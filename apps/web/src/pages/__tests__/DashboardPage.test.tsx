@@ -80,16 +80,6 @@ vi.mock('../../hooks/useTheme', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Observability mock
-// ---------------------------------------------------------------------------
-const mockTrack = vi.fn();
-vi.mock('../../lib/observability', () => ({
-  track: (...args: unknown[]) => mockTrack(...args),
-  identify: vi.fn(),
-  reset: vi.fn(),
-}));
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function makeProject(overrides: Record<string, unknown> = {}) {
@@ -607,61 +597,6 @@ describe('DashboardPage', () => {
       await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
       // enhancePrompt should NOT have been called
       expect(mockEnhancePrompt).not.toHaveBeenCalled();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Observability tracking tests
-  // ---------------------------------------------------------------------------
-  describe('analytics tracking', () => {
-    it('tracks dashboard_viewed on mount', async () => {
-      renderDashboard();
-      await waitFor(() => expect(mockTrack).toHaveBeenCalledWith('dashboard_viewed'));
-    });
-
-    it('tracks prompt_enhance_clicked when Enhance is clicked', async () => {
-      renderDashboard();
-      const textarea = screen.getByRole('textbox');
-      fireEvent.change(textarea, { target: { value: 'Post about focus' } });
-      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
-      await waitFor(() => expect(mockTrack).toHaveBeenCalledWith('prompt_enhance_clicked'));
-    });
-
-    it('tracks prompt_enhance_succeeded without prompt text in properties', async () => {
-      renderDashboard();
-      const textarea = screen.getByRole('textbox');
-      fireEvent.change(textarea, { target: { value: 'Post about focus' } });
-      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
-      await waitFor(() => expect(mockTrack).toHaveBeenCalledWith('prompt_enhance_succeeded'));
-      // Verify no call passed the prompt text
-      const succeededCalls = mockTrack.mock.calls.filter((c) => c[0] === 'prompt_enhance_succeeded');
-      expect(succeededCalls.length).toBe(1);
-      const props = succeededCalls[0][1];
-      expect(JSON.stringify(props ?? {})).not.toContain('focus');
-    });
-
-    it('tracks project_create_clicked without prompt text in properties', async () => {
-      renderDashboard();
-      const textarea = screen.getByRole('textbox');
-      fireEvent.change(textarea, { target: { value: 'Secret prompt text' } });
-      const createBtn = screen.getByRole('button', { name: /^create$/i });
-      fireEvent.click(createBtn);
-      await waitFor(() => expect(mockTrack).toHaveBeenCalledWith('project_create_clicked', expect.any(Object)));
-      const createCalls = mockTrack.mock.calls.filter((c) => c[0] === 'project_create_clicked');
-      const props = createCalls[0][1];
-      expect(JSON.stringify(props ?? {})).not.toContain('Secret');
-    });
-
-    it('tracks prompt_enhance_failed when enhancement fails', async () => {
-      mockEnhancePrompt.mockRejectedValueOnce(new Error('Server error'));
-      renderDashboard();
-      const textarea = screen.getByRole('textbox');
-      fireEvent.change(textarea, { target: { value: 'Post about focus' } });
-      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
-      await waitFor(() => expect(mockTrack).toHaveBeenCalledWith('prompt_enhance_failed', expect.any(Object)));
-      const failedCalls = mockTrack.mock.calls.filter((c) => c[0] === 'prompt_enhance_failed');
-      const props = failedCalls[0][1];
-      expect(JSON.stringify(props ?? {})).not.toContain('focus');
     });
   });
 });

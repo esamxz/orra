@@ -39,14 +39,3 @@ IMAGE_PROVIDER=fake
 # Optional Gemini image model override. Defaults to gemini-2.5-flash-image.
 # GEMINI_API_KEY is shared with AI_PROVIDER=gemini — one key for both text and image.
 GEMINI_IMAGE_MODEL=
-
-# ---------------------------------------------------------------------------
-# Observability (O0) — disabled by default, safe to leave empty
-# ---------------------------------------------------------------------------
-# Set OBSERVABILITY_ENABLED=true and fill in real values for staging/production.
-# SENTRY_DSN and POSTHOG_PROJECT_TOKEN should be set via `wrangler secret put` in staging/prod.
-OBSERVABILITY_ENABLED=false
-SENTRY_DSN=
-SENTRY_ENVIRONMENT=development
-POSTHOG_PROJECT_TOKEN=
-POSTHOG_HOST=https://us.i.posthog.com

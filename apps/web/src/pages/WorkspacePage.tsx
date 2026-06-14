@@ -13,7 +13,6 @@ import { useAssetPreviewUrls } from '../hooks/useAssetPreviewUrls';
 import { useProjectMemory } from '../hooks/useProjectMemory';
 import { appendProjectMessage, prepareProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
-import { track } from '../lib/observability';
 import { updateProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
 import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto, ApprovalAction } from '../api/types';
@@ -352,7 +351,6 @@ export default function WorkspacePage() {
           type: 'done',
           text: 'Generation completed. The updated design is loading.',
         };
-        track('generation_succeeded');
         flash('Generation completed');
       } else if (status === 'failed') {
         updated[generatingIdx] = {
@@ -360,7 +358,6 @@ export default function WorkspacePage() {
           type: 'done',
           text: `Generation failed: ${polledJob.error ? JSON.stringify(polledJob.error) : 'Unknown error'}`,
         };
-        track('generation_failed');
         flash('Generation failed');
       }
 
@@ -573,7 +570,6 @@ export default function WorkspacePage() {
       // Phase 9G: create generation job and start polling after approval
       // Phase 10B: credit reservation before enqueue
       if (action === 'approve_and_create') {
-        track('generation_approved');
         setApprovedMessageId(messageId);
         try {
           const job = await createGenerationJob({ projectId, approvalMessageId: messageId });
@@ -599,7 +595,6 @@ export default function WorkspacePage() {
       }
 
       if (action === 'create_card_by_card') {
-        track('selected_card_generation_approved');
         setApprovedMessageId(messageId);
         setCardByCardMode(true);
       }

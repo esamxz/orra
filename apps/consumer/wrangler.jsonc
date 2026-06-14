@@ -16,11 +16,7 @@
   "env": {
     "staging": {
       "vars": {
-        "ENVIRONMENT": "staging",
-        "OBSERVABILITY_ENABLED": "true",
-        "SENTRY_ENVIRONMENT": "staging"
-        // SENTRY_DSN is a secret — set via: wrangler secret put SENTRY_DSN --env staging
-        // POSTHOG_PROJECT_TOKEN is a secret — set via: wrangler secret put POSTHOG_PROJECT_TOKEN --env staging
+        "ENVIRONMENT": "staging"
       },
       "queues": {
         "consumers": [
@@ -60,5 +56,3 @@
 //   IMAGE_PROVIDER              — fake (default) or gemini; fake is blocked in production
 //   GEMINI_IMAGE_MODEL          — optional Gemini image model override (default: gemini-2.5-flash-image)
 //   ALLOW_FAKE_PROVIDER_IN_PRODUCTION — set to 'true' only for emergency debugging in production (default: blocked)
-//   SENTRY_DSN                   — Sentry DSN for error monitoring (O0; set when OBSERVABILITY_ENABLED=true)
-//   POSTHOG_PROJECT_TOKEN        — PostHog project token for analytics (O0; set when OBSERVABILITY_ENABLED=true)

@@ -8,7 +8,6 @@ import { useCreditStatus } from '../hooks/useCreditStatus';
 import UsageStatus from '../components/workspace/UsageStatus';
 import { createNewProject, type CreateNewProjectInput } from '../api/projects';
 import { ApiClientError } from '../api/errors';
-import { track } from '../lib/observability';
 
 const DEFAULT_RATIO = { name: '4:5' as const, w: 1080, h: 1350 };
 
@@ -44,7 +43,6 @@ export default function TrendTemplatesPage() {
     if (creating) return;
     setCreating(template.id);
     setCreateError(null);
-    track('template_used', { templateId: template.id, category: template.category });
     try {
       const input: CreateNewProjectInput = {
         name: template.title,

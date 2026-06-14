@@ -18,9 +18,7 @@
     "@orra/api": "workspace:*",
     "@orra/db": "workspace:*",
     "@orra/shared": "workspace:*",
-    "@sentry/cloudflare": "^10.57.0",
     "@supabase/supabase-js": "^2.49.4",
-    "posthog-node": "^5.37.0",
     "zod": "^3.25.72"
   },
   "devDependencies": {

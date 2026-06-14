@@ -22,7 +22,6 @@ import { brandSystemDtoToDisplayBrand, paletteToColors } from '../components/bra
 import { createProject, createNewProject } from '../api/projects';
 import { enhancePrompt } from '../api/prompts';
 import { ApiClientError } from '../api/errors';
-import { track } from '../lib/observability';
 
 const RATIOS = [
   { id: '1:1',  w: 20, h: 20, label: '1:1' },
@@ -107,10 +106,6 @@ export default function DashboardPage() {
   // Auto-grow textarea
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    track('dashboard_viewed');
-  }, []);
-
-  useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
@@ -132,7 +127,6 @@ export default function DashboardPage() {
     setCreateLoading(true);
     setCreateError(null);
     setAssetError(null);
-    track('project_create_clicked', { type });
 
     try {
       const activePrompt = (overrides.prefill ?? prompt).trim();
@@ -154,7 +148,6 @@ export default function DashboardPage() {
       } else {
         project = await createProject(baseArgs);
       }
-      track('project_created', { type: projectType, hasBrand: !!selectedBrandId && selectedBrandId !== '__no-brand__', hasAssets: pendingFiles.length > 0 });
 
       if (pendingFiles.length > 0) {
         await uploadPendingFiles(project.id);
@@ -188,7 +181,6 @@ export default function DashboardPage() {
     }
     setIsEnhancing(true);
     setEnhanceError(null);
-    track('prompt_enhance_clicked');
     try {
       const res = await enhancePrompt({
         prompt: trimmed,
@@ -200,11 +192,9 @@ export default function DashboardPage() {
       });
       setOriginalPrompt(trimmed);
       setPrompt(res.enhancedPrompt);
-      track('prompt_enhance_succeeded');
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : 'Could not enhance the prompt. Please try again.';
       setEnhanceError(msg);
-      track('prompt_enhance_failed', { errorCode: err instanceof ApiClientError ? err.code : 'UNKNOWN' });
     } finally {
       setIsEnhancing(false);
     }
@@ -263,7 +253,6 @@ export default function DashboardPage() {
 
   const uploadPendingFiles = async (projectId: string): Promise<void> => {
     if (pendingFiles.length === 0) return;
-    track('asset_upload_started', { count: pendingFiles.length });
     let anyFailed = false;
     for (const file of pendingFiles) {
       const result = await projectAssetUpload.upload(file, {
@@ -274,10 +263,7 @@ export default function DashboardPage() {
       if (!result) anyFailed = true;
     }
     if (anyFailed) {
-      track('asset_upload_failed');
       setAssetError('Some images could not be uploaded. You can re-add them in the workspace.');
-    } else {
-      track('asset_upload_succeeded', { count: pendingFiles.length });
     }
   };
 

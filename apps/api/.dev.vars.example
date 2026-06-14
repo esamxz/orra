@@ -51,14 +51,3 @@ DEV_GENERATION_QUEUE_DISABLED=true
 # Set to 0 for production. Set to 100 (or similar) for staging/private-alpha
 # so testers can run generation without manual credit grants.
 INITIAL_CREDIT_GRANT=0
-
-# ---------------------------------------------------------------------------
-# Observability (O0) — disabled by default, safe to leave empty
-# ---------------------------------------------------------------------------
-# Set OBSERVABILITY_ENABLED=true and fill in real values for staging/production.
-# SENTRY_DSN and POSTHOG_PROJECT_TOKEN should be set via `wrangler secret put` in staging/prod.
-OBSERVABILITY_ENABLED=false
-SENTRY_DSN=
-SENTRY_ENVIRONMENT=development
-POSTHOG_PROJECT_TOKEN=
-POSTHOG_HOST=https://us.i.posthog.com

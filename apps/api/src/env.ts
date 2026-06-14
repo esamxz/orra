@@ -38,12 +38,6 @@ export const EnvSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_TEXT_MODEL: z.string().optional(),
   AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
-  // O0: Observability — all optional; omit to disable silently.
-  OBSERVABILITY_ENABLED: z.literal('true').optional(),
-  SENTRY_DSN: z.string().optional(),
-  SENTRY_ENVIRONMENT: z.string().optional(),
-  POSTHOG_PROJECT_TOKEN: z.string().optional(),
-  POSTHOG_HOST: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema> & {

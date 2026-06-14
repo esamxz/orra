@@ -33,12 +33,8 @@
         "R2_BUCKET_NAME": "orra-assets-staging",
         "PROMPT_ENHANCER_MODE": "ai",
         "AI_PROVIDER": "gemini",
-        "GEMINI_TEXT_MODEL": "gemini-2.0-flash-lite",
-        "OBSERVABILITY_ENABLED": "true",
-        "SENTRY_ENVIRONMENT": "staging"
+        "GEMINI_TEXT_MODEL": "gemini-2.0-flash-lite"
         // GEMINI_API_KEY is a secret — set via: wrangler secret put GEMINI_API_KEY --env staging
-        // SENTRY_DSN is a secret — set via: wrangler secret put SENTRY_DSN --env staging
-        // POSTHOG_PROJECT_TOKEN is a secret — set via: wrangler secret put POSTHOG_PROJECT_TOKEN --env staging
       },
       "queues": {
         "producers": [
@@ -96,8 +92,6 @@
 //   INITIAL_CREDIT_GRANT        — Credits granted on first workspace creation (default 0)
 //   PRIVATE_ALPHA_EMAIL_ALLOWLIST — Comma-separated emails for private-alpha access (optional; if unset, all Clerk users are allowed)
 //   GEMINI_API_KEY               — Gemini API key for prompt enhancement (required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=gemini)
-//   SENTRY_DSN                   — Sentry DSN for error monitoring (O0; set when OBSERVABILITY_ENABLED=true)
-//   POSTHOG_PROJECT_TOKEN        — PostHog project token for analytics (O0; set when OBSERVABILITY_ENABLED=true)
 //
 // R2 bucket CORS policy required for browser uploads:
 //   Allowed methods: PUT
