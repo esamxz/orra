@@ -4,7 +4,7 @@ import { SupabaseArtifactRepository } from '@orra/api/src/repositories/artifactR
 import { SupabaseCreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import { SupabaseProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
-import { createAIProviderRouter } from '@orra/ai';
+import { createAIProviderRouter, createImageProviderRouter } from '@orra/ai';
 import type { ConsumerEnv } from './env.js';
 import { validateConsumerEnv } from './env.js';
 
@@ -37,6 +37,13 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
     const artifactRepo = new SupabaseArtifactRepository(db);
     const creditRepo = new SupabaseCreditRepository(db);
     const projectMemoryRepo = new SupabaseProjectMemoryRepository(db);
+    // Image provider router — validates config at startup; generation phases wire it through.
+    createImageProviderRouter({
+      provider: env.IMAGE_PROVIDER,
+      geminiApiKey: env.GEMINI_API_KEY,
+      geminiImageModel: env.GEMINI_IMAGE_MODEL,
+    });
+
     const consumer = new MockGenerationConsumer(
       jobRepo,
       artifactRepo,

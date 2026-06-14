@@ -1,18 +1,22 @@
 import type { ImageProvider } from './imageTypes.js';
 import { FakeImageProvider } from './providers/fakeImageProvider.js';
-import { FluxImageProvider } from './providers/fluxImageProvider.js';
+import { GeminiImageProvider, DEFAULT_GEMINI_IMAGE_MODEL } from './providers/geminiImageProvider.js';
 import { AIProviderError } from './errors.js';
 import type { AIProviderObserver } from './observability.js';
 
 // ---------------------------------------------------------------------------
-// Image provider router — Phase 15A / 15B
+// Image provider router — D5.2
 // ---------------------------------------------------------------------------
 // Separate from the text AIProviderRouter — image providers have different
-// config requirements (separate API keys, different capability tiers).
+// config requirements (separate model names, different capability tiers).
 //
-// Phase 15A: only 'fake' supported.
-// Phase 15B: 'flux' (FLUX Schnell via Black Forest Labs) added behind
-//   IMAGE_PROVIDER=flux + FLUX_API_KEY configuration.
+// Supported providers:
+//   'fake'   — FakeImageProvider (default; no API key required)
+//   'gemini' — GeminiImageProvider (requires geminiApiKey)
+//
+// Deprecated:
+//   'flux'   — IMAGE_PROVIDER=flux is no longer supported. Use IMAGE_PROVIDER=gemini.
+//              FluxImageProvider code is retained on disk but is not routed.
 //
 // Fake remains the default. Real provider selection requires explicit config.
 // Generated image R2 storage and artifact integration come in later phases.
@@ -22,14 +26,14 @@ export interface ImageProviderRouter {
 }
 
 export interface ImageProviderRouterConfig {
-  /** 'fake' (default) or 'flux'. Unknown values throw PROVIDER_CONFIG_MISSING. */
+  /** 'fake' (default) or 'gemini'. 'flux' is deprecated and throws. Unknown values throw PROVIDER_CONFIG_MISSING. */
   provider?: string;
-  /** Required when provider='flux'. */
-  fluxApiKey?: string;
-  /** Optional FLUX API base URL override (useful for tests). */
-  fluxBaseUrl?: string;
-  /** Optional FLUX model name override. Defaults to 'flux-schnell'. */
-  fluxModel?: string;
+  /** Required when provider='gemini'. Shared with AI text provider (GEMINI_API_KEY). */
+  geminiApiKey?: string;
+  /** Gemini image model name. Defaults to DEFAULT_GEMINI_IMAGE_MODEL. */
+  geminiImageModel?: string;
+  /** Optional Gemini API base URL override (useful for tests). */
+  geminiBaseUrl?: string;
   /** Timeout in ms passed to the selected provider. */
   timeoutMs?: number;
   /** Observer wired to the selected provider for observability events. */
@@ -45,24 +49,32 @@ export function createImageProviderRouter(config?: ImageProviderRouterConfig): I
     };
   }
 
-  if (name === 'flux') {
-    if (!config?.fluxApiKey) {
+  if (name === 'gemini') {
+    if (!config?.geminiApiKey) {
       throw new AIProviderError({
         code: 'PROVIDER_CONFIG_MISSING',
-        provider: 'flux',
-        message: 'FLUX_API_KEY is required when IMAGE_PROVIDER=flux',
+        provider: 'gemini',
+        message: 'GEMINI_API_KEY is required when IMAGE_PROVIDER=gemini',
       });
     }
     return {
       getProvider: () =>
-        new FluxImageProvider({
-          apiKey: config.fluxApiKey!,
-          baseUrl: config.fluxBaseUrl,
-          model: config.fluxModel,
+        new GeminiImageProvider({
+          apiKey: config.geminiApiKey!,
+          model: config.geminiImageModel ?? DEFAULT_GEMINI_IMAGE_MODEL,
+          baseUrl: config.geminiBaseUrl,
           timeoutMs: config.timeoutMs,
           observer: config.observer,
         }),
     };
+  }
+
+  if (name === 'flux') {
+    throw new AIProviderError({
+      code: 'PROVIDER_CONFIG_MISSING',
+      provider: 'flux',
+      message: 'IMAGE_PROVIDER=flux is deprecated. Use IMAGE_PROVIDER=gemini with GEMINI_API_KEY.',
+    });
   }
 
   throw new AIProviderError({

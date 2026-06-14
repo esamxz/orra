@@ -7,63 +7,85 @@ const BASE_ENV = {
   SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
 };
 
-describe('validateConsumerEnv — IMAGE_PROVIDER validation', () => {
-  it('accepts env with no IMAGE_PROVIDER set (fake default)', () => {
-    expect(() => validateConsumerEnv(BASE_ENV)).not.toThrow();
-  });
-
-  it('accepts IMAGE_PROVIDER=fake without any FLUX vars', () => {
-    expect(() => validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'fake' })).not.toThrow();
-  });
-
-  it('accepts IMAGE_PROVIDER=flux when FLUX_API_KEY is provided', () => {
+describe('validateConsumerEnv — IMAGE_PROVIDER=gemini validation', () => {
+  it('accepts IMAGE_PROVIDER=gemini with GEMINI_API_KEY', () => {
     expect(() =>
-      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'flux', FLUX_API_KEY: 'sk-flux-key' }),
+      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'gemini', GEMINI_API_KEY: 'sk-gemini-key' }),
     ).not.toThrow();
   });
 
-  it('throws when IMAGE_PROVIDER=flux but FLUX_API_KEY is missing', () => {
+  it('throws when IMAGE_PROVIDER=gemini but GEMINI_API_KEY is missing', () => {
     expect(() =>
-      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'flux' }),
-    ).toThrow('FLUX_API_KEY is required when IMAGE_PROVIDER=flux');
+      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'gemini' }),
+    ).toThrow('GEMINI_API_KEY is required when IMAGE_PROVIDER=gemini');
   });
 
-  it('error for missing FLUX_API_KEY mentions the field name', () => {
+  it('error for missing GEMINI_API_KEY mentions the field name', () => {
     try {
-      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'flux' });
+      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'gemini' });
     } catch (err) {
-      expect((err as Error).message).toContain('FLUX_API_KEY');
+      expect((err as Error).message).toContain('GEMINI_API_KEY');
     }
   });
 
-  it('does not require FLUX_API_KEY when IMAGE_PROVIDER is unset', () => {
-    expect(() => validateConsumerEnv(BASE_ENV)).not.toThrow();
+  it('error message never contains the GEMINI_API_KEY value', () => {
+    try {
+      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'gemini' });
+    } catch (err) {
+      expect((err as Error).message).not.toContain('sk-gemini-key');
+    }
   });
 
-  it('does not require FLUX_API_KEY when IMAGE_PROVIDER=fake', () => {
-    expect(() =>
-      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'fake' }),
-    ).not.toThrow();
-  });
-
-  it('accepts optional FLUX_API_BASE_URL and FLUX_MODEL fields', () => {
+  it('accepts optional GEMINI_IMAGE_MODEL field', () => {
     expect(() =>
       validateConsumerEnv({
         ...BASE_ENV,
-        IMAGE_PROVIDER: 'flux',
-        FLUX_API_KEY: 'sk-flux-key',
-        FLUX_API_BASE_URL: 'https://custom.bfl.example.com',
-        FLUX_MODEL: 'flux-pro',
+        IMAGE_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'sk-gemini-key',
+        GEMINI_IMAGE_MODEL: 'gemini-2.5-flash-image',
       }),
     ).not.toThrow();
   });
 
-  it('error message never includes the FLUX_API_KEY value', () => {
+  it('GEMINI_IMAGE_MODEL is optional — not required when IMAGE_PROVIDER=gemini', () => {
+    expect(() =>
+      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'gemini', GEMINI_API_KEY: 'sk-gemini-key' }),
+    ).not.toThrow();
+  });
+});
+
+describe('validateConsumerEnv — IMAGE_PROVIDER=fake validation', () => {
+  it('accepts env with no IMAGE_PROVIDER set (fake default)', () => {
+    expect(() => validateConsumerEnv(BASE_ENV)).not.toThrow();
+  });
+
+  it('accepts IMAGE_PROVIDER=fake without any GEMINI vars', () => {
+    expect(() => validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'fake' })).not.toThrow();
+  });
+
+  it('does not require GEMINI_API_KEY when IMAGE_PROVIDER is unset', () => {
+    expect(() => validateConsumerEnv(BASE_ENV)).not.toThrow();
+  });
+
+  it('does not require GEMINI_API_KEY when IMAGE_PROVIDER=fake', () => {
+    expect(() =>
+      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'fake' }),
+    ).not.toThrow();
+  });
+});
+
+describe('validateConsumerEnv — IMAGE_PROVIDER=flux (deprecated)', () => {
+  it('throws when IMAGE_PROVIDER=flux with deprecation message', () => {
+    expect(() =>
+      validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'flux' }),
+    ).toThrow('IMAGE_PROVIDER=flux is no longer supported');
+  });
+
+  it('deprecation message points to gemini', () => {
     try {
       validateConsumerEnv({ ...BASE_ENV, IMAGE_PROVIDER: 'flux' });
     } catch (err) {
-      // The error says FLUX_API_KEY is required, not its value
-      expect((err as Error).message).not.toContain('sk-flux-key');
+      expect((err as Error).message).toContain('gemini');
     }
   });
 });
@@ -83,5 +105,18 @@ describe('validateConsumerEnv — existing AI_PROVIDER validation unchanged', ()
 
   it('still accepts AI_PROVIDER=fake without any Gemini vars', () => {
     expect(() => validateConsumerEnv({ ...BASE_ENV, AI_PROVIDER: 'fake' })).not.toThrow();
+  });
+});
+
+describe('validateConsumerEnv — GEMINI_API_KEY shared between text and image', () => {
+  it('accepts AI_PROVIDER=gemini and IMAGE_PROVIDER=gemini with a single GEMINI_API_KEY', () => {
+    expect(() =>
+      validateConsumerEnv({
+        ...BASE_ENV,
+        AI_PROVIDER: 'gemini',
+        IMAGE_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'shared-key',
+      }),
+    ).not.toThrow();
   });
 });

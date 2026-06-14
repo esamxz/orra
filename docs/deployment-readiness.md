@@ -38,10 +38,10 @@ Set via `wrangler secret put --env staging` / `--env production`. Never commit v
 | `SUPABASE_URL` | always | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | always | Service role key |
 | `AI_PROVIDER` | production | Must be `gemini` (not `fake`) in production |
-| `GEMINI_API_KEY` | when `AI_PROVIDER=gemini` | Never expose in web or API |
+| `GEMINI_API_KEY` | when `AI_PROVIDER=gemini` or `IMAGE_PROVIDER=gemini` | Shared key for text and image; never expose in web or API |
 | `GEMINI_TEXT_MODEL` | optional | Defaults to `gemini-2.0-flash-lite` |
-| `IMAGE_PROVIDER` | production | Must be `flux` (not `fake`) in production |
-| `FLUX_API_KEY` | when `IMAGE_PROVIDER=flux` | Never expose in web or API |
+| `IMAGE_PROVIDER` | production | Must be `gemini` (not `fake`) in production |
+| `GEMINI_IMAGE_MODEL` | optional | Defaults to `gemini-2.5-flash-image`; override to pin a specific model |
 | `ALLOW_FAKE_PROVIDER_IN_PRODUCTION` | emergency only | Set to `'true'` only for debugging; remove after |
 
 ---
@@ -51,8 +51,8 @@ Set via `wrangler secret put --env staging` / `--env production`. Never commit v
 | Environment | AI provider | Image provider | Notes |
 |-------------|-------------|----------------|-------|
 | development | `fake` (default) | `fake` (default) | Dev auth, queue bypass allowed |
-| staging | `fake` or `gemini` | `fake` or `flux` | Fake allowed for smoke testing |
-| production | `gemini` required | `flux` required | Fake blocked; `validateConsumerEnv` throws on startup if fake |
+| staging | `fake` or `gemini` | `fake` or `gemini` | Fake allowed for smoke testing |
+| production | `gemini` required | `gemini` required | Fake blocked; `validateConsumerEnv` throws on startup if fake |
 
 **Rule:** If `ENVIRONMENT=production` and providers are unset or `fake`, the consumer Worker fails to start with a clear error — it never silently falls back to fake in production.
 
@@ -103,6 +103,7 @@ R2 CORS for production is not configured until production deployment is explicit
 | `DEV_GENERATION_QUEUE_DISABLED=true` | Skips queue — generation would not work. `validateApiEnv` throws on startup if set. |
 | `AI_PROVIDER=fake` (production) | Fake AI output in production is a correctness failure. Blocked by `validateConsumerEnv`. |
 | `IMAGE_PROVIDER=fake` (production) | Same as above. Blocked by `validateConsumerEnv`. |
+| `IMAGE_PROVIDER=flux` (any env) | Deprecated since D5.2. `validateConsumerEnv` throws on startup. Use `IMAGE_PROVIDER=gemini`. |
 | `VITE_DEV_AUTH_TOKEN_ENABLED=true` in web | Frontend dev token bypass — must not be set in deployed web builds. |
 
 ---
@@ -130,7 +131,8 @@ Before any production deployment:
 - [ ] `DEV_AUTH_ENABLED` is NOT set in production
 - [ ] `DEV_GENERATION_QUEUE_DISABLED` is NOT set in production
 - [ ] `AI_PROVIDER=gemini` with valid `GEMINI_API_KEY` in consumer
-- [ ] `IMAGE_PROVIDER=flux` with valid `FLUX_API_KEY` in consumer
+- [ ] `IMAGE_PROVIDER=gemini` with valid `GEMINI_API_KEY` in consumer (key shared with AI provider)
+- [ ] `GEMINI_IMAGE_MODEL` set or confirmed to use default (`gemini-2.5-flash-image`)
 - [ ] `ALLOW_FAKE_PROVIDER_IN_PRODUCTION` is NOT set (or removed after incident)
 - [ ] `PRIVATE_ALPHA_EMAIL_ALLOWLIST` is set (or explicit decision to allow open access)
 - [ ] Wrangler dry-run passes: `pnpm --filter @orra/api run deploy:production:dry-run`

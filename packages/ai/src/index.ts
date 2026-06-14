@@ -25,6 +25,10 @@ export { GeminiTextProvider } from './providers/geminiTextProvider.js';
 export type { GeminiTextProviderConfig } from './providers/geminiTextProvider.js';
 
 export { FakeImageProvider } from './providers/fakeImageProvider.js';
+export { GeminiImageProvider } from './providers/geminiImageProvider.js';
+export type { GeminiImageProviderConfig } from './providers/geminiImageProvider.js';
+export { DEFAULT_GEMINI_IMAGE_MODEL } from './providers/geminiImageProvider.js';
+// FluxImageProvider retained for reference — not routed by createImageProviderRouter since D5.2
 export { FluxImageProvider } from './providers/fluxImageProvider.js';
 export type { FluxImageProviderConfig } from './providers/fluxImageProvider.js';
 

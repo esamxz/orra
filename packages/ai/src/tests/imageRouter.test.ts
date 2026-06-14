@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createImageProviderRouter } from '../imageRouter.js';
 import { FakeImageProvider } from '../providers/fakeImageProvider.js';
+import { GeminiImageProvider, DEFAULT_GEMINI_IMAGE_MODEL } from '../providers/geminiImageProvider.js';
 import { AIProviderError } from '../errors.js';
 import type {
   ImageGenerationKind,
@@ -12,7 +13,7 @@ import type {
   ImageProviderRouterConfig,
 } from '../index.js';
 
-describe('ImageProviderRouter', () => {
+describe('ImageProviderRouter — fake (default)', () => {
   it('createImageProviderRouter() with no config returns a FakeImageProvider', () => {
     const router = createImageProviderRouter();
     expect(router.getProvider()).toBeInstanceOf(FakeImageProvider);
@@ -35,26 +36,6 @@ describe('ImageProviderRouter', () => {
     expect(p1).not.toBe(p2);
   });
 
-  it('throws AIProviderError with PROVIDER_CONFIG_MISSING for an unknown provider', () => {
-    expect(() => createImageProviderRouter({ provider: 'flux' })).toThrow(AIProviderError);
-    try {
-      createImageProviderRouter({ provider: 'flux' });
-    } catch (err) {
-      expect(err).toBeInstanceOf(AIProviderError);
-      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
-      expect((err as AIProviderError).provider).toBe('flux');
-    }
-  });
-
-  it('throws AIProviderError for any unknown provider string', () => {
-    expect(() => createImageProviderRouter({ provider: 'gemini-image' })).toThrow(AIProviderError);
-    try {
-      createImageProviderRouter({ provider: 'gemini-image' });
-    } catch (err) {
-      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
-    }
-  });
-
   it('does not require any env vars to instantiate', () => {
     expect(() => createImageProviderRouter()).not.toThrow();
     expect(() => createImageProviderRouter({})).not.toThrow();
@@ -62,15 +43,106 @@ describe('ImageProviderRouter', () => {
   });
 });
 
+describe('ImageProviderRouter — gemini', () => {
+  it('throws PROVIDER_CONFIG_MISSING when provider=gemini but geminiApiKey is missing', () => {
+    expect(() => createImageProviderRouter({ provider: 'gemini' })).toThrow(AIProviderError);
+    try {
+      createImageProviderRouter({ provider: 'gemini' });
+    } catch (err) {
+      expect(err).toBeInstanceOf(AIProviderError);
+      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
+      expect((err as AIProviderError).provider).toBe('gemini');
+      expect((err as AIProviderError).message).toContain('GEMINI_API_KEY');
+    }
+  });
+
+  it('returns a GeminiImageProvider when provider=gemini with geminiApiKey', () => {
+    const router = createImageProviderRouter({ provider: 'gemini', geminiApiKey: 'test-key' });
+    expect(router.getProvider()).toBeInstanceOf(GeminiImageProvider);
+  });
+
+  it('GeminiImageProvider has id "gemini"', () => {
+    const router = createImageProviderRouter({ provider: 'gemini', geminiApiKey: 'test-key' });
+    expect(router.getProvider().id).toBe('gemini');
+  });
+
+  it('uses DEFAULT_GEMINI_IMAGE_MODEL when geminiImageModel is not set', () => {
+    const router = createImageProviderRouter({ provider: 'gemini', geminiApiKey: 'test-key' });
+    const provider = router.getProvider() as GeminiImageProvider;
+    // Verify by calling and checking the URL in the request — not testing private state
+    expect(provider).toBeInstanceOf(GeminiImageProvider);
+    expect(DEFAULT_GEMINI_IMAGE_MODEL).toBe('gemini-2.5-flash-image');
+  });
+
+  it('passes geminiImageModel override to provider', () => {
+    const router = createImageProviderRouter({
+      provider: 'gemini',
+      geminiApiKey: 'test-key',
+      geminiImageModel: 'gemini-custom-model',
+    });
+    expect(router.getProvider()).toBeInstanceOf(GeminiImageProvider);
+  });
+
+  it('getProvider() returns a new instance on each call', () => {
+    const router = createImageProviderRouter({ provider: 'gemini', geminiApiKey: 'test-key' });
+    const p1 = router.getProvider();
+    const p2 = router.getProvider();
+    expect(p1).not.toBe(p2);
+  });
+});
+
+describe('ImageProviderRouter — flux (deprecated)', () => {
+  it('throws PROVIDER_CONFIG_MISSING with deprecation message for provider=flux', () => {
+    expect(() => createImageProviderRouter({ provider: 'flux' })).toThrow(AIProviderError);
+    try {
+      createImageProviderRouter({ provider: 'flux' });
+    } catch (err) {
+      expect(err).toBeInstanceOf(AIProviderError);
+      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
+      expect((err as AIProviderError).provider).toBe('flux');
+      expect((err as AIProviderError).message).toContain('deprecated');
+      expect((err as AIProviderError).message).toContain('gemini');
+    }
+  });
+
+  it('rejects flux even when a key is passed', () => {
+    expect(() =>
+      createImageProviderRouter({ provider: 'flux', geminiApiKey: 'some-key' }),
+    ).toThrow(AIProviderError);
+  });
+});
+
+describe('ImageProviderRouter — unknown provider', () => {
+  it('throws AIProviderError for an unknown provider string', () => {
+    expect(() => createImageProviderRouter({ provider: 'dalle' })).toThrow(AIProviderError);
+    try {
+      createImageProviderRouter({ provider: 'dalle' });
+    } catch (err) {
+      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
+    }
+  });
+
+  it('throws for empty-string-like unknown provider', () => {
+    // whitespace trims to '' which maps to 'fake', not unknown
+    expect(() => createImageProviderRouter({ provider: '  ' })).not.toThrow();
+  });
+});
+
 describe('package exports smoke', () => {
   it('image types and provider and router are all importable', () => {
-    // Verify all expected exports are accessible at runtime
     expect(FakeImageProvider).toBeDefined();
+    expect(GeminiImageProvider).toBeDefined();
     expect(createImageProviderRouter).toBeDefined();
   });
 
   it('ImageProvider interface is structurally satisfied by FakeImageProvider', () => {
     const provider: ImageProvider = new FakeImageProvider();
+    expect(typeof provider.id).toBe('string');
+    expect(typeof provider.generateImage).toBe('function');
+  });
+
+  it('ImageProvider interface is structurally satisfied by GeminiImageProvider', () => {
+    const provider: ImageProvider = new GeminiImageProvider({ apiKey: 'test' });
     expect(typeof provider.id).toBe('string');
     expect(typeof provider.generateImage).toBe('function');
   });

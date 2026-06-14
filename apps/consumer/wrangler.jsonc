@@ -51,8 +51,8 @@
 //   SUPABASE_URL                — Supabase project URL (required)
 //   SUPABASE_SERVICE_ROLE_KEY   — Supabase service role key (required)
 //   AI_PROVIDER                 — fake (default) or gemini
-//   GEMINI_API_KEY              — required when AI_PROVIDER=gemini
-//   GEMINI_TEXT_MODEL           — optional Gemini model override
-//   IMAGE_PROVIDER              — fake (default) or flux; fake is blocked in production
-//   FLUX_API_KEY                — required when IMAGE_PROVIDER=flux
+//   GEMINI_API_KEY              — required when AI_PROVIDER=gemini or IMAGE_PROVIDER=gemini (shared key)
+//   GEMINI_TEXT_MODEL           — optional Gemini text model override
+//   IMAGE_PROVIDER              — fake (default) or gemini; fake is blocked in production
+//   GEMINI_IMAGE_MODEL          — optional Gemini image model override (default: gemini-2.5-flash-image)
 //   ALLOW_FAKE_PROVIDER_IN_PRODUCTION — set to 'true' only for emergency debugging in production (default: blocked)

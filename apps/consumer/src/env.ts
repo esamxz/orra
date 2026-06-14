@@ -15,11 +15,14 @@
  *   Uses FakeImageProvider — deterministic, no network calls.
  *   All automated tests use this default. Never requires an API key.
  *
- * IMAGE_PROVIDER=flux
- *   Uses FluxImageProvider (FLUX Schnell via Black Forest Labs) for real image generation.
- *   Requires FLUX_API_KEY to be set in consumer runtime/staging secrets only.
- *   NEVER add FLUX_API_KEY to apps/web or apps/api environment.
+ * IMAGE_PROVIDER=gemini
+ *   Uses GeminiImageProvider (Gemini 2.5 Flash Image) for real image generation.
+ *   Requires GEMINI_API_KEY — shared with AI_PROVIDER=gemini (one key for both).
+ *   NEVER add GEMINI_API_KEY to apps/web or apps/api environment.
+ *   Model is configurable via GEMINI_IMAGE_MODEL (defaults to gemini-2.5-flash-image).
  *   Generated image R2 storage and artifact integration are implemented in later phases.
+ *
+ * IMAGE_PROVIDER=flux is deprecated. Use IMAGE_PROVIDER=gemini.
  *
  * [provider_plan] log events show:
  *   jobId, provider, status, durationMs, cardCount (on success)
@@ -50,9 +53,8 @@ export const ConsumerEnvSchema = z
     // z.coerce.number() because Worker bindings are always strings at runtime
     AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
     IMAGE_PROVIDER: z.string().optional(),
-    FLUX_API_KEY: z.string().optional(),
-    FLUX_API_BASE_URL: z.string().optional(),
-    FLUX_MODEL: z.string().optional(),
+    /** Optional Gemini image model override. Defaults to gemini-2.5-flash-image. */
+    GEMINI_IMAGE_MODEL: z.string().optional(),
     // Emergency escape hatch: allows fake providers in production for debugging.
     // Must be explicitly set to 'true'. Default in production is to block fake.
     ALLOW_FAKE_PROVIDER_IN_PRODUCTION: z.literal('true').optional(),
@@ -65,11 +67,20 @@ export const ConsumerEnvSchema = z
         path: ['GEMINI_API_KEY'],
       });
     }
-    if (data.IMAGE_PROVIDER === 'flux' && !data.FLUX_API_KEY) {
+    if (data.IMAGE_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'FLUX_API_KEY is required when IMAGE_PROVIDER=flux',
-        path: ['FLUX_API_KEY'],
+        message: 'GEMINI_API_KEY is required when IMAGE_PROVIDER=gemini',
+        path: ['GEMINI_API_KEY'],
+      });
+    }
+    const imgProvider = (data.IMAGE_PROVIDER ?? '').trim().toLowerCase();
+    if (imgProvider === 'flux') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'IMAGE_PROVIDER=flux is no longer supported. Use IMAGE_PROVIDER=gemini with GEMINI_API_KEY.',
+        path: ['IMAGE_PROVIDER'],
       });
     }
     // Production must not run fake providers by accident.
@@ -88,7 +99,7 @@ export const ConsumerEnvSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message:
-            'IMAGE_PROVIDER=fake is not allowed in production. Set IMAGE_PROVIDER=flux with FLUX_API_KEY, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
+            'IMAGE_PROVIDER=fake is not allowed in production. Set IMAGE_PROVIDER=gemini with GEMINI_API_KEY, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
           path: ['IMAGE_PROVIDER'],
         });
       }

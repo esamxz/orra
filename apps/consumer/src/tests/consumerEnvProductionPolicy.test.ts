@@ -33,26 +33,47 @@ describe('validateConsumerEnv — production provider policy', () => {
     ).toThrow('IMAGE_PROVIDER=fake is not allowed in production');
   });
 
+  it('rejects IMAGE_PROVIDER=flux in production (deprecated)', () => {
+    expect(() =>
+      validateConsumerEnv({
+        ...PROD,
+        AI_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'gemini-key',
+        IMAGE_PROVIDER: 'flux',
+      })
+    ).toThrow('IMAGE_PROVIDER=flux is no longer supported');
+  });
+
   it('allows AI_PROVIDER=gemini + GEMINI_API_KEY in production', () => {
     expect(() =>
       validateConsumerEnv({
         ...PROD,
         AI_PROVIDER: 'gemini',
         GEMINI_API_KEY: 'gemini-key',
-        IMAGE_PROVIDER: 'flux',
-        FLUX_API_KEY: 'flux-key',
+        IMAGE_PROVIDER: 'gemini',
       })
     ).not.toThrow();
   });
 
-  it('allows IMAGE_PROVIDER=flux + FLUX_API_KEY in production', () => {
+  it('allows IMAGE_PROVIDER=gemini + GEMINI_API_KEY in production', () => {
     expect(() =>
       validateConsumerEnv({
         ...PROD,
         AI_PROVIDER: 'gemini',
         GEMINI_API_KEY: 'gemini-key',
-        IMAGE_PROVIDER: 'flux',
-        FLUX_API_KEY: 'flux-key',
+        IMAGE_PROVIDER: 'gemini',
+      })
+    ).not.toThrow();
+  });
+
+  it('allows both AI and image provider as gemini with one shared GEMINI_API_KEY', () => {
+    expect(() =>
+      validateConsumerEnv({
+        ...PROD,
+        AI_PROVIDER: 'gemini',
+        IMAGE_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'shared-gemini-key',
+        GEMINI_IMAGE_MODEL: 'gemini-2.5-flash-image',
       })
     ).not.toThrow();
   });
@@ -62,8 +83,8 @@ describe('validateConsumerEnv — production provider policy', () => {
       validateConsumerEnv({
         ...PROD,
         AI_PROVIDER: 'fake',
-        IMAGE_PROVIDER: 'flux',
-        FLUX_API_KEY: 'flux-key',
+        IMAGE_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'gemini-key',
         ALLOW_FAKE_PROVIDER_IN_PRODUCTION: 'true',
       })
     ).not.toThrow();
@@ -89,6 +110,14 @@ describe('validateConsumerEnv — production provider policy', () => {
       })
     ).not.toThrow();
   });
+
+  it('production error message mentions gemini as the required provider', () => {
+    try {
+      validateConsumerEnv(PROD);
+    } catch (err) {
+      expect((err as Error).message).toContain('gemini');
+    }
+  });
 });
 
 describe('validateConsumerEnv — staging allows fake providers', () => {
@@ -106,16 +135,21 @@ describe('validateConsumerEnv — staging allows fake providers', () => {
     ).not.toThrow();
   });
 
-  it('allows real providers in staging', () => {
+  it('allows IMAGE_PROVIDER=gemini in staging with GEMINI_API_KEY', () => {
     expect(() =>
       validateConsumerEnv({
         ...STAGING,
         AI_PROVIDER: 'gemini',
         GEMINI_API_KEY: 'gemini-key',
-        IMAGE_PROVIDER: 'flux',
-        FLUX_API_KEY: 'flux-key',
+        IMAGE_PROVIDER: 'gemini',
       })
     ).not.toThrow();
+  });
+
+  it('rejects IMAGE_PROVIDER=flux in staging (deprecated)', () => {
+    expect(() =>
+      validateConsumerEnv({ ...STAGING, IMAGE_PROVIDER: 'flux' })
+    ).toThrow('IMAGE_PROVIDER=flux is no longer supported');
   });
 });
 

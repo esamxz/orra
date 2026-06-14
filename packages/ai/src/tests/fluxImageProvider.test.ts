@@ -116,7 +116,7 @@ function makeFluxProvider(opts: {
 // Test cases 1–5: router selection (image router — flux branch)
 // ---------------------------------------------------------------------------
 
-describe('image router — flux selection', () => {
+describe('image router — flux deprecated (D5.2)', () => {
   // Case 1: fake remains default when IMAGE_PROVIDER is unset
   it('createImageProviderRouter() with no config returns FakeImageProvider', () => {
     const router = createImageProviderRouter();
@@ -129,49 +129,30 @@ describe('image router — flux selection', () => {
     expect(router.getProvider()).toBeInstanceOf(FakeImageProvider);
   });
 
-  // Case 3: flux is selected only when IMAGE_PROVIDER=flux (with key provided)
-  it('createImageProviderRouter({ provider: "flux", fluxApiKey }) returns FluxImageProvider', () => {
-    const router = createImageProviderRouter({ provider: 'flux', fluxApiKey: 'test-key' });
-    expect(router.getProvider()).toBeInstanceOf(FluxImageProvider);
-  });
-
-  it('getProvider().id is "flux" when configured for flux', () => {
-    const router = createImageProviderRouter({ provider: 'flux', fluxApiKey: 'test-key' });
-    expect(router.getProvider().id).toBe('flux');
-  });
-
-  // Case 4: IMAGE_PROVIDER=flux requires FLUX_API_KEY
-  it('throws PROVIDER_CONFIG_MISSING when provider=flux but fluxApiKey is missing', () => {
-    const err = catchErr(Promise.reject(
-      (() => { try { createImageProviderRouter({ provider: 'flux' }); } catch (e) { return e; } return null; })(),
-    ));
-    // Synchronous throw — verify inline
+  // Case 3: flux is deprecated — always throws regardless of other config
+  it('throws PROVIDER_CONFIG_MISSING with deprecation message for provider=flux', () => {
     expect(() => createImageProviderRouter({ provider: 'flux' })).toThrow(AIProviderError);
     let caught: unknown;
     try { createImageProviderRouter({ provider: 'flux' }); } catch (e) { caught = e; }
     expect((caught as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
     expect((caught as AIProviderError).provider).toBe('flux');
-    expect((caught as AIProviderError).message).not.toContain('test-key');
-    void err;
+    expect((caught as AIProviderError).message).toContain('deprecated');
+    expect((caught as AIProviderError).message).toContain('gemini');
   });
 
-  it('throws PROVIDER_CONFIG_MISSING when provider=flux and fluxApiKey is empty string', () => {
-    expect(() => createImageProviderRouter({ provider: 'flux', fluxApiKey: '' })).toThrow(AIProviderError);
-  });
-
-  // Case 5: unknown IMAGE_PROVIDER fails safely
+  // Case 4: unknown IMAGE_PROVIDER fails safely
   it('throws PROVIDER_CONFIG_MISSING for an unknown provider string', () => {
     let caught: unknown;
-    try { createImageProviderRouter({ provider: 'gemini-image' }); } catch (e) { caught = e; }
+    try { createImageProviderRouter({ provider: 'dalle' }); } catch (e) { caught = e; }
     expect(caught).toBeInstanceOf(AIProviderError);
     expect((caught as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
   });
 
-  it('does not require FLUX_API_KEY when provider is fake', () => {
+  it('does not require any key when provider is fake', () => {
     expect(() => createImageProviderRouter({ provider: 'fake' })).not.toThrow();
   });
 
-  it('does not require FLUX_API_KEY when no provider is specified', () => {
+  it('does not require any key when no provider is specified', () => {
     expect(() => createImageProviderRouter()).not.toThrow();
     expect(() => createImageProviderRouter({})).not.toThrow();
   });
