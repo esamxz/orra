@@ -251,6 +251,21 @@
   border-top: 1px solid rgba(255,255,255,0.07);
 }
 
+.composer-enhance-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 6px 16px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  background: rgba(94,118,128,0.08);
+}
+
+.composer-enhance-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
 /* ----- helper chips ----- */
 .chip-row {
   display: flex;

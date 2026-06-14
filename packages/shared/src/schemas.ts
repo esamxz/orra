@@ -273,6 +273,29 @@ export const ProjectContextMemorySchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Prompt enhancer (P0)
+// ---------------------------------------------------------------------------
+// Deterministic, rule-based enhancement. No AI calls. No DB mutations.
+// Used by both the API route (validation) and the web client (types).
+
+export const EnhancePromptRequestSchema = z.object({
+  prompt: z.string().max(2000, 'Prompt is too long. Please keep it under 2000 characters.'),
+  selectedType: z.enum(['single_post', 'carousel', 'generic_visual']).optional(),
+  aspectRatio: z.string().optional(),
+  brandSystemId: z.string().optional(),
+  hasAssets: z.boolean().optional(),
+  assetCount: z.number().int().nonnegative().optional(),
+});
+
+export const EnhancePromptResponseSchema = z.object({
+  originalPrompt: z.string(),
+  enhancedPrompt: z.string(),
+  inferredType: z.enum(['single_post', 'carousel', 'generic_visual']),
+  cardCount: z.number().int().optional(),
+  notes: z.string().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 
@@ -298,3 +321,5 @@ export type Card = z.infer<typeof CardSchema>;
 export type ArtifactDocument = z.infer<typeof ArtifactDocumentSchema>;
 export type BrandContextDto = z.infer<typeof BrandContextSchema>;
 export type ProjectContextMemory = z.infer<typeof ProjectContextMemorySchema>;
+export type EnhancePromptRequest = z.infer<typeof EnhancePromptRequestSchema>;
+export type EnhancePromptResponse = z.infer<typeof EnhancePromptResponseSchema>;

@@ -20,6 +20,7 @@ import { useProjects } from '../hooks/useProjects';
 import { useBrandSystems } from '../hooks/useBrandSystems';
 import { brandSystemDtoToDisplayBrand, paletteToColors } from '../components/brand/brandDisplayUtils';
 import { createProject, createNewProject } from '../api/projects';
+import { enhancePrompt } from '../api/prompts';
 import { ApiClientError } from '../api/errors';
 
 const RATIOS = [
@@ -55,6 +56,9 @@ export default function DashboardPage() {
   const [brandModalOpen, setBrandModalOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [originalPrompt, setOriginalPrompt] = useState<string | null>(null);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const [brandUploadStatus, setBrandUploadStatus] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingFileUrls, setPendingFileUrls] = useState<string[]>([]);
@@ -163,6 +167,44 @@ export default function DashboardPage() {
       const msg = err instanceof ApiClientError ? err.message : 'Could not create the project. Please try again.';
       setCreateError(msg);
       setCreateLoading(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Prompt enhancement — free, no project created, no credits reserved
+  // ---------------------------------------------------------------------------
+  const handleEnhance = async () => {
+    const trimmed = prompt.trim();
+    if (!trimmed) {
+      setEnhanceError('Add a prompt first before enhancing.');
+      return;
+    }
+    setIsEnhancing(true);
+    setEnhanceError(null);
+    try {
+      const res = await enhancePrompt({
+        prompt: trimmed,
+        selectedType: type === 'single' ? 'single_post' : 'carousel',
+        aspectRatio: ratio || undefined,
+        brandSystemId: selectedBrandId && selectedBrandId !== '__no-brand__' ? selectedBrandId : undefined,
+        hasAssets: pendingFiles.length > 0,
+        assetCount: pendingFiles.length > 0 ? pendingFiles.length : undefined,
+      });
+      setOriginalPrompt(trimmed);
+      setPrompt(res.enhancedPrompt);
+    } catch (err) {
+      const msg = err instanceof ApiClientError ? err.message : 'Could not enhance the prompt. Please try again.';
+      setEnhanceError(msg);
+    } finally {
+      setIsEnhancing(false);
+    }
+  };
+
+  const handleRevert = () => {
+    if (originalPrompt !== null) {
+      setPrompt(originalPrompt);
+      setOriginalPrompt(null);
+      setEnhanceError(null);
     }
   };
 
@@ -388,11 +430,25 @@ export default function DashboardPage() {
 
             <div style={{ flex: 1 }} />
 
+            {/* Enhance prompt — free action, no project created */}
+            <button
+              className="composer-tool-btn"
+              onClick={() => void handleEnhance()}
+              disabled={!prompt.trim() || isEnhancing || createLoading}
+              title="Enhance prompt"
+              aria-label="Enhance prompt"
+            >
+              {isEnhancing ? <Icon.spark s={16} /> : <Icon.spark s={16} />}
+              <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 4 }}>
+                {isEnhancing ? 'Enhancing…' : 'Enhance'}
+              </span>
+            </button>
+
             {/* Arrow-up send — fills paper/white when prompt is non-empty or files are staged */}
             <button
               className={'composer-send-btn' + (prompt.trim() || pendingFiles.length > 0 ? ' active' : '')}
               onClick={() => void handleCreate()}
-              disabled={createLoading}
+              disabled={createLoading || isEnhancing}
               aria-label="Create"
               title={createLoading ? 'Creating…' : 'Create (⌘↵)'}
             >
@@ -400,6 +456,22 @@ export default function DashboardPage() {
             </button>
           </div>
 
+          {originalPrompt !== null && (
+            <div className="composer-enhance-bar">
+              <span className="composer-enhance-label">Prompt enhanced</span>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={handleRevert}
+                disabled={isEnhancing || createLoading}
+              >
+                Revert to original
+              </button>
+            </div>
+          )}
+
+          {enhanceError && (
+            <div className="composer-error">{enhanceError}</div>
+          )}
           {createError && (
             <div className="composer-error">{createError}</div>
           )}

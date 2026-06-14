@@ -6,6 +6,7 @@ import chatRoutes from './chat.js';
 import generationRoutes from './generation.js';
 import creditRoutes from './credits.js';
 import brandRoutes from './brands.js';
+import promptsRoute from './prompts.js';
 
 // ---------------------------------------------------------------------------
 // V1 protected route mount point
@@ -38,6 +39,9 @@ v1.route('/credits', creditRoutes);
 
 // Brand systems (Phase 11A)
 v1.route('/brand-systems', brandRoutes);
+
+// Prompt enhancement (P0 — deterministic, no DB, no AI)
+v1.route('/prompts', promptsRoute);
 
 // Future route modules (commented placeholders)
 // v1.route('/assets', assetRoutes);

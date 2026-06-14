@@ -34,6 +34,11 @@ vi.mock('../../api/projects', () => ({
   createNewProject: (...args: unknown[]) => mockCreateNewProject(...args),
 }));
 
+const mockEnhancePrompt = vi.fn();
+vi.mock('../../api/prompts', () => ({
+  enhancePrompt: (...args: unknown[]) => mockEnhancePrompt(...args),
+}));
+
 // ---------------------------------------------------------------------------
 // Hook mocks
 // ---------------------------------------------------------------------------
@@ -129,6 +134,11 @@ describe('DashboardPage', () => {
     mockBrandsHook.mockReturnValue(defaultBrandsHook());
     mockCreateProject.mockResolvedValue(makeProject());
     mockCreateNewProject.mockResolvedValue({ project: makeProject(), firstMessage: { id: 'msg-1', content: 'hello' } });
+    mockEnhancePrompt.mockResolvedValue({
+      originalPrompt: 'Make a post about discipline',
+      enhancedPrompt: 'Create a clean, motivational 4:5 social post about discipline. Use a bold minimal layout.',
+      inferredType: 'single_post',
+    });
   });
 
   afterEach(() => {
@@ -431,6 +441,162 @@ describe('DashboardPage', () => {
       renderDashboard();
       // useCreditStatus mock is read-only; no mutation/deduction calls are wired
       expect(screen.queryByRole('button', { name: /spend credits/i })).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // P0: Prompt enhancement
+  // ---------------------------------------------------------------------------
+  describe('P0 prompt enhancement', () => {
+    it('Enhance button is rendered', () => {
+      renderDashboard();
+      const btn = screen.getByRole('button', { name: /enhance prompt/i });
+      expect(btn).not.toBeNull();
+    });
+
+    it('Enhance button is disabled when prompt is empty', () => {
+      renderDashboard();
+      const btn = screen.getByRole('button', { name: /enhance prompt/i });
+      expect(btn.hasAttribute('disabled')).toBe(true);
+    });
+
+    it('Enhance button is enabled when prompt has text', () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      const btn = screen.getByRole('button', { name: /enhance prompt/i });
+      expect(btn.hasAttribute('disabled')).toBe(false);
+    });
+
+    it('clicking Enhance calls enhancePrompt with the current prompt', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      const btn = screen.getByRole('button', { name: /enhance prompt/i });
+      fireEvent.click(btn);
+      await waitFor(() => expect(mockEnhancePrompt).toHaveBeenCalledTimes(1));
+      expect(mockEnhancePrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'Make a post about discipline' }),
+      );
+    });
+
+    it('enhanced prompt replaces text in the composer', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() =>
+        expect((textarea as HTMLTextAreaElement).value).toContain('Create a clean, motivational'),
+      );
+    });
+
+    it('Revert button appears after enhancement', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /revert to original/i })).not.toBeNull());
+    });
+
+    it('clicking Revert restores the original prompt', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() => screen.getByRole('button', { name: /revert to original/i }));
+      fireEvent.click(screen.getByRole('button', { name: /revert to original/i }));
+      await waitFor(() =>
+        expect((textarea as HTMLTextAreaElement).value).toBe('Make a post about discipline'),
+      );
+    });
+
+    it('Revert button disappears after reverting', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() => screen.getByRole('button', { name: /revert to original/i }));
+      fireEvent.click(screen.getByRole('button', { name: /revert to original/i }));
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: /revert to original/i })).toBeNull(),
+      );
+    });
+
+    it('Create after enhance uses the enhanced prompt', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() => screen.getByRole('button', { name: /revert to original/i }));
+
+      const createBtn = screen.getAllByRole('button', { name: /^create$/i }).find(
+        (b) => !b.hasAttribute('disabled'),
+      );
+      fireEvent.click(createBtn!);
+      await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
+      expect(mockCreateNewProject).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'Create a clean, motivational 4:5 social post about discipline. Use a bold minimal layout.' }),
+      );
+    });
+
+    it('Create after revert uses the original prompt', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Make a post about discipline' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() => screen.getByRole('button', { name: /revert to original/i }));
+      fireEvent.click(screen.getByRole('button', { name: /revert to original/i }));
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: /revert to original/i })).toBeNull(),
+      );
+
+      const createBtn = screen.getAllByRole('button', { name: /^create$/i }).find(
+        (b) => !b.hasAttribute('disabled'),
+      );
+      fireEvent.click(createBtn!);
+      await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
+      expect(mockCreateNewProject).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'Make a post about discipline' }),
+      );
+    });
+
+    it('shows friendly error when enhance API fails', async () => {
+      mockEnhancePrompt.mockRejectedValueOnce(new Error('Server error'));
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Post about focus' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() =>
+        expect(screen.getByText(/could not enhance the prompt/i)).not.toBeNull(),
+      );
+    });
+
+    it('does not navigate on Enhance click', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Post about focus' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() => expect(mockEnhancePrompt).toHaveBeenCalledTimes(1));
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('does not call createProject or createNewProject on Enhance click', async () => {
+      renderDashboard();
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Post about focus' } });
+      fireEvent.click(screen.getByRole('button', { name: /enhance prompt/i }));
+      await waitFor(() => expect(mockEnhancePrompt).toHaveBeenCalledTimes(1));
+      expect(mockCreateProject).not.toHaveBeenCalled();
+      expect(mockCreateNewProject).not.toHaveBeenCalled();
+    });
+
+    it('trend template Use this prompt still works unchanged', async () => {
+      renderDashboard();
+      const usePromptBtns = screen.getAllByRole('button', { name: /use this prompt/i });
+      fireEvent.click(usePromptBtns[0]);
+      await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
+      // enhancePrompt should NOT have been called
+      expect(mockEnhancePrompt).not.toHaveBeenCalled();
     });
   });
 });
