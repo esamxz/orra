@@ -1,6 +1,7 @@
 import type { AIProvider } from './types.js';
 import { FakeAIProvider } from './providers/fakeProvider.js';
 import { GeminiTextProvider } from './providers/geminiTextProvider.js';
+import { OpenAITextProvider } from './providers/openAITextProvider.js';
 import { AIProviderError } from './errors.js';
 import type { AIProviderObserver } from './observability.js';
 
@@ -13,8 +14,12 @@ export interface AIProviderRouterConfig {
   geminiApiKey?: string;
   geminiModel?: string;
   geminiBaseUrl?: string;
+  openaiApiKey?: string;
+  /** OpenAI text model. Defaults to 'gpt-4o-mini' if not provided. */
+  openaiModel?: string;
+  openaiBaseUrl?: string;
   timeoutMs?: number;
-  observer?: AIProviderObserver;  // threaded to GeminiTextProvider when configured
+  observer?: AIProviderObserver;
 }
 
 export function createAIProviderRouter(config?: AIProviderRouterConfig): AIProviderRouter {
@@ -35,6 +40,27 @@ export function createAIProviderRouter(config?: AIProviderRouterConfig): AIProvi
           apiKey: key,
           model: config.geminiModel ?? 'gemini-2.0-flash-lite',
           baseUrl: config.geminiBaseUrl,
+          timeoutMs: config.timeoutMs,
+          observer: config.observer,
+        }),
+    };
+  }
+
+  if (providerName === 'openai') {
+    if (!config?.openaiApiKey) {
+      throw new AIProviderError({
+        code: 'PROVIDER_CONFIG_MISSING',
+        provider: 'openai',
+        message: 'OPENAI_API_KEY is required when AI_PROVIDER=openai',
+      });
+    }
+    const key = config.openaiApiKey;
+    return {
+      getProvider: () =>
+        new OpenAITextProvider({
+          apiKey: key,
+          model: config.openaiModel ?? 'gpt-4o-mini',
+          baseUrl: config.openaiBaseUrl,
           timeoutMs: config.timeoutMs,
           observer: config.observer,
         }),

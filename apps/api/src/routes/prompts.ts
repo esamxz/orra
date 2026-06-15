@@ -30,6 +30,8 @@ export function createPromptsRoute(opts?: { testProvider?: AIProvider }): Hono<{
         geminiApiKey: c.env.GEMINI_API_KEY,
         geminiModel: c.env.GEMINI_TEXT_MODEL,
         timeoutMs: c.env.AI_PROVIDER_TIMEOUT_MS,
+        openaiApiKey: c.env.OPENAI_API_KEY,
+        openaiModel: c.env.OPENAI_TEXT_MODEL,
       });
       provider = router.getProvider();
     }

@@ -182,7 +182,7 @@ describe('WorkspacePage chat persistence', () => {
     return all[0] as HTMLTextAreaElement;
   }
 
-  it('does not call chat API in demo mode (no projectId)', async () => {
+  it('shows honest error and does not call chat API when no projectId', async () => {
     vi.mocked(useProjectMessagesModule.useProjectMessages).mockReturnValue({
       messages: [],
       state: 'idle',
@@ -197,8 +197,13 @@ describe('WorkspacePage chat persistence', () => {
     await waitFor(() => expect(textarea.value).toBe('Hello'));
     fireEvent.click(screen.getAllByRole('button', { name: /Send/i })[0]);
 
+    // No API call should be made
     await waitFor(() => {
       expect(chatApi.appendProjectMessage).not.toHaveBeenCalled();
+    });
+    // Honest message should appear, not a fake AI reply
+    await waitFor(() => {
+      expect(screen.getByText(/no project loaded/i)).not.toBeNull();
     });
   });
 
@@ -601,5 +606,151 @@ describe('W4 workspace setup states', () => {
     renderPage('proj-1');
     expect(screen.queryByText(/Ready to prepare this project/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /create setup plan/i })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F0: Frontend Mock/Fake Cleanup — proof tests
+// ---------------------------------------------------------------------------
+
+describe('F0 no fake/demo content in production UI', () => {
+  function mockMessages(msgs: unknown[]) {
+    vi.mocked(useProjectMessagesModule.useProjectMessages).mockReturnValue({
+      messages: msgs as never,
+      state: 'idle',
+      error: null,
+      reload: vi.fn(),
+    });
+  }
+
+  function renderPage(projectId?: string) {
+    mockParams.projectId = projectId;
+    return render(
+      <MemoryRouter
+        initialEntries={[{ pathname: projectId ? `/workspace/${projectId}` : '/workspace' }]}
+      >
+        <Routes>
+          <Route path="/workspace/:projectId?" element={<WorkspacePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDispatch.mockReturnValue(true);
+    mockParams.projectId = undefined;
+  });
+
+  it('does not invent assistant reply when API returns no approvalMessage', async () => {
+    mockMessages([]);
+    vi.mocked(chatApi.appendProjectMessage).mockResolvedValueOnce({
+      message: {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Make a post about discipline',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      intent: { mode: 'conversation', confidence: 'high', reason: 'Test' },
+    });
+
+    renderPage('proj-1');
+    const textarea = screen.getAllByPlaceholderText(/Direct Orra/)[0] as HTMLTextAreaElement;
+    fireEvent.input(textarea, { target: { value: 'Make a post about discipline' } });
+    await waitFor(() => expect(textarea.value).toBe('Make a post about discipline'));
+    fireEvent.click(screen.getAllByRole('button', { name: /Send/i })[0]);
+
+    await waitFor(() => expect(chatApi.appendProjectMessage).toHaveBeenCalled());
+
+    // No hardcoded fallback AI message should appear
+    expect(screen.queryByText(/tell me what you'd like to create/i)).toBeNull();
+    expect(screen.queryByText(/I'd love to help/i)).toBeNull();
+    expect(screen.queryByText(/planning the direction/i)).toBeNull();
+  });
+
+  it('shows API error message, not fake reply, when send fails', async () => {
+    mockMessages([]);
+    vi.mocked(chatApi.appendProjectMessage).mockRejectedValueOnce(
+      new Error('Provider unavailable'),
+    );
+
+    renderPage('proj-1');
+    const textarea = screen.getAllByPlaceholderText(/Direct Orra/)[0] as HTMLTextAreaElement;
+    fireEvent.input(textarea, { target: { value: 'Create a carousel' } });
+    await waitFor(() => expect(textarea.value).toBe('Create a carousel'));
+    fireEvent.click(screen.getAllByRole('button', { name: /Send/i })[0]);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Failed to send message/i)).not.toBeNull(),
+    );
+    // No fake AI success reply should appear
+    expect(screen.queryByText(/planning the direction/i)).toBeNull();
+    expect(screen.queryByText(/I'd love to help/i)).toBeNull();
+  });
+
+  it('approval card onApprove calls real API handler, not demo handler', async () => {
+    mockMessages([
+      {
+        id: 'msg-1',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Create a post',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'assistant',
+        kind: 'approval_summary',
+        content: 'Ready.',
+        metadata: {
+          approvalCard: { summaryLine: 'Ready.', format: '4:5', style: 'Focused', brand: 'No brand', cta: null },
+          approvalState: { status: 'pending', updatedAt: '' },
+          sourceUserMessageId: 'msg-1',
+          intent: { mode: 'generation' },
+        },
+        seq: 2,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    vi.mocked(chatApi.submitApprovalAction).mockResolvedValueOnce({
+      id: 'msg-2',
+      projectId: 'proj-1',
+      threadId: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.', format: '4:5', style: 'Focused', brand: 'No brand', cta: null },
+        approvalState: { status: 'approved', updatedAt: '' },
+        sourceUserMessageId: 'msg-1',
+      },
+      seq: 2,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    // generation job creation is handled by a separate api module — not needed here
+
+    renderPage('proj-1');
+
+    await waitFor(() => expect(screen.getByTestId('approval-card')).not.toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /Approve/i }));
+
+    await waitFor(() => {
+      expect(chatApi.submitApprovalAction).toHaveBeenCalledWith(
+        'proj-1',
+        'msg-2',
+        expect.objectContaining({ action: 'approve_and_create' }),
+      );
+    });
   });
 });

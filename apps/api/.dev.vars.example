@@ -45,6 +45,23 @@ DEV_AUTH_ENABLED=true
 DEV_GENERATION_QUEUE_DISABLED=true
 
 # ---------------------------------------------------------------------------
+# AI provider (prompt enhancer only — text planning runs in consumer, not api)
+# ---------------------------------------------------------------------------
+# PROMPT_ENHANCER_MODE=deterministic (default) — no AI calls
+# PROMPT_ENHANCER_MODE=ai — routes through AIProviderRouter
+# AI_PROVIDER=fake   — default (blocked when PROMPT_ENHANCER_MODE=ai in staging/prod)
+# AI_PROVIDER=gemini — requires GEMINI_API_KEY
+# AI_PROVIDER=openai — requires OPENAI_API_KEY
+
+# Required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=gemini
+# GEMINI_API_KEY=
+
+# Required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=openai
+# OPENAI_API_KEY=
+# Optional OpenAI text model override. Router defaults to gpt-4o-mini.
+# OPENAI_TEXT_MODEL=
+
+# ---------------------------------------------------------------------------
 # Credits
 # ---------------------------------------------------------------------------
 # Credits granted to a workspace on first creation.

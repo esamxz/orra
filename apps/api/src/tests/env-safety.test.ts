@@ -101,3 +101,61 @@ describe('validateApiEnv — development passes without optional vars', () => {
     expect(() => validateApiEnv({ ENVIRONMENT: 'development' })).not.toThrow();
   });
 });
+
+describe('validateApiEnv — AI_PROVIDER=openai guards', () => {
+  it('accepts PROMPT_ENHANCER_MODE=ai + AI_PROVIDER=openai + OPENAI_API_KEY in development', () => {
+    expect(() =>
+      validateApiEnv({
+        ENVIRONMENT: 'development',
+        PROMPT_ENHANCER_MODE: 'ai',
+        AI_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'sk-dev-key',
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts PROMPT_ENHANCER_MODE=ai + AI_PROVIDER=openai + OPENAI_API_KEY in staging', () => {
+    expect(() =>
+      validateApiEnv({
+        ...STAGING_BASE,
+        PROMPT_ENHANCER_MODE: 'ai',
+        AI_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'sk-staging-key',
+      }),
+    ).not.toThrow();
+  });
+
+  it('throws when PROMPT_ENHANCER_MODE=ai + AI_PROVIDER=openai but OPENAI_API_KEY missing', () => {
+    expect(() =>
+      validateApiEnv({
+        ENVIRONMENT: 'development',
+        PROMPT_ENHANCER_MODE: 'ai',
+        AI_PROVIDER: 'openai',
+      }),
+    ).toThrow('OPENAI_API_KEY is required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=openai');
+  });
+
+  it('throws when PROMPT_ENHANCER_MODE=ai + AI_PROVIDER=fake in staging', () => {
+    expect(() =>
+      validateApiEnv({ ...STAGING_BASE, PROMPT_ENHANCER_MODE: 'ai', AI_PROVIDER: 'fake' }),
+    ).toThrow('AI_PROVIDER=fake is not allowed');
+  });
+
+  it('staging error message for fake mentions openai as valid alternative', () => {
+    try {
+      validateApiEnv({ ...STAGING_BASE, PROMPT_ENHANCER_MODE: 'ai', AI_PROVIDER: 'fake' });
+    } catch (err) {
+      expect((err as Error).message).toContain('openai');
+    }
+  });
+
+  it('gemini key guard still works alongside openai', () => {
+    expect(() =>
+      validateApiEnv({
+        ENVIRONMENT: 'development',
+        PROMPT_ENHANCER_MODE: 'ai',
+        AI_PROVIDER: 'gemini',
+      }),
+    ).toThrow('GEMINI_API_KEY is required');
+  });
+});

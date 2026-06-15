@@ -314,3 +314,29 @@ describe('FakeAIProvider', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// chat() tests
+// ---------------------------------------------------------------------------
+
+describe('FakeAIProvider — chat()', () => {
+  it('returns a deterministic reply without any network call', async () => {
+    const provider = new FakeAIProvider();
+    const result = await provider.chat({ userMessage: 'hi' });
+    expect(typeof result.reply).toBe('string');
+    expect(result.reply.length).toBeGreaterThan(0);
+  });
+
+  it('is clearly labeled as fake — never looks like a real AI creative response', async () => {
+    const provider = new FakeAIProvider();
+    const result = await provider.chat({ userMessage: 'What should I create?' });
+    expect(result.reply).toContain('[Fake AI]');
+  });
+
+  it('is deterministic — same input produces same output', async () => {
+    const provider = new FakeAIProvider();
+    const r1 = await provider.chat({ userMessage: 'hello' });
+    const r2 = await provider.chat({ userMessage: 'hello' });
+    expect(r1.reply).toBe(r2.reply);
+  });
+});

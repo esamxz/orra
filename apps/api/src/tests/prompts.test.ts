@@ -431,6 +431,7 @@ describe('POST /v1/prompts/enhance — AI mode', () => {
       name: 'gemini' as const,
       async planText() { throw new Error('not used'); },
       async generateImageOrDocument() { throw new Error('not used'); },
+      async chat() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new AIProviderError({
           code: 'PROVIDER_HTTP_ERROR',

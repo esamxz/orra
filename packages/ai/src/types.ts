@@ -6,7 +6,7 @@ import type { BrandContextDto, ApprovalCardDto, ProjectContextMemory } from '@or
 // Phase 13A: provider abstraction layer. Only 'fake' is active. Real providers
 // (Gemini, FLUX, etc.) are added in Phase 13B/13C.
 
-export type AIProviderName = 'fake' | 'gemini';
+export type AIProviderName = 'fake' | 'gemini' | 'openai';
 
 export interface RecentChatMessage {
   role: 'user' | 'assistant';
@@ -85,9 +85,22 @@ export interface PromptEnhancementOutput {
   cardCount?: number;
 }
 
+export interface ChatInput {
+  userMessage: string;
+  recentMessages?: RecentChatMessage[];
+  projectType?: string;
+  projectMemory?: ProjectContextMemory | null;
+  currentArtifactSummary?: CurrentArtifactSummary | null;
+}
+
+export interface ChatOutput {
+  reply: string;
+}
+
 export interface AIProvider {
   readonly name: AIProviderName;
   planText(input: TextPlanRequest): Promise<TextPlanResult>;
   generateImageOrDocument(input: MockDocumentRequest): Promise<MockDocumentResult>;
   enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput>;
+  chat(input: ChatInput): Promise<ChatOutput>;
 }

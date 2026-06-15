@@ -13,6 +13,12 @@
       }
     ]
   },
+  "r2_buckets": [
+    {
+      "binding": "ORRA_ASSETS",
+      "bucket_name": "orra-assets"
+    }
+  ],
   "env": {
     "staging": {
       "vars": {
@@ -27,7 +33,13 @@
             "dead_letter_queue": "orra-generation-dlq-staging"
           }
         ]
-      }
+      },
+      "r2_buckets": [
+        {
+          "binding": "ORRA_ASSETS",
+          "bucket_name": "orra-assets-staging"
+        }
+      ]
     },
     "production": {
       "vars": {
@@ -42,7 +54,13 @@
             "dead_letter_queue": "orra-generation-dlq"
           }
         ]
-      }
+      },
+      "r2_buckets": [
+        {
+          "binding": "ORRA_ASSETS",
+          "bucket_name": "orra-assets"
+        }
+      ]
     }
   }
 }
@@ -50,9 +68,12 @@
 // Secrets (set via `wrangler secret put` — never commit real values):
 //   SUPABASE_URL                — Supabase project URL (required)
 //   SUPABASE_SERVICE_ROLE_KEY   — Supabase service role key (required)
-//   AI_PROVIDER                 — fake (default) or gemini
+//   AI_PROVIDER                 — fake (default) | gemini | openai; fake is blocked in production
 //   GEMINI_API_KEY              — required when AI_PROVIDER=gemini or IMAGE_PROVIDER=gemini (shared key)
 //   GEMINI_TEXT_MODEL           — optional Gemini text model override
-//   IMAGE_PROVIDER              — fake (default) or gemini; fake is blocked in production
+//   OPENAI_API_KEY              — required when AI_PROVIDER=openai or IMAGE_PROVIDER=openai (shared key)
+//   OPENAI_TEXT_MODEL           — optional OpenAI text model override (default: gpt-4o-mini)
+//   IMAGE_PROVIDER              — fake (default) | gemini | openai; fake is blocked in production
 //   GEMINI_IMAGE_MODEL          — optional Gemini image model override (default: gemini-2.5-flash-image)
+//   OPENAI_IMAGE_MODEL          — required when IMAGE_PROVIDER=openai (recommended: gpt-image-2)
 //   ALLOW_FAKE_PROVIDER_IN_PRODUCTION — set to 'true' only for emergency debugging in production (default: blocked)

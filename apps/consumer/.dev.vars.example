@@ -15,8 +15,9 @@ ENVIRONMENT=development
 # ---------------------------------------------------------------------------
 # AI provider (text planning)
 # ---------------------------------------------------------------------------
-# AI_PROVIDER=fake  — default, deterministic, no API key needed
+# AI_PROVIDER=fake   — default, deterministic, no API key needed
 # AI_PROVIDER=gemini — requires GEMINI_API_KEY; for staging/manual smoke only
+# AI_PROVIDER=openai — requires OPENAI_API_KEY; for staging/manual smoke only
 AI_PROVIDER=fake
 
 # Required when AI_PROVIDER=gemini (server-only — never set in apps/web or apps/api)
@@ -27,15 +28,25 @@ GEMINI_BASE_URL=
 # Optional provider timeout in milliseconds
 AI_PROVIDER_TIMEOUT_MS=
 
+# Required when AI_PROVIDER=openai (server-only — never set in apps/web or apps/api)
+OPENAI_API_KEY=
+# Optional OpenAI text model override. Router defaults to gpt-4o-mini.
+OPENAI_TEXT_MODEL=
+
 # ---------------------------------------------------------------------------
 # Image provider
 # ---------------------------------------------------------------------------
 # IMAGE_PROVIDER=fake   — default, deterministic, no API key needed
 # IMAGE_PROVIDER=gemini — requires GEMINI_API_KEY (shared with AI provider above);
-#                         for staging/manual smoke only; intended for early alpha
-# IMAGE_PROVIDER=flux   — DEPRECATED; use IMAGE_PROVIDER=gemini
+#                         for staging/manual smoke only
+# IMAGE_PROVIDER=openai — requires OPENAI_API_KEY + OPENAI_IMAGE_MODEL
+# IMAGE_PROVIDER=flux   — DEPRECATED; use IMAGE_PROVIDER=gemini or IMAGE_PROVIDER=openai
 IMAGE_PROVIDER=fake
 
 # Optional Gemini image model override. Defaults to gemini-2.5-flash-image.
 # GEMINI_API_KEY is shared with AI_PROVIDER=gemini — one key for both text and image.
 GEMINI_IMAGE_MODEL=
+
+# Required when IMAGE_PROVIDER=openai. Recommended: gpt-image-2.
+# OPENAI_API_KEY is shared with AI_PROVIDER=openai — one key for both text and image.
+OPENAI_IMAGE_MODEL=

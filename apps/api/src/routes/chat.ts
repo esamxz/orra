@@ -10,6 +10,8 @@ import { createServiceContext, getRepositories } from '../services/service-conte
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
 import type { Repositories } from '../repositories/types.js';
+import { createAIProviderRouter } from '@orra/ai';
+import type { AIProvider } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Chat routes — protected
@@ -37,6 +39,18 @@ function buildServiceContext(c: Context<{ Bindings: Env }>): ReturnType<typeof c
   const requestId = getRequestId(c) ?? 'unknown';
   const repositories = c.get('repositories' as never) as Repositories | undefined;
   return createServiceContext(c.env, requestId, auth ?? undefined, repositories ? { repositories } : undefined);
+}
+
+function buildAIProvider(c: Context<{ Bindings: Env }>): AIProvider {
+  const router = createAIProviderRouter({
+    provider: c.env.AI_PROVIDER ?? 'fake',
+    geminiApiKey: c.env.GEMINI_API_KEY,
+    geminiModel: c.env.GEMINI_TEXT_MODEL,
+    openaiApiKey: c.env.OPENAI_API_KEY,
+    openaiModel: c.env.OPENAI_TEXT_MODEL,
+    timeoutMs: c.env.AI_PROVIDER_TIMEOUT_MS,
+  });
+  return router.getProvider();
 }
 
 // GET /v1/projects/:id/messages — list messages for a project thread
@@ -73,7 +87,8 @@ chatRoutes.post(
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
     const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, repos.artifact);
+    const aiProvider = buildAIProvider(c);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, repos.artifact, aiProvider);
     const result = await service.appendUserMessage(ctx, id, {
       content: body.content,
       selectedCardIndex: body.selectedCardIndex,
@@ -124,7 +139,8 @@ chatRoutes.post(
     const ctx = buildServiceContext(c);
     const repos = getRepositories(ctx);
     const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService);
+    const aiProvider = buildAIProvider(c);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, undefined, aiProvider);
     const result = await service.prepareMessage(ctx, id, messageId);
     return c.json({ ok: true, data: result }, 201);
   }

@@ -1,4 +1,4 @@
-import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, MockDocumentRequest, MockDocumentResult, PromptEnhancementInput, PromptEnhancementOutput } from '../types.js';
+import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, MockDocumentRequest, MockDocumentResult, PromptEnhancementInput, PromptEnhancementOutput, ChatInput, ChatOutput } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Fake AI provider
@@ -93,6 +93,12 @@ export class FakeAIProvider implements AIProvider {
 
   async generateImageOrDocument(_input: MockDocumentRequest): Promise<MockDocumentResult> {
     return { kind: 'mock_document' };
+  }
+
+  async chat(_input: ChatInput): Promise<ChatOutput> {
+    return {
+      reply: "[Fake AI] Try: 'Create a post about discipline' or 'Make a 5-card carousel about productivity'.",
+    };
   }
 
   async enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput> {

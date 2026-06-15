@@ -742,7 +742,7 @@ describe('POST /v1/projects/:id/messages', () => {
     );
   });
 
-  it('POST conversation message returns message and intent without approvalMessage', async () => {
+  it('POST conversation message returns message, intent, and AI chat reply', async () => {
     const repos = createFakeRepositories([
       {
         id: '11111111-1111-1111-1111-111111111111',
@@ -782,7 +782,8 @@ describe('POST /v1/projects/:id/messages', () => {
     };
     expect(data.message.role).toBe('user');
     expect(data.intent.mode).toBe('conversation');
-    expect(data.approvalMessage).toBeUndefined();
+    // Conversation mode now returns an AI reply via the injected provider
+    expect(data.approvalMessage).toBeDefined();
   });
 
   it('GET messages returns approval_summary message after generation POST', async () => {
@@ -1458,7 +1459,7 @@ describe('POST /:id/messages/:messageId/prepare', () => {
     expect(json.data.intent.mode).toBe('conversation');
     expect(json.data.approvalMessage.role).toBe('assistant');
     expect(json.data.approvalMessage.kind).toBe('text');
-    expect(json.data.approvalMessage.content).toContain("I'd love to help");
+    expect(json.data.approvalMessage.content).toContain("[Fake AI]");
   });
 
   it('is idempotent: calling prepare twice returns the same response id', async () => {
@@ -1840,5 +1841,160 @@ describe('POST /messages — W7 chat-directed editing', () => {
     expect(data.approvalMessage).toBeDefined();
     expect(data.approvalMessage!.role).toBe('assistant');
     expect(data.approvalMessage!.kind).toBe('approval_summary');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1: ChatService AI provider wiring (service-level tests)
+// ---------------------------------------------------------------------------
+// These test the exact bugs: conversation mode with "hi" must produce an
+// assistant reply, and real provider failures must not fall back to canned copy.
+
+import { ChatService } from '../services/chatService.js';
+import type { AIProvider } from '@orra/ai';
+import { AIProviderError } from '@orra/ai';
+
+const PROJECT_ROW_BASE: ProjectRow = {
+  id: 'proj-p1',
+  workspace_id: 'ws-p1',
+  name: 'P1 test project',
+  type: 'post',
+  ratio: { name: '4:5', w: 1080, h: 1350 },
+  brand_system_id: null,
+  source_template_id: null,
+  autosave_state: null,
+  created_at: '2026-01-01',
+  updated_at: '2026-01-01',
+};
+
+function makeMinimalRepositories(project: ProjectRow, threads: ChatThreadRow[], messages: ChatMessageRow[]) {
+  return createFakeRepositories([project], threads, messages);
+}
+
+function makeMockProvider(chatReply: string): AIProvider {
+  return {
+    name: 'openai' as const,
+    async planText() { throw new Error('not used'); },
+    async generateImageOrDocument() { throw new Error('not used'); },
+    async enhancePrompt() { throw new Error('not used'); },
+    async chat() { return { reply: chatReply }; },
+  };
+}
+
+function makeFailingProvider(): AIProvider {
+  return {
+    name: 'openai' as const,
+    async planText() { throw new Error('not used'); },
+    async generateImageOrDocument() { throw new Error('not used'); },
+    async enhancePrompt() { throw new Error('not used'); },
+    async chat() {
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'openai',
+        message: 'OpenAI returned HTTP 500',
+        retryable: false,
+      });
+    },
+  };
+}
+
+describe('P1: ChatService — real provider chat wiring', () => {
+  it('"hi" in conversation mode with injected provider → assistant reply persisted', async () => {
+    const thread: ChatThreadRow = { id: 'th-p1', workspace_id: 'ws-p1', project_id: 'proj-p1', title: null, created_at: '2026-01-01', updated_at: '2026-01-01' };
+    const repos = makeMinimalRepositories(PROJECT_ROW_BASE, [thread], []);
+    const provider = makeMockProvider('Hello! How can I help with your content today?');
+
+    const service = new ChatService(
+      repos.chat,
+      repos.project,
+      repos.brandSystem,
+      undefined,
+      undefined,
+      provider,
+    );
+    const ctx = {
+      env: {} as import('../env.js').Env,
+      requestId: 'r-1',
+      auth: { isAuthenticated: true, clerkUserId: 'usr_test', userId: 'u-1', workspaceId: 'ws-p1', role: 'owner', authSource: 'dev' as const },
+    } as unknown as import('../services/service-context.js').ServiceContext;
+
+    const result = await service.appendUserMessage(ctx, 'proj-p1', { content: 'hi' });
+
+    expect(result.message.role).toBe('user');
+    expect(result.intent.mode).toBe('conversation');
+    expect(result.approvalMessage).toBeDefined();
+    expect(result.approvalMessage!.role).toBe('assistant');
+    expect(result.approvalMessage!.content).toBe('Hello! How can I help with your content today?');
+  });
+
+  it('"hi" with failing provider → unavailable error message, not canned copy', async () => {
+    const thread: ChatThreadRow = { id: 'th-p1', workspace_id: 'ws-p1', project_id: 'proj-p1', title: null, created_at: '2026-01-01', updated_at: '2026-01-01' };
+    const repos = makeMinimalRepositories(PROJECT_ROW_BASE, [thread], []);
+    const provider = makeFailingProvider();
+
+    const service = new ChatService(
+      repos.chat,
+      repos.project,
+      repos.brandSystem,
+      undefined,
+      undefined,
+      provider,
+    );
+    const ctx = {
+      env: {} as import('../env.js').Env,
+      requestId: 'r-1',
+      auth: { isAuthenticated: true, clerkUserId: 'usr_test', userId: 'u-1', workspaceId: 'ws-p1', role: 'owner', authSource: 'dev' as const },
+    } as unknown as import('../services/service-context.js').ServiceContext;
+
+    const result = await service.appendUserMessage(ctx, 'proj-p1', { content: 'hi' });
+
+    expect(result.approvalMessage).toBeDefined();
+    expect(result.approvalMessage!.content).toContain('temporarily unavailable');
+    expect(result.approvalMessage!.content).not.toContain("I'd love to help");
+    expect(result.approvalMessage!.content).not.toContain('[Fake AI]');
+  });
+
+  it('"hi" with no provider → no assistant message (backward compat)', async () => {
+    const thread: ChatThreadRow = { id: 'th-p1', workspace_id: 'ws-p1', project_id: 'proj-p1', title: null, created_at: '2026-01-01', updated_at: '2026-01-01' };
+    const repos = makeMinimalRepositories(PROJECT_ROW_BASE, [thread], []);
+
+    const service = new ChatService(repos.chat, repos.project);
+    const ctx = {
+      env: {} as import('../env.js').Env,
+      requestId: 'r-1',
+      auth: { isAuthenticated: true, clerkUserId: 'usr_test', userId: 'u-1', workspaceId: 'ws-p1', role: 'owner', authSource: 'dev' as const },
+    } as unknown as import('../services/service-context.js').ServiceContext;
+
+    const result = await service.appendUserMessage(ctx, 'proj-p1', { content: 'hi' });
+
+    expect(result.message.role).toBe('user');
+    expect(result.intent.mode).toBe('conversation');
+    expect(result.approvalMessage).toBeUndefined();
+  });
+
+  it('conversation-mode reply does not reserve credits or create a generation job', async () => {
+    const thread: ChatThreadRow = { id: 'th-p1', workspace_id: 'ws-p1', project_id: 'proj-p1', title: null, created_at: '2026-01-01', updated_at: '2026-01-01' };
+    const repos = makeMinimalRepositories(PROJECT_ROW_BASE, [thread], []);
+    const provider = makeMockProvider('Sounds great!');
+
+    const service = new ChatService(
+      repos.chat,
+      repos.project,
+      repos.brandSystem,
+      undefined,
+      undefined,
+      provider,
+    );
+    const ctx = {
+      env: {} as import('../env.js').Env,
+      requestId: 'r-1',
+      auth: { isAuthenticated: true, clerkUserId: 'usr_test', userId: 'u-1', workspaceId: 'ws-p1', role: 'owner', authSource: 'dev' as const },
+    } as unknown as import('../services/service-context.js').ServiceContext;
+
+    const result = await service.appendUserMessage(ctx, 'proj-p1', { content: 'hi' });
+
+    // intent is conversation, not generation — no job, no credits
+    expect(result.intent.mode).toBe('conversation');
+    expect(result.editResult).toBeUndefined();
   });
 });

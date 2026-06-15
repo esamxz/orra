@@ -86,7 +86,7 @@ export default function KonvaStage({
     const card = document.cards[activeCardIndex];
     if (!card) return;
     const imageLayers = card.layers.filter(
-      (l) => l.type === 'image' && !l.hidden,
+      (l) => (l.type === 'image' || l.type === 'background') && !l.hidden,
     );
     for (const layer of imageLayers) {
       const assetId = (layer as { assetId?: string }).assetId;
@@ -321,7 +321,29 @@ export default function KonvaStage({
 
     switch (layer.kind) {
       case 'background': {
-        return null;
+        const loadedImg = loadedImagesRef.current.get(layer.assetId);
+        if (loadedImg) {
+          const konvaImg = new Konva.Image({
+            x: 0,
+            y: 0,
+            width: layer.w,
+            height: layer.h,
+            image: loadedImg,
+            listening: false,
+          });
+          group.add(konvaImg);
+        } else {
+          // Show baseColor placeholder while image loads
+          group.add(new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: layer.w,
+            height: layer.h,
+            fill: layer.baseColor,
+            listening: false,
+          }));
+        }
+        break;
       }
 
       case 'image': {

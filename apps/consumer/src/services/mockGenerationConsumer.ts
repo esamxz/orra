@@ -3,11 +3,13 @@ import type { ArtifactRepository } from '@orra/api/src/repositories/artifactRepo
 import type { CreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import type { ChatRepository } from '@orra/api/src/repositories/chatRepository.js';
-import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
+import type { AssetRepository } from '@orra/api/src/repositories/assetRepository.js';
+import type { ArtifactDocument, BackgroundLayer, ProjectContextMemory, Ratio } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateMockArtifactDocument, generateMockSingleCard } from './mockArtifactGenerator.js';
+import { storeGeneratedImage } from './generatedImageStorage.js';
 import { createAIProviderRouter, buildArtifactSummary, AIProviderError } from '@orra/ai';
-import type { AIProviderRouter, RecentChatMessage, TextPlanResult } from '@orra/ai';
+import type { AIProviderRouter, ImageProviderRouter, RecentChatMessage, TextPlanResult } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Mock generation consumer
@@ -56,7 +58,10 @@ export class MockGenerationConsumer {
     private creditRepo?: CreditRepository,
     private aiRouter: AIProviderRouter = createAIProviderRouter(),
     private projectMemoryRepo?: ProjectMemoryRepository,
-    private chatRepo?: ChatRepository
+    private chatRepo?: ChatRepository,
+    private imageRouter?: ImageProviderRouter,
+    private assetRepo?: AssetRepository,
+    private r2Bucket?: R2Bucket
   ) {}
 
   /**
@@ -260,6 +265,72 @@ export class MockGenerationConsumer {
           .join('; ');
         throw new Error(`Generated artifact document failed schema validation: ${issues}`);
       }
+      mockDocument = generatedValidation.data;
+
+      // 8c. Image generation — required when IMAGE_PROVIDER is a real provider.
+      // Failure throws and propagates to the outer catch → job fails + credits refunded.
+      // When IMAGE_PROVIDER=fake or imageRouter is absent: skip, text-only artifact is valid.
+      const imageProvider = this.imageRouter?.getProvider();
+      const isRealImageProvider = imageProvider && imageProvider.id !== 'fake';
+
+      if (isRealImageProvider && this.assetRepo && this.r2Bucket) {
+        const imagePrompt = buildImagePrompt(aiPlan);
+        const t0img = Date.now();
+        console.info('[provider_image]', { jobId: message.jobId, provider: imageProvider.id, status: 'started' });
+
+        const imageResult = await imageProvider.generateImage({
+          prompt: imagePrompt,
+          width: currentDocument.ratio.w,
+          height: currentDocument.ratio.h,
+          kind: 'background',
+          format: 'png',
+        });
+
+        console.info('[provider_image]', {
+          jobId: message.jobId,
+          provider: imageProvider.id,
+          status: 'succeeded',
+          durationMs: Date.now() - t0img,
+          mimeType: imageResult.mimeType,
+        });
+
+        // Determine target card indices based on generation scope
+        const targetCardIndices =
+          generationScope === 'selected_card' && targetCardId
+            ? [mockDocument.cards.findIndex((c) => c.id === targetCardId)]
+            : mockDocument.cards.map((_, i) => i);
+
+        // Store image (one shared image for all target cards)
+        const primaryCardIndex = targetCardIndices[0] ?? 0;
+        const assetId = await storeGeneratedImage({
+          workspaceId: job.workspace_id,
+          projectId: job.project_id,
+          imageBytes: imageResult.data,
+          mimeType: imageResult.mimeType,
+          cardIndex: primaryCardIndex,
+          r2Bucket: this.r2Bucket,
+          assetRepo: this.assetRepo,
+        });
+
+        // Attach background layer to each target card
+        mockDocument = attachBackgroundLayer(
+          mockDocument,
+          targetCardIndices,
+          assetId,
+          imagePrompt,
+          currentDocument.ratio,
+        );
+
+        // Re-validate with background layer attached
+        const reValidation = ArtifactDocumentSchema.safeParse(mockDocument);
+        if (!reValidation.success) {
+          const issues = reValidation.error.issues
+            .map((issue: { path: (string | number)[]; message: string }) => `${issue.path.join('.')}: ${issue.message}`)
+            .join('; ');
+          throw new Error(`Artifact with background layer failed schema validation: ${issues}`);
+        }
+        mockDocument = reValidation.data;
+      }
 
       // 9. Commit new artifact version atomically
       const nextVersionNumber = current.version.version + 1;
@@ -324,7 +395,7 @@ export class MockGenerationConsumer {
         return;
       }
 
-      console.info(`Job ${message.jobId} completed successfully. Result version ${committedVersion.id}, captured ${capturedCredits} credits.`);
+      console.info(`Job ${message.jobId} completed successfully. Result version ${committedVersion.id}, captured ${capturedCredits} credits. imageAttached=${isRealImageProvider}`);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error during mock generation';
       console.error(`Job ${message.jobId} failed during processing: ${errMsg}`);
@@ -361,4 +432,52 @@ export class MockGenerationConsumer {
       });
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Image generation helpers
+// ---------------------------------------------------------------------------
+
+function buildImagePrompt(plan: TextPlanResult): string {
+  const parts: string[] = [];
+  if (plan.title) parts.push(plan.title);
+  if (plan.visualDirection) parts.push(`Visual style: ${plan.visualDirection}`);
+  if (plan.styleNotes.length > 0) parts.push(plan.styleNotes.slice(0, 3).join(', '));
+  return parts.join('. ') || 'Professional visual content background';
+}
+
+function attachBackgroundLayer(
+  doc: ArtifactDocument,
+  cardIndices: number[],
+  assetId: string,
+  sourcePrompt: string,
+  ratio: Ratio,
+): ArtifactDocument {
+  const updatedCards = doc.cards.map((card, idx) => {
+    if (!cardIndices.includes(idx)) return card;
+
+    const bgLayer: BackgroundLayer = {
+      id: crypto.randomUUID(),
+      type: 'background',
+      z: -1,
+      x: 0,
+      y: 0,
+      w: ratio.w,
+      h: ratio.h,
+      rotation: 0,
+      opacity: 1,
+      locked: false,
+      hidden: false,
+      assetId,
+      fit: 'cover',
+      sourcePrompt,
+    };
+
+    // Shift existing layers up by 1 so background sits at z=-1
+    const shiftedLayers = card.layers.map((l) => ({ ...l, z: l.z + 1 }));
+
+    return { ...card, layers: [bgLayer, ...shiftedLayers] };
+  });
+
+  return { ...doc, cards: updatedCards };
 }

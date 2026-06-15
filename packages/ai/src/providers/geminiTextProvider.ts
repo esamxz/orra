@@ -6,18 +6,18 @@ import type {
   TextPlanResult,
   MockDocumentRequest,
   MockDocumentResult,
-  RecentChatMessage,
-  CurrentArtifactSummary,
   PromptEnhancementInput,
   PromptEnhancementOutput,
+  ChatInput,
+  ChatOutput,
 } from '../types.js';
-import type { ProjectContextMemory } from '@orra/shared';
 import { AIProviderError } from '../errors.js';
 import { extractJsonObjectFromText } from '../json.js';
 import { normalizeTextPlanResult } from '../normalization.js';
 import { PromptEnhancementResultSchema } from '../schemas.js';
 import type { AIProviderObserver } from '../observability.js';
 import { NoopAIProviderObserver } from '../observability.js';
+import { buildTextPlanPrompt, buildEnhancementPrompt } from '../prompts.js';
 
 export interface GeminiTextProviderConfig {
   apiKey: string;
@@ -29,6 +29,8 @@ export interface GeminiTextProviderConfig {
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+const ORRA_CHAT_SYSTEM_PROMPT = `You are Orra's creative assistant. Help the user think through their visual content creation. Be brief and conversational. Do not start generating content — wait until the user explicitly asks to create or generate something. Respond in 1-3 sentences.`;
 
 const GeminiEnvelopeSchema = z.object({
   candidates: z
@@ -60,7 +62,7 @@ export class GeminiTextProvider implements AIProvider {
   }
 
   async planText(input: TextPlanRequest): Promise<TextPlanResult> {
-    const prompt = this.buildPrompt(input);
+    const prompt = buildTextPlanPrompt(input);
     const t0 = Date.now();
 
     this.observer.observe({
@@ -178,8 +180,75 @@ export class GeminiTextProvider implements AIProvider {
     });
   }
 
+  async chat(input: ChatInput): Promise<ChatOutput> {
+    const url = `${this.baseUrl}/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: ORRA_CHAT_SYSTEM_PROMPT }] },
+          contents: [{ role: 'user', parts: [{ text: input.userMessage }] }],
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new AIProviderError({
+          code: 'PROVIDER_TIMEOUT',
+          provider: 'gemini',
+          message: `Gemini chat request timed out after ${this.timeoutMs}ms`,
+          retryable: true,
+        });
+      }
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'gemini',
+        message: `Gemini chat network error: ${err instanceof Error ? err.message : 'unknown'}`,
+        retryable: true,
+      });
+    }
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'gemini',
+        message: `Gemini chat returned HTTP ${response.status}`,
+        retryable: response.status >= 500,
+      });
+    }
+
+    let raw: unknown;
+    try {
+      raw = await response.json();
+    } catch {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_RESPONSE',
+        provider: 'gemini',
+        message: 'Gemini chat response body was not valid JSON',
+      });
+    }
+
+    const envelope = GeminiEnvelopeSchema.safeParse(raw);
+    if (!envelope.success) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_RESPONSE',
+        provider: 'gemini',
+        message: 'Gemini chat response did not match expected envelope shape',
+      });
+    }
+
+    return { reply: envelope.data.candidates[0].content.parts[0].text };
+  }
+
   async enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput> {
-    const prompt = this.buildEnhancementPrompt(input);
+    const prompt = buildEnhancementPrompt(input);
     const t0 = Date.now();
 
     this.observer.observe({
@@ -297,100 +366,4 @@ export class GeminiTextProvider implements AIProvider {
     }
   }
 
-  private buildPrompt(input: TextPlanRequest): string {
-    const brandSection = input.brandContext
-      ? `Brand tone: ${input.brandContext.tone ?? 'not specified'}\nVisual direction: ${input.brandContext.visualDirection ?? 'not specified'}`
-      : 'No brand context.';
-
-    const memorySection = this.buildMemorySection(input.projectMemory);
-    const chatSection = this.buildRecentChatSection(input.recentChatMessages);
-    const artifactSection = this.buildArtifactSummarySection(input.currentArtifactSummary);
-
-    return `You are a visual content planning assistant.
-Request: "${input.prompt}"
-Project type: ${input.projectType}
-Aspect ratio: ${input.ratio.name} (${input.ratio.w}x${input.ratio.h})
-${brandSection}${memorySection}${chatSection}${artifactSection}
-Current user request takes precedence over all context above.
-
-Return a JSON object with exactly these fields:
-- title: string (1-200 chars) short topic title
-- summary: string one sentence plan summary
-- cardCount: integer 1 for post, 2-5 for carousel, max 10
-- body: string main body copy for the first card (fallback when cards[0] is absent)
-- styleNotes: array of strings (max 20 items, each max 300 chars) visual style guidance
-- cards: array of objects (one per card, same length as cardCount), each with:
-    - headline: string (1-200 chars) card-specific headline text
-    - body: string card-specific paragraph copy
-    - cta: string (optional, max 100 chars) call-to-action text, only for the last card
-- layoutDirection: string (optional, max 200 chars) — one of: editorial, centered, bold, minimal, quote, split
-- visualDirection: string (optional, max 200 chars) — one of: calm, dark, bold, minimal, elegant, playful, professional
-
-Do not include image prompts, layer coordinates, or ArtifactDocument JSON.`;
-  }
-
-  private buildMemorySection(memory: ProjectContextMemory | null | undefined): string {
-    if (!memory) return '';
-    const lines: string[] = [];
-    if (memory.topic) lines.push(`- Topic: ${memory.topic}`);
-    if (memory.platform) lines.push(`- Platform: ${memory.platform}`);
-    if (memory.tone) lines.push(`- Tone: ${memory.tone}`);
-    if (memory.audience) lines.push(`- Audience: ${memory.audience}`);
-    const avoids = [
-      ...(memory.constraints ?? []),
-      ...(memory.rejectedIdeas ?? []),
-    ].filter(Boolean);
-    if (avoids.length > 0) lines.push(`- Avoid: ${avoids.slice(0, 5).join(', ')}`);
-    if (lines.length === 0) return '';
-    return `\nProject context (from prior conversation):\n${lines.join('\n')}\n`;
-  }
-
-  private buildRecentChatSection(messages: RecentChatMessage[] | undefined): string {
-    if (!messages || messages.length === 0) return '';
-    const formatted = messages
-      .map((m) => `  ${m.role}: ${m.content.slice(0, 500)}`)
-      .join('\n');
-    return `\nRecent conversation (oldest first):\n${formatted}\n`;
-  }
-
-  private buildArtifactSummarySection(summary: CurrentArtifactSummary | null | undefined): string {
-    if (!summary || summary.cardCount === 0) return '';
-    const snippetPart =
-      summary.textSnippets.length > 0
-        ? ` Existing text: ${summary.textSnippets.map((s) => `"${s.slice(0, 100)}"`).join(', ')}.`
-        : '';
-    return `\nCurrent artifact: ${summary.cardCount} card(s), ${summary.textLayerCount} text layer(s), ${summary.imageLayerCount} image layer(s).${snippetPart}\n`;
-  }
-
-  private buildEnhancementPrompt(input: PromptEnhancementInput): string {
-    const selectedTypeHint = input.selectedType ? `\nUser selected type: ${input.selectedType}` : '';
-    const ratioHint = input.aspectRatio ? `\nAspect ratio: ${input.aspectRatio}` : '';
-    const assetHint = input.hasAssets
-      ? `\nAttached assets: ${input.assetCount ?? 1} image(s) attached by the user.`
-      : '';
-
-    return `You are a creative brief writer for a visual content creation tool.
-
-Expand and clarify the following rough user prompt into a richer creative brief suitable for generating a social media visual.
-
-User prompt: "${input.prompt}"${selectedTypeHint}${ratioHint}${assetHint}
-
-Rules:
-- Preserve the user's original topic and intent exactly.
-- If selectedType is "single_post" or the user prompt mentions "post", set inferredType to "single_post".
-- If selectedType is "carousel" or the user prompt mentions "carousel", "slides", or "cards", set inferredType to "carousel".
-- If neither applies, default inferredType to "single_post".
-- Never change single_post to carousel or vice versa against the user's stated intent.
-- Only add cardCount when inferredType is "carousel". For single_post, never include cardCount.
-- Do not invent fake statistics, percentage claims, named studies, brand names, URLs, CTAs, or product details not mentioned by the user.
-- Do not invent audience demographics, company names, or specific data points.
-- Keep the enhanced prompt concise (2-5 sentences). Do not write a paragraph-by-paragraph essay.
-- If the original prompt is already detailed (over 80 words), polish lightly without rewriting.
-- If assets are attached, mention using them as visual reference.
-
-Return a JSON object with exactly these fields:
-- enhancedPrompt: string (1-4000 chars) — the expanded creative brief
-- inferredType: "single_post" | "carousel" | "generic_visual"
-- cardCount: integer (2-10, only when inferredType is "carousel")`;
-  }
 }

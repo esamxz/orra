@@ -19,11 +19,8 @@ import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto, ApprovalAct
 import type { ApprovalState } from '@orra/shared';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
-import { BRANDS as DEMO_BRANDS } from '../data/cards';
 import { brandSystemDtoToDisplayBrand, type DisplayBrand } from '../components/brand/brandDisplayUtils';
 import {
-  makeArtifactSinglePost,
-  makeArtifactCarousel,
   makeTextLayer,
   makeBackgroundLayer,
   normalizeZ,
@@ -53,22 +50,6 @@ function frameSize(ratio: string, maxH=540, maxW=620) {
   return { w: Math.round(w), h: Math.round(h) };
 }
 
-const CREATE_RE = /\b(create|make|design|build|generate|carousel|posts?|cards?|draft|launch|write)\b/i;
-
-function topicFromPrompt(p: string) {
-  if (!p) return 'self-improvement';
-  let t = p.toLowerCase()
-    .replace(/.*\b(about|on|for|around)\b/, '')
-    .replace(/[.!?].*$/, '')
-    .replace(/\b(a|an|the|please|carousel|post|cards?|some)\b/g, '')
-    .trim();
-  return t.length > 2 && t.length < 60 ? t : 'self-improvement';
-}
-
-
-// Mock ID generator for chat messages — not persisted, replaced by server IDs later.
-let _mid = 0;
-const mid = () => 'm' + (++_mid);
 
 interface LocationState {
   mode?: string;
@@ -124,10 +105,7 @@ export default function WorkspacePage() {
 
   const [ratio, setRatio] = useState(config.ratio || '4:5');
   const [phase, setPhase] = useState('empty');
-  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState(config.prefill || '');
-  const [pending, setPending] = useState<{ topic: string } | null>(null);
-  const [ctaSet, setCtaSet] = useState(false);
 
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [sendError, setSendError] = useState<string | null>(null);
@@ -180,8 +158,7 @@ export default function WorkspacePage() {
       tone: [],
     };
     const real = apiBrands.map(brandSystemDtoToDisplayBrand);
-    const fallback = real.length === 0 ? DEMO_BRANDS : [];
-    return [noBrand, ...real, ...fallback];
+    return [noBrand, ...real];
   }, [apiBrands]);
 
   // Resolve the current brand from project state or navigation state.
@@ -203,7 +180,6 @@ export default function WorkspacePage() {
     setWorkspaceBrand(curBrand);
   }, [curBrand.id]);
 
-  const brandHandle = '@' + workspaceBrand.name.toLowerCase().replace(/[^a-z]+/g,'.').replace(/^\.|\.$/g,'');
 
   // Switch or clear brand on a real project.
   const handleSwitchBrand = useCallback(async (brandId: string | null) => {
@@ -314,7 +290,7 @@ export default function WorkspacePage() {
   const activeImageAssetIds = useMemo(() => {
     if (!card) return [];
     return card.layers
-      .filter((l) => l.type === 'image' && !l.hidden)
+      .filter((l) => (l.type === 'image' || l.type === 'background') && !l.hidden)
       .map((l) => (l as { assetId: string }).assetId);
   }, [card]);
 
@@ -390,9 +366,7 @@ export default function WorkspacePage() {
     }
   }, [polledJob, reloadCreditStatus]);
 
-  const displayMessages = useMemo(() => {
-    return projectId ? realMessages : messages;
-  }, [projectId, realMessages, messages]);
+  const displayMessages = useMemo(() => realMessages, [realMessages]);
 
   // True when the project has user message(s) but no AI/assistant response yet.
   const firstPromptPending = useMemo(() => {
@@ -476,7 +450,12 @@ export default function WorkspacePage() {
     const text = input.trim();
     if (!text) return;
 
-    if (projectId) {
+    if (!projectId) {
+      flash('No project loaded. Please go back to the dashboard and create a project.');
+      return;
+    }
+
+    {
       // Real project mode: persist to backend
       setSendState('sending');
       setSendError(null);
@@ -518,32 +497,6 @@ export default function WorkspacePage() {
         }
       }
       return;
-    }
-
-    // Demo/local mode: existing mock behavior
-    setInput('');
-    if (taRef.current) taRef.current.style.height = 'auto';
-    setMessages(m => [...m, { id:mid(), role:'user', type:'text', text }]);
-
-    const wantsCreate = CREATE_RE.test(text) || !!config.prefill;
-    if (wantsCreate) {
-      const topic = topicFromPrompt(text);
-      setMessages(m => [...m, { id:mid(), role:'ai', type:'thinking', text:'Planning the direction…' }]);
-      setTimeout(()=>{
-        setMessages(m => {
-          const copy = m.filter(x => x.type!=='thinking');
-          return [...copy, { id:mid(), role:'ai', type:'approval', topic, text: '' }];
-        });
-        setPending({ topic });
-      }, 1500);
-    } else {
-      setMessages(m => [...m, { id:mid(), role:'ai', type:'thinking', text:'' }]);
-      setTimeout(()=>{
-        setMessages(m => {
-          const copy = m.filter(x => x.type!=='thinking');
-          return [...copy, { id:mid(), role:'ai', type:'text', text:'Got it — tell me what you’d like to create and I’ll draft a plan. You can say something like "make a 5-card carousel about morning routines."' }];
-        });
-      }, 900);
     }
   };
 
@@ -665,34 +618,6 @@ export default function WorkspacePage() {
       setCardGenConfirm(null);
     }
   };
-
-  /* ----- approve & generate ----- */
-  const approve = (_topic: string) => {
-    setMessages(m => m.map(x => x.type==='approval' ? { ...x, type:'approvalDone' } : x));
-    setPending(null);
-    setMessages(m => [...m, { id:mid(), role:'ai', type:'thinking', text:'Designing the layers…' }]);
-    setTimeout(()=>{
-      const made = isCarousel ? makeArtifactCarousel(brandHandle) : makeArtifactSinglePost(brandHandle);
-      setServerArtifactId(null); // mock artifacts are local-only
-      resetArtifact(made);
-      setActiveCard(0); clearSelection(); setPhase('generated');
-      setMessages(m => {
-        const copy = m.filter(x => x.type!=='thinking');
-        return [...copy, { id:mid(), role:'ai', type:'done', text:`Created a ${isCarousel?made.cards.length+'-card carousel':'single post'}. Click any text to edit, or tell me what to change.` }];
-      });
-      flash(isCarousel ? 'Carousel generated' : 'Post generated');
-    }, 1700);
-  };
-
-  const specs = pending ? {
-    lead: isCarousel
-      ? `Ready to create a ${artifact?.cards.length ?? 5}-card carousel about ${pending.topic}.`
-      : `Ready to create a single post about ${pending.topic}.`,
-    style: 'Calm · premium · focused',
-    format: `Instagram ${ratio}`,
-    brand: workspaceBrand.name,
-    cta: 'Visit the link in bio',
-  } : null;
 
   /* ----- rail card ops ----- */
   const addCard = () => {
@@ -1132,8 +1057,7 @@ export default function WorkspacePage() {
                   styleNotes: m.approvalCard.styleNotes,
                   memorySummary: m.approvalCard.memorySummary,
                   estimatedCredits: m.approvalCard.estimatedCredits,
-                } : specs;
-                const isReal = !!m.approvalCard;
+                } : null;
                 const isActing = actingMessageId === m.id;
                 const ec = m.approvalCard?.estimatedCredits;
                 const canAfford = (ec != null && creditData != null)
@@ -1143,13 +1067,13 @@ export default function WorkspacePage() {
                   <div key={m.id} className="msg ai" style={{display:'block'}}>
                     <ApprovalCard
                       specs={approvalSpecs}
-                      ctaSet={isReal ? !!m.approvalCard?.cta : ctaSet}
+                      ctaSet={!!m.approvalCard?.cta}
                       disabled={isActing}
-                      canAfford={isReal ? canAfford : undefined}
-                      onApprove={() => isReal ? handleApprovalAction(m.id, 'approve_and_create') : approve(m.topic || '')}
-                      onAddCta={() => isReal ? handleApprovalAction(m.id, 'add_cta', 'Visit the link in bio') : (setCtaSet(true),flash('CTA added to plan'))}
-                      onEdit={() => isReal ? handleApprovalAction(m.id, 'edit_direction', 'Adjust direction') : (taRef.current&&taRef.current.focus(), flash('Edit your direction below'))}
-                      onCreateCardByCard={isReal ? () => handleApprovalAction(m.id, 'create_card_by_card') : undefined}
+                      canAfford={canAfford}
+                      onApprove={() => handleApprovalAction(m.id, 'approve_and_create')}
+                      onAddCta={() => handleApprovalAction(m.id, 'add_cta', 'Visit the link in bio')}
+                      onEdit={() => handleApprovalAction(m.id, 'edit_direction', 'Adjust direction')}
+                      onCreateCardByCard={() => handleApprovalAction(m.id, 'create_card_by_card')}
                     />
                   </div>
                 );

@@ -111,12 +111,50 @@ describe('validateConsumerEnv — production provider policy', () => {
     ).not.toThrow();
   });
 
-  it('production error message mentions gemini as the required provider', () => {
+  it('production error message mentions gemini as a valid provider', () => {
     try {
       validateConsumerEnv(PROD);
     } catch (err) {
       expect((err as Error).message).toContain('gemini');
     }
+  });
+
+  it('production error message mentions openai as a valid provider', () => {
+    try {
+      validateConsumerEnv(PROD);
+    } catch (err) {
+      expect((err as Error).message).toContain('openai');
+    }
+  });
+
+  it('allows AI_PROVIDER=openai + OPENAI_API_KEY in production', () => {
+    expect(() =>
+      validateConsumerEnv({
+        ...PROD,
+        AI_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'sk-prod-key',
+        IMAGE_PROVIDER: 'openai',
+        OPENAI_IMAGE_MODEL: 'gpt-image-2',
+      }),
+    ).not.toThrow();
+  });
+
+  it('allows IMAGE_PROVIDER=openai + OPENAI_API_KEY + OPENAI_IMAGE_MODEL in production', () => {
+    expect(() =>
+      validateConsumerEnv({
+        ...PROD,
+        AI_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'sk-prod-key',
+        IMAGE_PROVIDER: 'openai',
+        OPENAI_IMAGE_MODEL: 'gpt-image-2',
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects AI_PROVIDER=openai without key in production', () => {
+    expect(() =>
+      validateConsumerEnv({ ...PROD, AI_PROVIDER: 'openai', IMAGE_PROVIDER: 'openai', OPENAI_IMAGE_MODEL: 'gpt-image-2' }),
+    ).toThrow('OPENAI_API_KEY is required when AI_PROVIDER=openai');
   });
 });
 
@@ -150,6 +188,23 @@ describe('validateConsumerEnv — staging allows fake providers', () => {
     expect(() =>
       validateConsumerEnv({ ...STAGING, IMAGE_PROVIDER: 'flux' })
     ).toThrow('IMAGE_PROVIDER=flux is no longer supported');
+  });
+
+  it('allows AI_PROVIDER=openai in staging with OPENAI_API_KEY', () => {
+    expect(() =>
+      validateConsumerEnv({ ...STAGING, AI_PROVIDER: 'openai', OPENAI_API_KEY: 'sk-staging' }),
+    ).not.toThrow();
+  });
+
+  it('allows IMAGE_PROVIDER=openai in staging with OPENAI_API_KEY + OPENAI_IMAGE_MODEL', () => {
+    expect(() =>
+      validateConsumerEnv({
+        ...STAGING,
+        IMAGE_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'sk-staging',
+        OPENAI_IMAGE_MODEL: 'gpt-image-2',
+      }),
+    ).not.toThrow();
   });
 });
 

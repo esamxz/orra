@@ -5,10 +5,11 @@ import type { CreditRepository } from '@orra/api/src/repositories/creditReposito
 import type { ArtifactRepository, ArtifactWithVersion } from '@orra/api/src/repositories/artifactRepository.js';
 import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import type { ChatRepository, RecentMessageRow } from '@orra/api/src/repositories/chatRepository.js';
+import type { AssetRepository } from '@orra/api/src/repositories/assetRepository.js';
 import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRow, CreditLedgerRow } from '@orra/db';
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
-import type { AIProviderRouter, AIProvider, TextPlanResult, RecentChatMessage, CurrentArtifactSummary } from '@orra/ai';
+import type { AIProviderRouter, AIProvider, TextPlanResult, RecentChatMessage, CurrentArtifactSummary, ImageProviderRouter, ImageProvider, ImageGenerationResult } from '@orra/ai';
 import { AIProviderError, createAIProviderRouter } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
@@ -1668,6 +1669,7 @@ function createSpyRouter(): { router: AIProviderRouter; calls: { projectType: st
     async generateImageOrDocument() {
       return { kind: 'mock_document' as const };
     },
+    async chat() { throw new Error('not used'); },
     async enhancePrompt() {
       throw new Error('not used');
     },
@@ -1686,6 +1688,7 @@ function createFailingRouter(): AIProviderRouter {
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
       },
+      async chat() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -1804,6 +1807,7 @@ function createCapturingRouter(): {
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
       },
+      async chat() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -1918,6 +1922,7 @@ describe('Gemini router integration', () => {
             message: 'no images',
           });
         },
+        async chat() { throw new Error('not used'); },
         async enhancePrompt() {
           throw new Error('not used');
         },
@@ -2017,6 +2022,7 @@ function createExtendedCapturingRouter(): {
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
       },
+      async chat() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -2200,6 +2206,7 @@ function createPlanContentRouter(planOverrides: Partial<TextPlanResult> = {}): A
     async generateImageOrDocument() {
       return { kind: 'mock_document' as const };
     },
+    async chat() { throw new Error('not used'); },
     async enhancePrompt() {
       throw new Error('not used');
     },
@@ -2306,6 +2313,7 @@ function createAIProviderErrorRouter(code: string): AIProviderRouter {
       async generateImageOrDocument() {
         return { kind: 'mock_document' as const };
       },
+      async chat() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -2768,5 +2776,350 @@ describe('MockGenerationConsumer — W5 selected_card scope', () => {
     }
     const jobAfter = await jobRepo.findById('job-1');
     expect(jobAfter!.status).toBe('succeeded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1: Image integration tests
+// ---------------------------------------------------------------------------
+// These tests prove the exact image bug: real IMAGE_PROVIDER must upload
+// the generated image to R2, create an asset record, and attach a background
+// layer to the artifact. Failure at any step must fail the job + refund credits.
+
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const DEFAULT_IMAGE_RESULT: ImageGenerationResult = {
+  provider: 'openai',
+  model: 'gpt-image-2',
+  mimeType: 'image/png',
+  width: 1080,
+  height: 1350,
+  data: PNG_BYTES,
+};
+
+function makeRealImageRouter(generateImage: () => Promise<ImageGenerationResult>): ImageProviderRouter {
+  const provider: ImageProvider = {
+    id: 'openai',
+    generateImage,
+  };
+  return { getProvider: () => provider };
+}
+
+function makeFakeImageRouter(): ImageProviderRouter {
+  return {
+    getProvider: () => ({
+      id: 'fake',
+      generateImage: vi.fn(),
+    }),
+  };
+}
+
+function makeAssetRecord(id: string) {
+  return {
+    id,
+    workspace_id: 'ws-1',
+    project_id: 'proj-1',
+    kind: 'generated_background' as const,
+    r2_key: 'ws/ws-1/projects/proj-1/assets/uuid/generated-bg-0.png',
+    content_type: 'image/png',
+    size_bytes: PNG_BYTES.byteLength,
+    status: 'pending_upload' as const,
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+    original_filename: null,
+  };
+}
+
+function makeImageAssetRepo(assetId = 'asset-1'): AssetRepository & { putCalls: number } {
+  let putCalls = 0;
+  const record = makeAssetRecord(assetId);
+  return {
+    putCalls,
+    createProjectAsset: vi.fn().mockImplementation(() => { putCalls++; return Promise.resolve(record); }),
+    markProjectAssetUploaded: vi.fn().mockResolvedValue({ ...record, status: 'uploaded' }),
+  } as unknown as AssetRepository & { putCalls: number };
+}
+
+function makeR2Bucket(throws = false): R2Bucket & { putCalls: string[] } {
+  const putCalls: string[] = [];
+  return {
+    putCalls,
+    put: vi.fn().mockImplementation((key: string) => {
+      putCalls.push(key);
+      if (throws) return Promise.reject(new Error('R2 put failed'));
+      return Promise.resolve(undefined);
+    }),
+  } as unknown as R2Bucket & { putCalls: string[] };
+}
+
+function makeImageJobSetup(overrides?: Partial<GenerationJobRow>) {
+  const artifact: ArtifactRow = {
+    id: '11111111-1111-1111-1111-111111111111',
+    workspace_id: 'ws-1',
+    project_id: 'proj-1',
+    current_version_id: 'ver-1',
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+  };
+  const version: ArtifactVersionRow = {
+    id: 'ver-1',
+    workspace_id: 'ws-1',
+    artifact_id: '11111111-1111-1111-1111-111111111111',
+    version: 1,
+    document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+    reason: 'manual_checkpoint',
+    created_by: 'user',
+    brand_context_snapshot: null,
+    created_at: '2026-01-01',
+  };
+  const job = makeJob('queued', {
+    reserved_credits: 5,
+    ...overrides,
+  });
+  return { artifact, version, job };
+}
+
+function makeBalanceRepo(workspaceId = 'ws-1', amount = 10) {
+  return createFakeCreditRepository(
+    [{ workspace_id: workspaceId, subscription_available: amount, topup_available: 0, reserved: 5, updated_at: '2026-01-01' }],
+    // Seed a reserve entry so captureCredits/refundCredits can find the reservation for job-1.
+    // In production, the API reserves credits at approval time before the job is queued.
+    [{
+      id: 'res-seed-1',
+      workspace_id: workspaceId,
+      entry_type: 'reserve' as const,
+      bucket: 'subscription' as const,
+      amount: -5,
+      job_id: 'job-1',
+      expires_at: null,
+      metadata: {} as import('@orra/db').Json,
+      created_at: '2026-01-01',
+    }]
+  );
+}
+
+describe('P1: MockGenerationConsumer — image integration', () => {
+  it('IMAGE_PROVIDER=fake: skips image generation, commits text-only artifact, job succeeds', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+    const fakeImageRouter = makeFakeImageRouter();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      fakeImageRouter,
+      undefined, // no assetRepo
+      undefined, // no r2Bucket
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    expect(committed).not.toBeNull();
+    // No background layer with assetId — text-only
+    for (const card of committed.cards) {
+      const bgWithAsset = card.layers.filter(l => l.type === 'background' && (l as { assetId?: string }).assetId);
+      expect(bgWithAsset).toHaveLength(0);
+    }
+
+    // generateImage was never called (id==='fake' path skips it)
+    expect(fakeImageRouter.getProvider().generateImage).not.toHaveBeenCalled();
+  });
+
+  it('real provider success + R2 success: job succeeds, artifact has background layer with assetId', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateImage);
+    const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000001');
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    // Job must succeed
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+    expect(jobAfter!.result_version_id).toBeTruthy();
+
+    // R2 upload was called
+    expect(r2Bucket.putCalls.length).toBeGreaterThan(0);
+
+    // Committed artifact has a background layer with assetId
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    expect(committed).not.toBeNull();
+    const allLayers = committed.cards.flatMap(c => c.layers);
+    const bgLayers = allLayers.filter(l => l.type === 'background');
+    expect(bgLayers.length).toBeGreaterThan(0);
+    expect((bgLayers[0] as { assetId?: string }).assetId).toBe('aaaabbbb-cccc-dddd-eeee-000000000001');
+
+    // Document validates
+    const parsed = ArtifactDocumentSchema.safeParse(committed);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('real provider success + R2 storage failure: job fails, credits refunded', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateImage);
+    const r2Bucket = makeR2Bucket(true); // throws on put
+    const assetRepo = makeImageAssetRepo();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('failed');
+
+    // Credits must be refunded
+    const refundEntries = creditRepo.ledger.filter(l => l.entry_type === 'refund');
+    expect(refundEntries.length).toBeGreaterThan(0);
+
+    // No artifact committed
+    expect(artifactRepo.getLastCommittedDocument()).toBeNull();
+  });
+
+  it('real image provider API failure: job fails, credits refunded', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const generateImage = vi.fn().mockRejectedValue(
+      new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'openai',
+        message: 'OpenAI image API returned HTTP 500',
+        retryable: false,
+      })
+    );
+    const imageRouter = makeRealImageRouter(generateImage);
+    const assetRepo = makeImageAssetRepo();
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('failed');
+
+    const refundEntries = creditRepo.ledger.filter(l => l.entry_type === 'refund');
+    expect(refundEntries.length).toBeGreaterThan(0);
+
+    // R2 was never reached
+    expect(r2Bucket.putCalls).toHaveLength(0);
+  });
+
+  it('selected_card scope: background layer added only to target card', async () => {
+    const carouselDoc: ArtifactDocument = {
+      schemaVersion: 1,
+      artifactId: '11111111-1111-1111-1111-111111111111',
+      type: 'carousel',
+      ratio: { name: '4:5', w: 1080, h: 1350 },
+      cards: [
+        { id: 'bbbbbbbb-0000-0000-0000-000000000001', index: 0, baseColor: '#1d2a30', layers: [] },
+        { id: 'bbbbbbbb-0000-0000-0000-000000000002', index: 1, baseColor: '#354e53', layers: [] },
+        { id: 'bbbbbbbb-0000-0000-0000-000000000003', index: 2, baseColor: '#5e7680', layers: [] },
+      ],
+      version: 1,
+    };
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: carouselDoc as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+
+    const targetCardId = 'bbbbbbbb-0000-0000-0000-000000000002';
+    const job = makeJob('queued', {
+      reserved_credits: 5,
+      plan: {
+        approvalMessageId: 'msg-1',
+        summaryLine: 'Ready to generate card 2.',
+        generationScope: 'selected_card',
+        targetCardId,
+      } as unknown as import('@orra/db').Json,
+    });
+
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateImage);
+    const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000002');
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    expect(committed).not.toBeNull();
+
+    // Card at index 1 (targetCardId) must have a background layer with assetId
+    const targetCard = committed.cards.find(c => c.id === targetCardId);
+    expect(targetCard).toBeDefined();
+    const targetBg = targetCard!.layers.find(l => l.type === 'background' && (l as { assetId?: string }).assetId);
+    expect(targetBg).toBeDefined();
+    expect((targetBg as { assetId?: string }).assetId).toBe('aaaabbbb-cccc-dddd-eeee-000000000002');
+
+    // Other cards must NOT have a background layer with assetId
+    for (const card of committed.cards) {
+      if (card.id === targetCardId) continue;
+      const otherBg = card.layers.find(l => l.type === 'background' && (l as { assetId?: string }).assetId);
+      expect(otherBg).toBeUndefined();
+    }
   });
 });

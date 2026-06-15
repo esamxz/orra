@@ -11,6 +11,11 @@
  *   NEVER add GEMINI_API_KEY to apps/web or apps/api environment.
  *   Run the manual smoke test: pnpm --filter @orra/ai smoke:gemini
  *
+ * AI_PROVIDER=openai
+ *   Uses OpenAITextProvider for real text planning via OpenAI Responses API.
+ *   Requires OPENAI_API_KEY. OPENAI_TEXT_MODEL optional (default: gpt-4o-mini).
+ *   NEVER add OPENAI_API_KEY to apps/web or apps/api environment.
+ *
  * IMAGE_PROVIDER=fake (default)
  *   Uses FakeImageProvider — deterministic, no network calls.
  *   All automated tests use this default. Never requires an API key.
@@ -22,7 +27,12 @@
  *   Model is configurable via GEMINI_IMAGE_MODEL (defaults to gemini-2.5-flash-image).
  *   Generated image R2 storage and artifact integration are implemented in later phases.
  *
- * IMAGE_PROVIDER=flux is deprecated. Use IMAGE_PROVIDER=gemini.
+ * IMAGE_PROVIDER=openai
+ *   Uses OpenAIImageProvider via Responses API with image_generation tool.
+ *   Requires OPENAI_API_KEY and OPENAI_IMAGE_MODEL (recommended: gpt-image-2).
+ *   NEVER add OPENAI_API_KEY to apps/web or apps/api environment.
+ *
+ * IMAGE_PROVIDER=flux is deprecated. Use IMAGE_PROVIDER=gemini or IMAGE_PROVIDER=openai.
  *
  * [provider_plan] log events show:
  *   jobId, provider, status, durationMs, cardCount (on success)
@@ -55,6 +65,12 @@ export const ConsumerEnvSchema = z
     IMAGE_PROVIDER: z.string().optional(),
     /** Optional Gemini image model override. Defaults to gemini-2.5-flash-image. */
     GEMINI_IMAGE_MODEL: z.string().optional(),
+    /** Required when AI_PROVIDER=openai or IMAGE_PROVIDER=openai. */
+    OPENAI_API_KEY: z.string().optional(),
+    /** Optional OpenAI text model override. Router defaults to gpt-4o-mini. */
+    OPENAI_TEXT_MODEL: z.string().optional(),
+    /** Required when IMAGE_PROVIDER=openai. Recommended: gpt-image-2. */
+    OPENAI_IMAGE_MODEL: z.string().optional(),
     // Emergency escape hatch: allows fake providers in production for debugging.
     // Must be explicitly set to 'true'. Default in production is to block fake.
     ALLOW_FAKE_PROVIDER_IN_PRODUCTION: z.literal('true').optional(),
@@ -74,6 +90,27 @@ export const ConsumerEnvSchema = z
         path: ['GEMINI_API_KEY'],
       });
     }
+    if (data.AI_PROVIDER === 'openai' && !data.OPENAI_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'OPENAI_API_KEY is required when AI_PROVIDER=openai',
+        path: ['OPENAI_API_KEY'],
+      });
+    }
+    if (data.IMAGE_PROVIDER === 'openai' && !data.OPENAI_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'OPENAI_API_KEY is required when IMAGE_PROVIDER=openai',
+        path: ['OPENAI_API_KEY'],
+      });
+    }
+    if (data.IMAGE_PROVIDER === 'openai' && !data.OPENAI_IMAGE_MODEL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'OPENAI_IMAGE_MODEL is required when IMAGE_PROVIDER=openai',
+        path: ['OPENAI_IMAGE_MODEL'],
+      });
+    }
     const imgProvider = (data.IMAGE_PROVIDER ?? '').trim().toLowerCase();
     if (imgProvider === 'flux') {
       ctx.addIssue({
@@ -90,7 +127,7 @@ export const ConsumerEnvSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message:
-            'AI_PROVIDER=fake is not allowed in production. Set AI_PROVIDER=gemini with GEMINI_API_KEY, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
+            'AI_PROVIDER=fake is not allowed in production. Set AI_PROVIDER=gemini or AI_PROVIDER=openai with the appropriate key, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
           path: ['AI_PROVIDER'],
         });
       }
@@ -99,14 +136,17 @@ export const ConsumerEnvSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message:
-            'IMAGE_PROVIDER=fake is not allowed in production. Set IMAGE_PROVIDER=gemini with GEMINI_API_KEY, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
+            'IMAGE_PROVIDER=fake is not allowed in production. Set IMAGE_PROVIDER=gemini or IMAGE_PROVIDER=openai with the appropriate key, or set ALLOW_FAKE_PROVIDER_IN_PRODUCTION=true for emergency use only.',
           path: ['IMAGE_PROVIDER'],
         });
       }
     }
   });
 
-export type ConsumerEnv = z.infer<typeof ConsumerEnvSchema>;
+export type ConsumerEnv = z.infer<typeof ConsumerEnvSchema> & {
+  /** R2 bucket binding for storing generated images. Optional: only present when wrangler.jsonc includes the binding. */
+  ORRA_ASSETS?: R2Bucket;
+};
 
 /**
  * Parse and validate consumer environment bindings. Throws a clear error

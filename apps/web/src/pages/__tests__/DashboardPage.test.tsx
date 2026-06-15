@@ -239,7 +239,7 @@ describe('DashboardPage', () => {
     expect(mockCreateNewProject).not.toHaveBeenCalled();
   });
 
-  it('mock fallback projects are non-interactive demo cards (not buttons)', () => {
+  it('shows honest error state (not demo cards) when projects fail to load', () => {
     mockProjectsHook.mockReturnValue({
       projects: [],
       state: 'error' as const,
@@ -248,13 +248,84 @@ describe('DashboardPage', () => {
     });
 
     renderDashboard();
-    const demoBadges = screen.getAllByText('Demo');
-    expect(demoBadges.length).toBeGreaterThan(0);
-    // Demo cards should be divs, not buttons
-    demoBadges.forEach((badge) => {
-      const card = badge.closest('.proj-card--demo');
-      expect(card?.tagName.toLowerCase()).toBe('div');
+    expect(screen.getByText(/could not load projects/i)).not.toBeNull();
+    // No demo badge or demo cards should appear
+    expect(screen.queryAllByText('Demo').length).toBe(0);
+    expect(document.querySelectorAll('.proj-card--demo').length).toBe(0);
+  });
+
+  it('shows empty state when projects hook returns empty', () => {
+    mockProjectsHook.mockReturnValue({
+      projects: [],
+      state: 'empty' as const,
+      error: null,
+      refresh: vi.fn(),
     });
+
+    renderDashboard();
+    expect(screen.getByText(/no projects yet/i)).not.toBeNull();
+    expect(screen.queryAllByText('Demo').length).toBe(0);
+  });
+
+  it('renders real API projects and no demo badges', () => {
+    const project = makeProject({ id: 'real-1', name: 'Morning Focus' });
+    mockProjectsHook.mockReturnValue({
+      projects: [project],
+      state: 'idle' as const,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    renderDashboard();
+    const nameEls = screen.getAllByText('Morning Focus');
+    expect(nameEls.length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Demo').length).toBe(0);
+    expect(document.querySelectorAll('.proj-card--demo').length).toBe(0);
+  });
+
+  it('brand dropdown shows only No brand when API returns no brands', () => {
+    mockBrandsHook.mockReturnValue({
+      ...defaultBrandsHook(),
+      brands: [],
+      state: 'empty' as const,
+    });
+
+    renderDashboard();
+    // Only "No brand" should appear in the brand selector area — not demo brand names
+    expect(screen.getByText('No brand')).not.toBeNull();
+    expect(screen.queryByText('Still Studio')).toBeNull();
+    expect(screen.queryByText('Flora & Co.')).toBeNull();
+    expect(screen.queryByText('Monogram')).toBeNull();
+  });
+
+  it('brand dropdown shows real API brands alongside No brand', () => {
+    mockBrandsHook.mockReturnValue({
+      ...defaultBrandsHook(),
+      brands: [
+        {
+          id: 'brand-real-1',
+          name: 'My Real Brand',
+          description: null,
+          workspaceId: 'ws-1',
+          colors: { primary: '#1d2a30', secondary: '#5e7680' },
+          tone: 'Bold, Minimal',
+          visualDirection: 'Dark',
+          rules: null,
+          logoAssetId: null,
+          typography: {},
+          createdAt: '2024-01-01',
+          updatedAt: '2024-01-01',
+        },
+      ],
+      state: 'idle' as const,
+    });
+
+    renderDashboard();
+    // Open brand dropdown
+    const brandBtn = screen.getByText('No brand');
+    fireEvent.click(brandBtn.closest('button') ?? brandBtn);
+    expect(screen.getByText('My Real Brand')).not.toBeNull();
+    expect(screen.queryByText('Still Studio')).toBeNull();
   });
 
   it('trend template Use this prompt calls createNewProject with template prompt', async () => {

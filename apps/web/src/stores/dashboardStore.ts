@@ -16,85 +16,6 @@ export interface BrandTypography {
   notes: string;
 }
 
-export interface MockBrandSystem {
-  id: string;
-  name: string;
-  description: string;
-  palette: string[];
-  fonts: string[];
-  toneOfVoice: string;
-  visualDirection: string;
-  logoUrl?: string;
-  typography?: BrandTypography;
-}
-
-
-const initialBrandSystems: MockBrandSystem[] = [
-  {
-    id: 'brand-1',
-    name: 'Serene Studio',
-    description: 'Calm, premium wellness brand',
-    palette: ['#1d2a30', '#5e7680', '#a4b7bd', '#c8d1d8', '#f5f7f8'],
-    fonts: ['Newsreader', 'Hanken Grotesk'],
-    toneOfVoice: 'Calm, reassuring, and quietly confident. Speak as a trusted guide.',
-    visualDirection: 'Soft natural light, minimal compositions, muted earth tones with subtle blue-gray accents.',
-    typography: {
-      preset: 'editorial-calm',
-      titleFont: 'Newsreader',
-      titleWeight: 500,
-      bodyFont: 'Hanken Grotesk',
-      bodyWeight: 400,
-      accentFont: 'Space Grotesk',
-      accentWeight: 500,
-      captionFont: 'IBM Plex Mono',
-      captionWeight: 400,
-      notes: 'Use title style for strong hooks. Keep body text clean and readable.',
-    },
-  },
-  {
-    id: 'brand-2',
-    name: 'Momentum Fitness',
-    description: 'High energy fitness coaching',
-    palette: ['#1a1a1a', '#ff4d4d', '#ffffff', '#333333', '#e0e0e0'],
-    fonts: ['Inter', 'DM Sans'],
-    toneOfVoice: 'Direct, motivating, no fluff. Action-oriented language.',
-    visualDirection: 'Bold contrasts, dynamic angles, high contrast black and red.',
-    typography: {
-      preset: 'modern-saas',
-      titleFont: 'Space Grotesk',
-      titleWeight: 700,
-      bodyFont: 'Inter',
-      bodyWeight: 400,
-      accentFont: 'Manrope',
-      accentWeight: 600,
-      captionFont: 'Source Code Pro',
-      captionWeight: 400,
-      notes: '',
-    },
-  },
-  {
-    id: 'brand-3',
-    name: 'Artisan Kitchen',
-    description: 'Handcrafted food photography',
-    palette: ['#2c1810', '#d4a373', '#faedcd', '#e9edc9', '#fefae0'],
-    fonts: ['Newsreader', 'DM Sans'],
-    toneOfVoice: 'Warm, inviting, story-driven. Celebrate the craft.',
-    visualDirection: 'Rich warm tones, natural textures, soft window light.',
-    typography: {
-      preset: 'editorial-calm',
-      titleFont: 'Newsreader',
-      titleWeight: 500,
-      bodyFont: 'DM Sans',
-      bodyWeight: 400,
-      accentFont: 'Lora',
-      accentWeight: 500,
-      captionFont: 'IBM Plex Mono',
-      captionWeight: 400,
-      notes: '',
-    },
-  },
-];
-
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -102,40 +23,10 @@ export type DashboardTab = 'recent' | 'projects' | 'trends' | 'brands';
 
 export interface DashboardState {
   activeTab: DashboardTab;
-  brandSystems: MockBrandSystem[];
-
   setActiveTab: (tab: DashboardTab) => void;
-  addBrandSystem: (brand: MockBrandSystem) => void;
-  removeBrandSystem: (id: string) => void;
-  duplicateBrandSystem: (id: string) => void;
 }
 
-export const useDashboardStore = create<DashboardState>((set, get) => ({
+export const useDashboardStore = create<DashboardState>((set) => ({
   activeTab: 'recent',
-  brandSystems: initialBrandSystems,
-
   setActiveTab: (tab) => set({ activeTab: tab }),
-
-  addBrandSystem: (brand) =>
-    set((state) => ({
-      brandSystems: [brand, ...state.brandSystems],
-    })),
-
-  removeBrandSystem: (id) =>
-    set((state) => ({
-      brandSystems: state.brandSystems.filter((b) => b.id !== id),
-    })),
-
-  duplicateBrandSystem: (id) => {
-    const original = get().brandSystems.find((b) => b.id === id);
-    if (!original) return;
-    const dup: MockBrandSystem = {
-      ...original,
-      id: `brand-${Date.now()}`,
-      name: `${original.name} (copy)`,
-    };
-    set((state) => ({
-      brandSystems: [dup, ...state.brandSystems],
-    }));
-  },
 }));

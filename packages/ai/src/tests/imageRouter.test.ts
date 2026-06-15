@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createImageProviderRouter } from '../imageRouter.js';
 import { FakeImageProvider } from '../providers/fakeImageProvider.js';
 import { GeminiImageProvider, DEFAULT_GEMINI_IMAGE_MODEL } from '../providers/geminiImageProvider.js';
+import { OpenAIImageProvider } from '../providers/openAIImageProvider.js';
 import { AIProviderError } from '../errors.js';
 import type {
   ImageGenerationKind,
@@ -91,6 +92,60 @@ describe('ImageProviderRouter — gemini', () => {
   });
 });
 
+describe('ImageProviderRouter — openai', () => {
+  it('throws PROVIDER_CONFIG_MISSING when provider=openai but openaiApiKey is missing', () => {
+    expect(() => createImageProviderRouter({ provider: 'openai' })).toThrow(AIProviderError);
+    try {
+      createImageProviderRouter({ provider: 'openai' });
+    } catch (err) {
+      expect(err).toBeInstanceOf(AIProviderError);
+      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
+      expect((err as AIProviderError).provider).toBe('openai');
+      expect((err as AIProviderError).message).toContain('OPENAI_API_KEY');
+    }
+  });
+
+  it('throws PROVIDER_CONFIG_MISSING when provider=openai but openaiImageModel is missing', () => {
+    expect(() =>
+      createImageProviderRouter({ provider: 'openai', openaiApiKey: 'sk-test' }),
+    ).toThrow(AIProviderError);
+    try {
+      createImageProviderRouter({ provider: 'openai', openaiApiKey: 'sk-test' });
+    } catch (err) {
+      expect(err).toBeInstanceOf(AIProviderError);
+      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
+      expect((err as AIProviderError).message).toContain('OPENAI_IMAGE_MODEL');
+    }
+  });
+
+  it('returns OpenAIImageProvider when provider=openai with key and model', () => {
+    const router = createImageProviderRouter({
+      provider: 'openai',
+      openaiApiKey: 'sk-test',
+      openaiImageModel: 'gpt-image-2',
+    });
+    expect(router.getProvider()).toBeInstanceOf(OpenAIImageProvider);
+  });
+
+  it('OpenAIImageProvider has id "openai"', () => {
+    const router = createImageProviderRouter({
+      provider: 'openai',
+      openaiApiKey: 'sk-test',
+      openaiImageModel: 'gpt-image-2',
+    });
+    expect(router.getProvider().id).toBe('openai');
+  });
+
+  it('getProvider() returns a new instance on each call', () => {
+    const router = createImageProviderRouter({
+      provider: 'openai',
+      openaiApiKey: 'sk-test',
+      openaiImageModel: 'gpt-image-2',
+    });
+    expect(router.getProvider()).not.toBe(router.getProvider());
+  });
+});
+
 describe('ImageProviderRouter — flux (deprecated)', () => {
   it('throws PROVIDER_CONFIG_MISSING with deprecation message for provider=flux', () => {
     expect(() => createImageProviderRouter({ provider: 'flux' })).toThrow(AIProviderError);
@@ -132,6 +187,7 @@ describe('package exports smoke', () => {
   it('image types and provider and router are all importable', () => {
     expect(FakeImageProvider).toBeDefined();
     expect(GeminiImageProvider).toBeDefined();
+    expect(OpenAIImageProvider).toBeDefined();
     expect(createImageProviderRouter).toBeDefined();
   });
 

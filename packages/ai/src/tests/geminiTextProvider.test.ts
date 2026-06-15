@@ -440,3 +440,61 @@ describe('GeminiTextProvider', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// chat() tests
+// ---------------------------------------------------------------------------
+
+function makeGeminiChatEnvelope(text: string) {
+  return {
+    candidates: [{ content: { parts: [{ text }] } }],
+  };
+}
+
+describe('GeminiTextProvider — chat()', () => {
+  it('returns reply text from the provider on success', async () => {
+    const chatReply = 'Sure! Tell me more about your content goals.';
+    mockFetchOk(makeGeminiChatEnvelope(chatReply));
+    const provider = new GeminiTextProvider(makeConfig());
+
+    const result = await provider.chat({ userMessage: 'hi' });
+    expect(result.reply).toBe(chatReply);
+  });
+
+  it('sends system_instruction in the request body', async () => {
+    mockFetchOk(makeGeminiChatEnvelope('ok'));
+    const provider = new GeminiTextProvider(makeConfig());
+    await provider.chat({ userMessage: 'hello' });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).toHaveProperty('system_instruction');
+    expect(body).toHaveProperty('contents');
+  });
+
+  it('does NOT send generationConfig.responseMimeType (plain text, not JSON)', async () => {
+    mockFetchOk(makeGeminiChatEnvelope('ok'));
+    const provider = new GeminiTextProvider(makeConfig());
+    await provider.chat({ userMessage: 'hello' });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.generationConfig).toBeUndefined();
+  });
+
+  it('throws AIProviderError on HTTP 429', async () => {
+    mockFetchError(429);
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.chat({ userMessage: 'hi' })).rejects.toBeInstanceOf(AIProviderError);
+  });
+
+  it('throws AIProviderError when response envelope is invalid', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ unexpected: 'shape' }),
+    } as Response);
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.chat({ userMessage: 'hi' })).rejects.toBeInstanceOf(AIProviderError);
+  });
+});

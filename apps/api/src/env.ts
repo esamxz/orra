@@ -37,6 +37,8 @@ export const EnvSchema = z.object({
   AI_PROVIDER: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_TEXT_MODEL: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_TEXT_MODEL: z.string().optional(),
   AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
 });
 
@@ -93,7 +95,7 @@ export function validateApiEnv(env: unknown): Env {
     const aiProvider = parsed.AI_PROVIDER ?? 'fake';
     if (parsed.PROMPT_ENHANCER_MODE === 'ai' && aiProvider === 'fake') {
       throw new Error(
-        `AI_PROVIDER=fake is not allowed in ${parsed.ENVIRONMENT} when PROMPT_ENHANCER_MODE=ai`
+        `AI_PROVIDER=fake is not allowed in ${parsed.ENVIRONMENT} when PROMPT_ENHANCER_MODE=ai. Set AI_PROVIDER=gemini or AI_PROVIDER=openai with the appropriate key.`
       );
     }
   }
@@ -105,6 +107,15 @@ export function validateApiEnv(env: unknown): Env {
     !parsed.GEMINI_API_KEY
   ) {
     throw new Error('GEMINI_API_KEY is required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=gemini');
+  }
+
+  // OpenAI key guard applies in all environments
+  if (
+    parsed.PROMPT_ENHANCER_MODE === 'ai' &&
+    (parsed.AI_PROVIDER ?? 'fake') === 'openai' &&
+    !parsed.OPENAI_API_KEY
+  ) {
+    throw new Error('OPENAI_API_KEY is required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=openai');
   }
 
   return parsed as Env;

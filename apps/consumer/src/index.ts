@@ -3,6 +3,8 @@ import { SupabaseGenerationJobRepository } from '@orra/api/src/repositories/gene
 import { SupabaseArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
 import { SupabaseCreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import { SupabaseProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
+import { SupabaseChatRepository } from '@orra/api/src/repositories/chatRepository.js';
+import { SupabaseAssetRepository } from '@orra/api/src/repositories/assetRepository.js';
 import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
 import { createAIProviderRouter, createImageProviderRouter } from '@orra/ai';
 import type { ConsumerEnv } from './env.js';
@@ -37,11 +39,14 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
     const artifactRepo = new SupabaseArtifactRepository(db);
     const creditRepo = new SupabaseCreditRepository(db);
     const projectMemoryRepo = new SupabaseProjectMemoryRepository(db);
-    // Image provider router — validates config at startup; generation phases wire it through.
-    createImageProviderRouter({
+    const chatRepo = new SupabaseChatRepository(db);
+    const assetRepo = new SupabaseAssetRepository(db);
+    const imageRouter = createImageProviderRouter({
       provider: env.IMAGE_PROVIDER,
       geminiApiKey: env.GEMINI_API_KEY,
       geminiImageModel: env.GEMINI_IMAGE_MODEL,
+      openaiApiKey: env.OPENAI_API_KEY,
+      openaiImageModel: env.OPENAI_IMAGE_MODEL,
     });
 
     const consumer = new MockGenerationConsumer(
@@ -54,8 +59,14 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
         geminiModel: env.GEMINI_TEXT_MODEL,
         geminiBaseUrl: env.GEMINI_BASE_URL,
         timeoutMs: env.AI_PROVIDER_TIMEOUT_MS,
+        openaiApiKey: env.OPENAI_API_KEY,
+        openaiModel: env.OPENAI_TEXT_MODEL,
       }),
       projectMemoryRepo,
+      chatRepo,
+      imageRouter,
+      assetRepo,
+      env.ORRA_ASSETS,
     );
 
     for (const message of batch.messages) {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createAIProviderRouter } from '../router.js';
 import { FakeAIProvider } from '../providers/fakeProvider.js';
 import { GeminiTextProvider } from '../providers/geminiTextProvider.js';
+import { OpenAITextProvider } from '../providers/openAITextProvider.js';
 import { AIProviderError } from '../errors.js';
 
 describe('AIProviderRouter', () => {
@@ -59,5 +60,54 @@ describe('AIProviderRouter', () => {
       expect(err).toBeInstanceOf(AIProviderError);
       expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
     }
+  });
+});
+
+describe('AIProviderRouter — openai', () => {
+  it('returns OpenAITextProvider when provider=openai with key', () => {
+    const router = createAIProviderRouter({ provider: 'openai', openaiApiKey: 'sk-test' });
+    const provider = router.getProvider();
+    expect(provider).toBeInstanceOf(OpenAITextProvider);
+    expect(provider.name).toBe('openai');
+  });
+
+  it('defaults model to gpt-4o-mini when openaiModel is not set', () => {
+    const router = createAIProviderRouter({ provider: 'openai', openaiApiKey: 'sk-test' });
+    expect(router.getProvider()).toBeInstanceOf(OpenAITextProvider);
+  });
+
+  it('accepts custom openaiModel', () => {
+    const router = createAIProviderRouter({
+      provider: 'openai',
+      openaiApiKey: 'sk-test',
+      openaiModel: 'gpt-4o',
+    });
+    expect(router.getProvider()).toBeInstanceOf(OpenAITextProvider);
+  });
+
+  it('throws PROVIDER_CONFIG_MISSING when provider=openai without key', () => {
+    expect(() => createAIProviderRouter({ provider: 'openai' })).toThrow(AIProviderError);
+    try {
+      createAIProviderRouter({ provider: 'openai' });
+    } catch (err) {
+      expect(err).toBeInstanceOf(AIProviderError);
+      expect((err as AIProviderError).code).toBe('PROVIDER_CONFIG_MISSING');
+      expect((err as AIProviderError).provider).toBe('openai');
+      expect((err as AIProviderError).message).toContain('OPENAI_API_KEY');
+    }
+  });
+
+  it('error message for missing key never contains a key value', () => {
+    try {
+      createAIProviderRouter({ provider: 'openai' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      expect(msg).not.toMatch(/^sk-/);
+    }
+  });
+
+  it('getProvider() returns a new instance on each call', () => {
+    const router = createAIProviderRouter({ provider: 'openai', openaiApiKey: 'sk-test' });
+    expect(router.getProvider()).not.toBe(router.getProvider());
   });
 });

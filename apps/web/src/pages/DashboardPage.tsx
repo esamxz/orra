@@ -9,8 +9,7 @@ const CLERK_CONFIGURED = !!(
   import.meta.env &&
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 );
-import { BRANDS as DEMO_BRANDS, TEMPLATES, RECENT_PROJECTS } from '../data/cards';
-import { CardBg } from '../data/cards';
+import { TEMPLATES, CardBg } from '../data/cards';
 import CreateBrandSystemModal from '../components/brand/CreateBrandSystemModal';
 import { useTheme } from '../hooks/useTheme';
 import { useCreditStatus } from '../hooks/useCreditStatus';
@@ -71,7 +70,7 @@ export default function DashboardPage() {
   // ---------------------------------------------------------------------------
   // Brand systems from API
   // ---------------------------------------------------------------------------
-  const { brands: apiBrands, state: brandsState, createBrand } = useBrandSystems();
+  const { brands: apiBrands, createBrand } = useBrandSystems();
 
   const displayBrands = useMemo(() => {
     const noBrand = {
@@ -85,9 +84,8 @@ export default function DashboardPage() {
       tone: [],
     };
     const real = apiBrands.map(brandSystemDtoToDisplayBrand);
-    const fallback = brandsState === 'error' || (brandsState === 'empty' && real.length === 0) ? DEMO_BRANDS : [];
-    return [noBrand, ...real, ...fallback];
-  }, [apiBrands, brandsState]);
+    return [noBrand, ...real];
+  }, [apiBrands]);
 
   const selectedBrand = useMemo(
     () => displayBrands.find((b) => b.id === selectedBrandId) ?? displayBrands[0],
@@ -99,8 +97,6 @@ export default function DashboardPage() {
   // ---------------------------------------------------------------------------
   const { data: creditData, loading: creditLoading, error: creditError } = useCreditStatus();
   const { projects: apiProjects, state: projectsState } = useProjects('recent');
-
-  const useMockFallback = projectsState === 'error';
 
   // ---------------------------------------------------------------------------
   // Auto-grow textarea
@@ -571,38 +567,22 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Error/demo fallback — show mock cards as non-interactive demo content */}
-            {useMockFallback && (
-              <>
-                <div className="proj-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 60, gridColumn: '1 / -1', background: 'transparent', border: 'none', boxShadow: 'none' }}>
-                  <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>Could not load projects — showing demo content</span>
-                </div>
-                {RECENT_PROJECTS.map((p) => (
-                  <div key={p.id} className="proj-card proj-card--demo">
-                    <span className="demo-badge">Demo</span>
-                    <MiniThumb variant={p.variant} label={p.name} />
-                    <div className="proj-meta">
-                      <b>{p.name}</b>
-                      <div className="row">
-                        <span className="pill">{p.mode}</span>
-                        <span>{p.mode === 'Carousel' ? p.cards + ' cards' : 'Edited ' + p.when}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </>
+            {/* Error state */}
+            {projectsState === 'error' && (
+              <div className="proj-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 60, gridColumn: '1 / -1', background: 'transparent', border: 'none', boxShadow: 'none' }}>
+                <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>Could not load projects. Please refresh.</span>
+              </div>
             )}
 
             {/* Empty state */}
-            {projectsState === 'empty' && !useMockFallback && (
+            {projectsState === 'empty' && (
               <div className="proj-card" style={{ justifyContent: 'center', alignItems: 'center', minHeight: 180 }}>
                 <span style={{ color: 'var(--muted)', fontSize: 13 }}>No projects yet — create your first one above</span>
               </div>
             )}
 
             {/* Real API projects */}
-            {!useMockFallback &&
-              apiProjects.map((p) => (
+            {apiProjects.map((p) => (
                 <button key={p.id} className="proj-card" onClick={() => openProject(p)}>
                   <MiniThumb variant="cover" label={p.name} />
                   <div className="proj-meta">

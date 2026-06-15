@@ -15,6 +15,9 @@ import { buildApprovalCard } from './approvalCardBuilder.js';
 import type { ProjectMemoryService } from './projectMemoryService.js';
 import { ArtifactService } from './artifactService.js';
 import { buildEditActions, buildEditConfirmation } from './editActionBuilder.js';
+import type { AIProvider } from '@orra/ai';
+
+const CHAT_UNAVAILABLE_MESSAGE = 'Orra AI is temporarily unavailable. Please try again in a moment.';
 
 // ---------------------------------------------------------------------------
 // Chat service
@@ -87,7 +90,8 @@ export class ChatService {
     private projectRepo: ProjectRepository,
     private brandSystemRepo?: BrandSystemRepository,
     private projectMemoryService?: ProjectMemoryService,
-    private artifactRepo?: ArtifactRepository
+    private artifactRepo?: ArtifactRepository,
+    private aiProvider?: AIProvider
   ) {}
 
   /**
@@ -329,6 +333,22 @@ export class ChatService {
       });
 
       approvalMessage = mapMessageRow(approvalRow, projectId);
+    }
+
+    // For conversation mode, call the AI provider if available.
+    // Real provider: must return AI reply or persist unavailable error.
+    // No provider injected: return without assistant message (backward compat for tests).
+    if (intent.mode === 'conversation' && this.aiProvider) {
+      const replyContent = await this.callChatProvider(input.content);
+      const replyRow = await this.chatRepo.appendMessage({
+        workspaceId,
+        threadId: thread.id,
+        role: 'assistant',
+        kind: 'text',
+        content: replyContent,
+        metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
+      });
+      approvalMessage = mapMessageRow(replyRow, projectId);
     }
 
     return { message, intent, approvalMessage };
@@ -721,19 +741,28 @@ export class ChatService {
       });
 
       approvalMessage = mapMessageRow(approvalRow, projectId);
-    } else {
+    } else if (this.aiProvider) {
+      const replyContent = await this.callChatProvider(content);
       const clarRow = await this.chatRepo.appendMessage({
         workspaceId,
         threadId: thread.id,
         role: 'assistant',
         kind: 'text',
-        content: "I'd love to help! What would you like to create? For example: \"Create a 5-card carousel about focus\" or \"Make a post about discipline\".",
+        content: replyContent,
         metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
       });
-
       approvalMessage = mapMessageRow(clarRow, projectId);
     }
 
     return { message, intent, approvalMessage };
+  }
+
+  private async callChatProvider(userMessage: string): Promise<string> {
+    try {
+      const result = await this.aiProvider!.chat({ userMessage });
+      return result.reply;
+    } catch {
+      return CHAT_UNAVAILABLE_MESSAGE;
+    }
   }
 }
