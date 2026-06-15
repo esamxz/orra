@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import type { Env } from '../env.js';
 import { EnhancePromptRequestSchema } from '@orra/shared';
 import type { AIProvider } from '@orra/ai';
-import { createAIProviderRouter } from '@orra/ai';
+import { createAIProviderRouter, isAIProviderError } from '@orra/ai';
 import { validateJson } from '../middleware/validate.js';
 import { enhancePrompt } from '../services/promptEnhancerService.js';
 import { success } from '../response.js';
+import { ApiError } from '../errors.js';
 
 // ---------------------------------------------------------------------------
 // Prompts route — protected
@@ -25,15 +26,22 @@ export function createPromptsRoute(opts?: { testProvider?: AIProvider }): Hono<{
     let provider: AIProvider | undefined = opts?.testProvider;
 
     if (!provider && mode === 'ai') {
-      const router = createAIProviderRouter({
-        provider: c.env.AI_PROVIDER ?? 'fake',
-        geminiApiKey: c.env.GEMINI_API_KEY,
-        geminiModel: c.env.GEMINI_TEXT_MODEL,
-        timeoutMs: c.env.AI_PROVIDER_TIMEOUT_MS,
-        openaiApiKey: c.env.OPENAI_API_KEY,
-        openaiModel: c.env.OPENAI_TEXT_MODEL,
-      });
-      provider = router.getProvider();
+      try {
+        const router = createAIProviderRouter({
+          provider: c.env.AI_PROVIDER ?? 'fake',
+          geminiApiKey: c.env.GEMINI_API_KEY,
+          geminiModel: c.env.GEMINI_TEXT_MODEL,
+          timeoutMs: c.env.AI_PROVIDER_TIMEOUT_MS,
+          openaiApiKey: c.env.OPENAI_API_KEY,
+          openaiModel: c.env.OPENAI_TEXT_MODEL,
+        });
+        provider = router.getProvider();
+      } catch (err) {
+        if (isAIProviderError(err)) {
+          throw new ApiError('PROVIDER_FAILURE', 'AI enhancement provider is not available.');
+        }
+        throw err;
+      }
     }
 
     const result = await enhancePrompt(body, { provider, mode });

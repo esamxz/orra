@@ -146,12 +146,12 @@ describe('GeminiTextProvider.enhancePrompt()', () => {
     expect(result.cardCount).toBe(5);
   });
 
-  it('throws PROVIDER_HTTP_ERROR on 429', async () => {
+  it('throws PROVIDER_RATE_LIMITED on 429', async () => {
     mockFetchError(429);
     const provider = new GeminiTextProvider(makeGeminiConfig());
 
     await expect(provider.enhancePrompt({ prompt: 'Post about focus' })).rejects.toSatisfy(
-      (err: unknown) => err instanceof AIProviderError && err.code === 'PROVIDER_HTTP_ERROR',
+      (err: unknown) => err instanceof AIProviderError && err.code === 'PROVIDER_RATE_LIMITED',
     );
   });
 

@@ -24,6 +24,7 @@ export interface AIProviderObservation {
   // generateImage fields — never include prompt text, raw bytes, or secrets
   requestWidth?: number;         // pixel dimension from the request
   requestHeight?: number;        // pixel dimension from the request
+  requestSize?: string;          // provider-normalized size string (e.g. 1024x1280)
 }
 
 export interface AIProviderObserver {

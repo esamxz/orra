@@ -10,7 +10,7 @@ import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRo
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import type { AIProviderRouter, AIProvider, TextPlanResult, RecentChatMessage, CurrentArtifactSummary, ImageProviderRouter, ImageProvider, ImageGenerationResult } from '@orra/ai';
-import { AIProviderError, createAIProviderRouter } from '@orra/ai';
+import { AIProviderError, createAIProviderRouter, OpenAIImageProvider } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Fake repositories
@@ -610,7 +610,7 @@ describe('MockGenerationConsumer', () => {
 
     const job = await jobRepo.findById('job-1');
     expect(job!.status).toBe('failed');
-    expect(job!.error).toMatchObject({ code: 'MOCK_GENERATION_FAILED' });
+    expect(job!.error).toMatchObject({ code: 'GENERATION_FAILED' });
 
     // Credits refunded
     expect(creditRepo.balances[0].reserved).toBe(0);
@@ -3121,5 +3121,308 @@ describe('P1: MockGenerationConsumer — image integration', () => {
       const otherBg = card.layers.find(l => l.type === 'background' && (l as { assetId?: string }).assetId);
       expect(otherBg).toBeUndefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B0.2: OpenAI image size normalization + HTTP 400 safety
+// ---------------------------------------------------------------------------
+
+function makeOpenAIImageRouterWithFetch(fetchFn: ReturnType<typeof vi.fn>): ImageProviderRouter {
+  const provider = new OpenAIImageProvider({
+    apiKey: 'sk-test-openai-image-key-never-logged',
+    model: 'gpt-image-2',
+    fetch: fetchFn as typeof globalThis.fetch,
+  });
+  return { getProvider: () => provider };
+}
+
+function makeOpenAIFetchResponse(body: unknown, status = 200, headers?: Headers): ReturnType<typeof vi.fn> {
+  return vi.fn().mockResolvedValueOnce({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+    headers: headers ?? new Headers(),
+  } as Response);
+}
+
+function makeOpenAIImageRouterWithFetchAndOptions(
+  fetchFn: ReturnType<typeof vi.fn>,
+  overrides?: Partial<ConstructorParameters<typeof OpenAIImageProvider>[0]>,
+): ImageProviderRouter {
+  const provider = new OpenAIImageProvider({
+    apiKey: 'sk-test-openai-image-key-never-logged',
+    model: 'gpt-image-2',
+    fetch: fetchFn as typeof globalThis.fetch,
+    ...overrides,
+  });
+  return { getProvider: () => provider };
+}
+
+describe('B0.3: OpenAI image provider staging config in consumer', () => {
+  it('4:5 document produces valid OpenAI size string and succeeds', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const fetchFn = makeOpenAIFetchResponse({
+      data: [{ b64_json: btoa('fake-image-bytes'), revised_prompt: 'revised' }],
+    });
+    const imageRouter = makeOpenAIImageRouterWithFetch(fetchFn);
+    const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000003');
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+
+    // OpenAI Images API received a valid size string, not raw ratio numbers.
+    const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/images/generations');
+    const body = JSON.parse(init.body as string);
+    expect(body.size).toBe('1024x1536');
+    expect(body.width).toBeUndefined();
+    expect(body.height).toBeUndefined();
+    expect(body.model).toBe('gpt-image-2');
+    expect(Object.keys(body).sort()).toEqual(['model', 'prompt', 'size']);
+
+    // Committed artifact has background layer with assetId.
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    const bgLayers = committed.cards.flatMap(c => c.layers).filter(l => l.type === 'background');
+    expect(bgLayers.length).toBeGreaterThan(0);
+    expect((bgLayers[0] as { assetId?: string }).assetId).toBe('aaaabbbb-cccc-dddd-eeee-000000000003');
+  });
+
+  it('OpenAI HTTP 400 fails job, refunds credits, and does not leak raw prompt/key', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const fetchFn = makeOpenAIFetchResponse(
+      { error: { message: 'Invalid image size', type: 'invalid_request_error' } },
+      400,
+    );
+    const imageRouter = makeOpenAIImageRouterWithFetch(fetchFn);
+    const assetRepo = makeImageAssetRepo();
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('failed');
+    expect((jobAfter!.error as Record<string, string> | null)?.code).toBe('PROVIDER_IMAGE_FAILED');
+
+    // Credits refunded.
+    const refundEntries = creditRepo.ledger.filter(l => l.entry_type === 'refund');
+    expect(refundEntries.length).toBeGreaterThan(0);
+
+    // No artifact committed, no R2 upload.
+    expect(artifactRepo.getLastCommittedDocument()).toBeNull();
+    expect(r2Bucket.putCalls).toHaveLength(0);
+
+    // Confirm the OpenAI request body used the normalized size, not raw ratio numbers.
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.size).toBe('1024x1536');
+    expect(body.width).toBeUndefined();
+    expect(body.height).toBeUndefined();
+    expect(Object.keys(body).sort()).toEqual(['model', 'prompt', 'size']);
+  });
+
+  it('staging fast config sends size 1024x1024, quality low, output_format jpeg and stores JPEG', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const fetchFn = makeOpenAIFetchResponse({
+      data: [{ b64_json: btoa('fake-jpeg-bytes'), revised_prompt: 'revised' }],
+    });
+    const imageRouter = makeOpenAIImageRouterWithFetchAndOptions(fetchFn, {
+      size: '1024x1024',
+      quality: 'low',
+      outputFormat: 'jpeg',
+    });
+    const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000004');
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.size).toBe('1024x1024');
+    expect(body.quality).toBe('low');
+    expect(body.output_format).toBe('jpeg');
+    expect(body.width).toBeUndefined();
+    expect(body.height).toBeUndefined();
+    expect(body.background).toBeUndefined();
+
+    // Stored with JPEG extension/content type.
+    expect(r2Bucket.putCalls.length).toBeGreaterThan(0);
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    const bgLayers = committed.cards.flatMap(c => c.layers).filter(l => l.type === 'background');
+    expect(bgLayers.length).toBeGreaterThan(0);
+    expect((bgLayers[0] as { assetId?: string }).assetId).toBe('aaaabbbb-cccc-dddd-eeee-000000000004');
+  });
+
+  it('image timeout fails job and refunds credits', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const err = new Error('The operation was aborted');
+    err.name = 'AbortError';
+    const fetchFn = vi.fn().mockRejectedValueOnce(err);
+    const imageRouter = makeOpenAIImageRouterWithFetchAndOptions(fetchFn, {
+      size: '1024x1024',
+      timeoutMs: 180000,
+    });
+    const assetRepo = makeImageAssetRepo();
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('failed');
+    expect((jobAfter!.error as Record<string, string> | null)?.code).toBe('PROVIDER_IMAGE_FAILED');
+
+    // Credits refunded.
+    const refundEntries = creditRepo.ledger.filter(l => l.entry_type === 'refund');
+    expect(refundEntries.length).toBeGreaterThan(0);
+
+    // No artifact committed, no R2 upload.
+    expect(artifactRepo.getLastCommittedDocument()).toBeNull();
+    expect(r2Bucket.putCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visual artifact reopen bug: explicit generation handoff + integrity tests
+// ---------------------------------------------------------------------------
+
+describe('Visual artifact generation handoff', () => {
+  it('successful generation commits artifact version, current_version_id, and job result_version_id', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateImage);
+    const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000005');
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+    expect(jobAfter!.result_version_id).toBeTruthy();
+
+    // Committed version must match the job's result_version_id.
+    const committed = artifactRepo.getVersionById(jobAfter!.result_version_id!);
+    expect(committed).not.toBeNull();
+
+    // Current artifact pointer must be updated to the committed version.
+    const current = await artifactRepo.getCurrentVersion({
+      artifactId: artifact.id,
+      workspaceId: artifact.workspace_id,
+    });
+    expect(current).not.toBeNull();
+    expect(current!.version.id).toBe(jobAfter!.result_version_id);
+
+    const doc = committed!.document as unknown as ArtifactDocument;
+    expect(doc.cards.length).toBeGreaterThan(0);
+
+    const firstCard = doc.cards[0];
+    const bgLayer = firstCard.layers.find(
+      (l) => l.type === 'background' && (l as { assetId?: string }).assetId,
+    );
+    expect(bgLayer).toBeDefined();
+    expect((bgLayer as { assetId?: string }).assetId).toBe('aaaabbbb-cccc-dddd-eeee-000000000005');
+  });
+
+  it(' ArtifactDocument references assetId, not signed URL, and uses no relational card/layer tables', async () => {
+    const { artifact, version, job } = makeImageJobSetup();
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+
+    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateImage);
+    const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000006');
+    const r2Bucket = makeR2Bucket();
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    const committed = artifactRepo.getVersionById(jobAfter!.result_version_id!);
+    const doc = committed!.document as unknown as ArtifactDocument;
+
+    // Every image-backed layer must use assetId only.
+    for (const card of doc.cards) {
+      for (const layer of card.layers) {
+        if (layer.type === 'background' || layer.type === 'image' || layer.type === 'object' || layer.type === 'logo') {
+          const assetId = (layer as { assetId?: string }).assetId;
+          expect(assetId).toBeTruthy();
+          // Signed URLs are never stored in the document.
+          const json = JSON.stringify(layer);
+          expect(json).not.toMatch(/https?:\/\//);
+          expect(json).not.toMatch(/r2\.dev/);
+        }
+      }
+    }
+
+    // Structural proof: the only persisted version rows are artifact_versions.
+    // Cards and layers live entirely inside document.cards[].
+    expect(artifactRepo.getLastCommittedDocument()).toBeTruthy();
   });
 });

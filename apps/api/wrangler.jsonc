@@ -32,13 +32,10 @@
         "R2_ACCOUNT_ID": "745be7de68c0f2a97f14964da20be6d7",
         "R2_BUCKET_NAME": "orra-assets-staging",
         "PROMPT_ENHANCER_MODE": "ai",
-        // To use Gemini for prompt enhancer:
-        "AI_PROVIDER": "gemini",
-        "GEMINI_TEXT_MODEL": "gemini-2.0-flash-lite",
-        // To use OpenAI instead: set AI_PROVIDER=openai and OPENAI_TEXT_MODEL=gpt-4o-mini
-        // Then: wrangler secret put OPENAI_API_KEY --env staging
+        "AI_PROVIDER": "openai",
+        "OPENAI_TEXT_MODEL": "gpt-4o-mini",
         "ALLOWED_ORIGINS": "https://orra-web.pages.dev,https://*.orra-web.pages.dev"
-        // GEMINI_API_KEY is a secret — set via: wrangler secret put GEMINI_API_KEY --env staging
+        // OPENAI_API_KEY is a secret — set via: wrangler secret put OPENAI_API_KEY --env staging
       },
       "queues": {
         "producers": [
@@ -95,8 +92,8 @@
 //   ALLOWED_ORIGINS             — Comma-separated allowed CORS origins (set as var in wrangler.jsonc, not a secret)
 //   INITIAL_CREDIT_GRANT        — Credits granted on first workspace creation (default 0)
 //   PRIVATE_ALPHA_EMAIL_ALLOWLIST — Comma-separated emails for private-alpha access (optional; if unset, all Clerk users are allowed)
-//   GEMINI_API_KEY               — Gemini API key for prompt enhancement (required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=gemini)
-//   OPENAI_API_KEY               — OpenAI API key for prompt enhancement (required when PROMPT_ENHANCER_MODE=ai and AI_PROVIDER=openai)
+//   OPENAI_API_KEY               — OpenAI API key (required when AI_PROVIDER=openai or IMAGE_PROVIDER=openai)
+//   GEMINI_API_KEY               — Gemini API key (required when AI_PROVIDER=gemini or IMAGE_PROVIDER=gemini)
 //
 // R2 bucket CORS policy required for browser uploads:
 //   Allowed methods: PUT

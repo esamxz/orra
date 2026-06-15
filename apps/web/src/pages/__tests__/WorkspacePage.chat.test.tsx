@@ -90,10 +90,12 @@ vi.mock('../../hooks/useWorkspaceStore', () => ({
       activeCardIndex: 0,
       selectedLayerId: null,
       selectedLayerType: null,
+      isCardByCardMode: false,
       setActiveCard: vi.fn(),
       selectLayer: vi.fn(),
       clearSelection: vi.fn(),
       syncSelectionWithCard: vi.fn(),
+      setCardByCardMode: vi.fn(),
     };
     return selector ? selector(state) : state;
   },
@@ -149,6 +151,15 @@ vi.mock('../../hooks/useProjectAssets', () => ({
     previewUrls: {},
     reload: vi.fn(),
     getPreviewUrl: vi.fn(),
+  })),
+}));
+
+vi.mock('../../hooks/useProject', () => ({
+  useProject: vi.fn(() => ({
+    project: null,
+    state: 'idle',
+    error: null,
+    reload: vi.fn(),
   })),
 }));
 

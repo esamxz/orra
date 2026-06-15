@@ -19,7 +19,7 @@
  *   - Validates env and prints a safe config summary (key present: true/false, never the value)
  *   - Takes --jobId from argv (the job must already exist and be in 'queued' status)
  *   - Creates a real Supabase client and repository set from env
- *   - Instantiates MockGenerationConsumer with GeminiTextProvider router
+ *   - Instantiates GenerationConsumer with GeminiTextProvider router
  *   - Calls consumer.processMessage({ jobId }) — the exact same code path as production
  *   - Prints safe outcome: final status, resultVersionId, capturedCredits, durationMs
  *
@@ -38,7 +38,7 @@ import { SupabaseGenerationJobRepository } from '@orra/api/src/repositories/gene
 import { SupabaseArtifactRepository } from '@orra/api/src/repositories/artifactRepository.js';
 import { SupabaseCreditRepository } from '@orra/api/src/repositories/creditRepository.js';
 import { SupabaseProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
-import { MockGenerationConsumer } from '../services/mockGenerationConsumer.js';
+import { GenerationConsumer } from '../services/generationConsumer.js';
 import { createAIProviderRouter } from '@orra/ai';
 import { basename } from 'node:path';
 
@@ -159,7 +159,7 @@ async function main(): Promise<void> {
       : undefined,
   });
 
-  const consumer = new MockGenerationConsumer(
+  const consumer = new GenerationConsumer(
     jobRepo,
     artifactRepo,
     creditRepo,

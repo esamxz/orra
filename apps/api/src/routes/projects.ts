@@ -21,6 +21,7 @@ import { AssetUploadService } from '../services/assetUploadService.js';
 import { ProjectMemoryService } from '../services/projectMemoryService.js';
 import { CreditService } from '../services/creditService.js';
 import { estimateGenerationCredits } from '../services/generationService.js';
+import { ArtifactRepairService } from '../services/artifactRepairService.js';
 import { createServiceContext, getRepositories, requireAuth } from '../services/service-context.js';
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
@@ -250,5 +251,17 @@ projectRoutes.post(
     return c.json({ ok: true, data: response });
   }
 );
+
+// POST /v1/projects/:id/repair — dev/test only
+// Repairs an artifact that has a generated_background asset but no card layer referencing it.
+// The service throws FORBIDDEN in staging/production, so this route is self-guarding.
+projectRoutes.post('/:id/repair', validateParam(ProjectIdParamSchema), async (c) => {
+  const { id: projectId } = c.req.valid('param');
+  const ctx = buildServiceContext(c);
+  const repos = getRepositories(ctx);
+  const service = new ArtifactRepairService(repos.artifact, repos.asset);
+  const result = await service.repairArtifactFromLatestGeneratedAsset(ctx, projectId);
+  return c.json({ ok: true, data: { repaired: result !== null, result: result ?? null } });
+});
 
 export default projectRoutes;

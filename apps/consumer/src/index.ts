@@ -5,7 +5,7 @@ import { SupabaseCreditRepository } from '@orra/api/src/repositories/creditRepos
 import { SupabaseProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import { SupabaseChatRepository } from '@orra/api/src/repositories/chatRepository.js';
 import { SupabaseAssetRepository } from '@orra/api/src/repositories/assetRepository.js';
-import { MockGenerationConsumer } from './services/mockGenerationConsumer.js';
+import { GenerationConsumer } from './services/generationConsumer.js';
 import { createAIProviderRouter, createImageProviderRouter } from '@orra/ai';
 import type { ConsumerEnv } from './env.js';
 import { validateConsumerEnv } from './env.js';
@@ -47,9 +47,13 @@ const handler: ExportedHandler<ConsumerEnv, QueueMessage> = {
       geminiImageModel: env.GEMINI_IMAGE_MODEL,
       openaiApiKey: env.OPENAI_API_KEY,
       openaiImageModel: env.OPENAI_IMAGE_MODEL,
+      openaiImageSize: env.OPENAI_IMAGE_SIZE,
+      openaiImageQuality: env.OPENAI_IMAGE_QUALITY,
+      openaiImageOutputFormat: env.OPENAI_IMAGE_OUTPUT_FORMAT,
+      timeoutMs: env.IMAGE_PROVIDER_TIMEOUT_MS,
     });
 
-    const consumer = new MockGenerationConsumer(
+    const consumer = new GenerationConsumer(
       jobRepo,
       artifactRepo,
       creditRepo,

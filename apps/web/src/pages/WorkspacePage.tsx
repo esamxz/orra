@@ -11,6 +11,7 @@ import { useAssetUpload } from '../hooks/useAssetUpload';
 import { useProjectAssets } from '../hooks/useProjectAssets';
 import { useAssetPreviewUrls } from '../hooks/useAssetPreviewUrls';
 import { useProjectMemory } from '../hooks/useProjectMemory';
+import { useProject } from '../hooks/useProject';
 import { appendProjectMessage, prepareProjectMessage, submitApprovalAction } from '../api/chat';
 import { createGenerationJob } from '../api/generation';
 import { updateProject } from '../api/projects';
@@ -101,8 +102,6 @@ export default function WorkspacePage() {
   const { projectId } = useParams();
   const config = (location.state as LocationState | null) || {};
 
-  const isCarousel = config.mode === 'carousel' || config.mode === 'assets';
-
   const [ratio, setRatio] = useState(config.ratio || '4:5');
   const [phase, setPhase] = useState('empty');
   const [input, setInput] = useState(config.prefill || '');
@@ -119,6 +118,16 @@ export default function WorkspacePage() {
   const projectAssetInputRef = useRef<HTMLInputElement>(null);
 
   const projectAssets = useProjectAssets(projectId ?? undefined);
+
+  // Project metadata load — required when the page opens without router state
+  // (refresh, direct URL, or Recent Projects link). Provides currentArtifactId,
+  // project type, ratio, and brand system for the workspace.
+  const {
+    project,
+    state: projectState,
+    error: projectError,
+    reload: reloadProject,
+  } = useProject(projectId ?? undefined);
 
   // Reload asset list after a successful upload
   useEffect(() => {
@@ -162,7 +171,7 @@ export default function WorkspacePage() {
   }, [apiBrands]);
 
   // Resolve the current brand from project state or navigation state.
-  const projectBrandId = config.projectBrandSystemId ?? null;
+  const projectBrandId = project?.brandSystemId ?? config.projectBrandSystemId ?? null;
   const curBrand = useMemo(() => {
     if (projectBrandId) {
       const found = allDisplayBrands.find((b) => b.id === projectBrandId);
@@ -215,6 +224,15 @@ export default function WorkspacePage() {
     onError: flash,
     onConflict: flash,
   });
+
+  // Carousel detection must survive a reload: derive from loaded artifact or
+  // project metadata, falling back to dashboard navigation state.
+  const isCarousel =
+    artifact?.type === 'carousel' ||
+    project?.type === 'carousel' ||
+    project?.type === 'from_assets' ||
+    config.mode === 'carousel' ||
+    config.mode === 'assets';
 
   // ---------------------------------------------------------------------------
   // Artifact loading from API (Phase 8D.1)
@@ -413,17 +431,23 @@ export default function WorkspacePage() {
   // ---------------------------------------------------------------------------
   // Load artifact from API when workspace opens with a projectId
   // ---------------------------------------------------------------------------
+  // When the dashboard passes currentArtifactId in router state, use it as a
+  // fast path. Otherwise (refresh, direct URL, Recent Projects) fetch the
+  // project first and resolve currentArtifactId from there.
+  const loadedArtifactIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!projectId) {
       artifactLoader.clear();
+      loadedArtifactIdRef.current = null;
       return;
     }
-    const artifactId = config.currentArtifactId as string | undefined;
-    if (artifactId) {
+    const artifactId =
+      (config.currentArtifactId as string | undefined) ?? project?.currentArtifactId ?? null;
+    if (artifactId && artifactId !== loadedArtifactIdRef.current) {
+      loadedArtifactIdRef.current = artifactId;
       artifactLoader.load(artifactId);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, project?.currentArtifactId, config.currentArtifactId]);
 
   // Hydrate editor when API artifact finishes loading
   useEffect(() => {
@@ -444,6 +468,14 @@ export default function WorkspacePage() {
     setActiveCard,
     clearSelection,
   ]);
+
+  // Keep local ratio state in sync with the loaded artifact / project metadata.
+  useEffect(() => {
+    const name = artifact?.ratio.name ?? project?.ratio.name ?? config.ratio;
+    if (name) {
+      setRatio(name);
+    }
+  }, [artifact?.ratio.name, project?.ratio.name, config.ratio]);
 
   /* ----- chat send ----- */
   const send = async () => {
@@ -809,7 +841,7 @@ export default function WorkspacePage() {
           {<Icon.arrowLeft s={16} style={{color:'var(--muted)'}} />}
         </button>
         <div className="proj-name">
-          {config.projectName || (isCarousel ? 'Untitled carousel' : 'Untitled post')}
+          {project?.name || config.projectName || (isCarousel ? 'Untitled carousel' : 'Untitled post')}
           <span className="dot" />
           <span className="mode-pill">{isCarousel?'Carousel':'Single post'}</span>
         </div>
@@ -1189,6 +1221,30 @@ export default function WorkspacePage() {
         <section className="stage">
           <div className="stage-grid" />
           <div className="stage-main">
+            {/* Project metadata loading state — only when no dashboard fast-path */}
+            {projectState === 'loading' && !artifact && !config.currentArtifactId && (
+              <div className="empty">
+                <div className="orb"><img src="/orra_logo.svg" alt="Orra" style={{width:44,height:44}} /></div>
+                <h2>Loading project…</h2>
+                <p style={{color:'var(--muted)'}}>Fetching project details.</p>
+              </div>
+            )}
+
+            {/* Project metadata error state */}
+            {(projectState === 'error' || projectState === 'not_found') && (
+              <div className="empty">
+                <div className="orb" style={{opacity:0.5}}><img src="/orra_logo.svg" alt="Orra" style={{width:44,height:44}} /></div>
+                <h2>Unable to load project</h2>
+                <p style={{color:'var(--danger, #c44)', fontSize:13.5}}>{projectError || 'The project could not be loaded.'}</p>
+                <div className="opts">
+                  <button className="btn btn-ghost" onClick={()=> navigate('/')}>
+                    {<Icon.arrowLeft s={16} />} Back to dashboard
+                  </button>
+                  <button className="btn btn-primary" onClick={()=> reloadProject()}>Try again</button>
+                </div>
+              </div>
+            )}
+
             {/* Artifact loading state */}
             {artifactLoader.state === 'loading' && (
               <div className="empty">
@@ -1212,7 +1268,7 @@ export default function WorkspacePage() {
               </div>
             )}
 
-            {phase!=='generated' && artifactLoader.state !== 'loading' && artifactLoader.state !== 'error' && artifactLoader.state !== 'not_found' ? (
+            {phase!=='generated' && !artifact?.cards.length && projectState !== 'loading' && projectState !== 'error' && projectState !== 'not_found' && artifactLoader.state !== 'loading' && artifactLoader.state !== 'error' && artifactLoader.state !== 'not_found' ? (
               <div className="empty">
                 <div className="orb"><img src="/orra_logo.svg" alt="Orra" style={{width:44,height:44}} /></div>
                 <h2>A quiet canvas, ready</h2>

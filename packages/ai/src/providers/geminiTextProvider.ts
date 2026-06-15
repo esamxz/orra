@@ -25,6 +25,8 @@ export interface GeminiTextProviderConfig {
   timeoutMs?: number;
   baseUrl?: string;
   observer?: AIProviderObserver;
+  /** Injectable for testing — matches the pattern from D6.2.1 fix. */
+  fetch?: typeof globalThis.fetch;
 }
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
@@ -44,6 +46,41 @@ const GeminiEnvelopeSchema = z.object({
     .min(1),
 });
 
+// Maps Gemini HTTP status codes to typed AIProviderError codes.
+// Keeps provider errors actionable without leaking API key or raw response body.
+function mapGeminiHttpError(status: number): AIProviderError {
+  if (status === 401 || status === 403) {
+    return new AIProviderError({
+      code: 'PROVIDER_AUTH_FAILED',
+      provider: 'gemini',
+      message: `Gemini returned HTTP ${status} — check GEMINI_API_KEY`,
+      retryable: false,
+    });
+  }
+  if (status === 404) {
+    return new AIProviderError({
+      code: 'PROVIDER_NOT_FOUND',
+      provider: 'gemini',
+      message: `Gemini returned HTTP 404 — check GEMINI_TEXT_MODEL`,
+      retryable: false,
+    });
+  }
+  if (status === 429) {
+    return new AIProviderError({
+      code: 'PROVIDER_RATE_LIMITED',
+      provider: 'gemini',
+      message: `Gemini returned HTTP 429 — rate limited`,
+      retryable: true,
+    });
+  }
+  return new AIProviderError({
+    code: 'PROVIDER_HTTP_ERROR',
+    provider: 'gemini',
+    message: `Gemini returned HTTP ${status}`,
+    retryable: status >= 500,
+  });
+}
+
 export class GeminiTextProvider implements AIProvider {
   readonly name: AIProviderName = 'gemini';
 
@@ -52,6 +89,7 @@ export class GeminiTextProvider implements AIProvider {
   private readonly timeoutMs: number;
   private readonly baseUrl: string;
   private readonly observer: AIProviderObserver;
+  private readonly fetchFn: typeof globalThis.fetch;
 
   constructor(config: GeminiTextProviderConfig) {
     this.apiKey = config.apiKey;
@@ -59,6 +97,9 @@ export class GeminiTextProvider implements AIProvider {
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
     this.observer = config.observer ?? new NoopAIProviderObserver();
+    // Use wrapper so globalThis.fetch is resolved at call time, not construction
+    // time. This is required for Cloudflare Workers fetch binding compatibility.
+    this.fetchFn = config.fetch ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   async planText(input: TextPlanRequest): Promise<TextPlanResult> {
@@ -80,7 +121,7 @@ export class GeminiTextProvider implements AIProvider {
     try {
       let response: Response;
       try {
-        response = await fetch(url, {
+        response = await this.fetchFn(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -109,12 +150,7 @@ export class GeminiTextProvider implements AIProvider {
       clearTimeout(timer);
 
       if (!response.ok) {
-        throw new AIProviderError({
-          code: 'PROVIDER_HTTP_ERROR',
-          provider: 'gemini',
-          message: `Gemini returned HTTP ${response.status}`,
-          retryable: response.status >= 500,
-        });
+        throw mapGeminiHttpError(response.status);
       }
 
       let raw: unknown;
@@ -187,7 +223,7 @@ export class GeminiTextProvider implements AIProvider {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await this.fetchFn(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -216,12 +252,7 @@ export class GeminiTextProvider implements AIProvider {
     clearTimeout(timer);
 
     if (!response.ok) {
-      throw new AIProviderError({
-        code: 'PROVIDER_HTTP_ERROR',
-        provider: 'gemini',
-        message: `Gemini chat returned HTTP ${response.status}`,
-        retryable: response.status >= 500,
-      });
+      throw mapGeminiHttpError(response.status);
     }
 
     let raw: unknown;
@@ -266,7 +297,7 @@ export class GeminiTextProvider implements AIProvider {
     try {
       let response: Response;
       try {
-        response = await fetch(url, {
+        response = await this.fetchFn(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -295,12 +326,7 @@ export class GeminiTextProvider implements AIProvider {
       clearTimeout(timer);
 
       if (!response.ok) {
-        throw new AIProviderError({
-          code: 'PROVIDER_HTTP_ERROR',
-          provider: 'gemini',
-          message: `Gemini returned HTTP ${response.status}`,
-          retryable: response.status >= 500,
-        });
+        throw mapGeminiHttpError(response.status);
       }
 
       let raw: unknown;

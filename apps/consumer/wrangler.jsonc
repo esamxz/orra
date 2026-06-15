@@ -22,7 +22,17 @@
   "env": {
     "staging": {
       "vars": {
-        "ENVIRONMENT": "staging"
+        "ENVIRONMENT": "staging",
+        "AI_PROVIDER": "openai",
+        "OPENAI_TEXT_MODEL": "gpt-4o-mini",
+        "AI_PROVIDER_TIMEOUT_MS": "60000",
+        "IMAGE_PROVIDER": "openai",
+        "OPENAI_IMAGE_MODEL": "gpt-image-2",
+        "IMAGE_PROVIDER_TIMEOUT_MS": "180000",
+        "OPENAI_IMAGE_SIZE": "1024x1024",
+        "OPENAI_IMAGE_QUALITY": "low",
+        "OPENAI_IMAGE_OUTPUT_FORMAT": "jpeg"
+        // OPENAI_API_KEY is a secret — set via: wrangler secret put OPENAI_API_KEY --env staging
       },
       "queues": {
         "consumers": [
@@ -68,12 +78,14 @@
 // Secrets (set via `wrangler secret put` — never commit real values):
 //   SUPABASE_URL                — Supabase project URL (required)
 //   SUPABASE_SERVICE_ROLE_KEY   — Supabase service role key (required)
-//   AI_PROVIDER                 — fake (default) | gemini | openai; fake is blocked in production
-//   GEMINI_API_KEY              — required when AI_PROVIDER=gemini or IMAGE_PROVIDER=gemini (shared key)
-//   GEMINI_TEXT_MODEL           — optional Gemini text model override
 //   OPENAI_API_KEY              — required when AI_PROVIDER=openai or IMAGE_PROVIDER=openai (shared key)
-//   OPENAI_TEXT_MODEL           — optional OpenAI text model override (default: gpt-4o-mini)
-//   IMAGE_PROVIDER              — fake (default) | gemini | openai; fake is blocked in production
-//   GEMINI_IMAGE_MODEL          — optional Gemini image model override (default: gemini-2.5-flash-image)
-//   OPENAI_IMAGE_MODEL          — required when IMAGE_PROVIDER=openai (recommended: gpt-image-2)
+//   GEMINI_API_KEY              — required when AI_PROVIDER=gemini or IMAGE_PROVIDER=gemini (shared key)
 //   ALLOW_FAKE_PROVIDER_IN_PRODUCTION — set to 'true' only for emergency debugging in production (default: blocked)
+//
+// Provider and model selection is configured via vars (not secrets) per environment:
+//   AI_PROVIDER                 — fake (default) | gemini | openai; fake is blocked in production
+//   IMAGE_PROVIDER              — fake (default) | gemini | openai; fake is blocked in production
+//   OPENAI_TEXT_MODEL           — optional OpenAI text model override (default: gpt-4o-mini)
+//   GEMINI_TEXT_MODEL           — optional Gemini text model override
+//   OPENAI_IMAGE_MODEL          — required when IMAGE_PROVIDER=openai (recommended: gpt-image-2)
+//   GEMINI_IMAGE_MODEL          — optional Gemini image model override (default: gemini-2.5-flash-image)

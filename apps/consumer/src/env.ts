@@ -28,8 +28,10 @@
  *   Generated image R2 storage and artifact integration are implemented in later phases.
  *
  * IMAGE_PROVIDER=openai
- *   Uses OpenAIImageProvider via Responses API with image_generation tool.
+ *   Uses OpenAIImageProvider via Images API /v1/images/generations.
  *   Requires OPENAI_API_KEY and OPENAI_IMAGE_MODEL (recommended: gpt-image-2).
+ *   Optional tuning via OPENAI_IMAGE_SIZE, OPENAI_IMAGE_QUALITY, OPENAI_IMAGE_OUTPUT_FORMAT.
+ *   Use IMAGE_PROVIDER_TIMEOUT_MS for a separate, longer image timeout (default 180s).
  *   NEVER add OPENAI_API_KEY to apps/web or apps/api environment.
  *
  * IMAGE_PROVIDER=flux is deprecated. Use IMAGE_PROVIDER=gemini or IMAGE_PROVIDER=openai.
@@ -63,6 +65,8 @@ export const ConsumerEnvSchema = z
     // z.coerce.number() because Worker bindings are always strings at runtime
     AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
     IMAGE_PROVIDER: z.string().optional(),
+    /** Separate timeout for image generation; can be much longer than text timeout. */
+    IMAGE_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
     /** Optional Gemini image model override. Defaults to gemini-2.5-flash-image. */
     GEMINI_IMAGE_MODEL: z.string().optional(),
     /** Required when AI_PROVIDER=openai or IMAGE_PROVIDER=openai. */
@@ -71,6 +75,12 @@ export const ConsumerEnvSchema = z
     OPENAI_TEXT_MODEL: z.string().optional(),
     /** Required when IMAGE_PROVIDER=openai. Recommended: gpt-image-2. */
     OPENAI_IMAGE_MODEL: z.string().optional(),
+    /** Optional OpenAI image size override, e.g. "1024x1024". Set via OPENAI_IMAGE_SIZE. */
+    OPENAI_IMAGE_SIZE: z.string().optional(),
+    /** Optional OpenAI image quality, e.g. "low". Set via OPENAI_IMAGE_QUALITY. */
+    OPENAI_IMAGE_QUALITY: z.string().optional(),
+    /** Optional OpenAI image output format, e.g. "jpeg". Set via OPENAI_IMAGE_OUTPUT_FORMAT. */
+    OPENAI_IMAGE_OUTPUT_FORMAT: z.string().optional(),
     // Emergency escape hatch: allows fake providers in production for debugging.
     // Must be explicitly set to 'true'. Default in production is to block fake.
     ALLOW_FAKE_PROVIDER_IN_PRODUCTION: z.literal('true').optional(),

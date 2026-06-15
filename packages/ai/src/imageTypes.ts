@@ -16,6 +16,8 @@ export interface ImageGenerationRequest {
   kind?: ImageGenerationKind;
   width: number;
   height: number;
+  /** Optional explicit size override for providers that require a size string. */
+  size?: string;
   format?: ImageOutputFormat;
   transparentBackground?: boolean;
   seed?: number;

@@ -188,7 +188,7 @@ describe('GeminiTextProvider: observer events on failure', () => {
     expect(failed.retryable).toBe(true);
   });
 
-  it('emits failed with PROVIDER_HTTP_ERROR on HTTP 4xx', async () => {
+  it('emits failed with PROVIDER_RATE_LIMITED on HTTP 429', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: false,
       status: 429,
@@ -199,7 +199,7 @@ describe('GeminiTextProvider: observer events on failure', () => {
     await expect(makeProvider(observer).planText(makeRequest())).rejects.toBeInstanceOf(AIProviderError);
 
     const failed = events.find((e) => e.status === 'failed')!;
-    expect(failed.errorCode).toBe('PROVIDER_HTTP_ERROR');
+    expect(failed.errorCode).toBe('PROVIDER_RATE_LIMITED');
   });
 
   it('failed event carries durationMs as a non-negative number', async () => {

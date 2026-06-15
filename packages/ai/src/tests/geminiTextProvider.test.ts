@@ -162,18 +162,52 @@ describe('GeminiTextProvider', () => {
       );
     });
 
-    it('throws PROVIDER_HTTP_ERROR on non-2xx response', async () => {
+    it('maps HTTP 429 to PROVIDER_RATE_LIMITED with retryable=true', async () => {
       mockFetchError(429);
       const provider = new GeminiTextProvider(makeConfig());
-
       await expect(provider.planText(makeRequest())).rejects.toSatisfy(
         (err: unknown) =>
-          err instanceof AIProviderError && err.code === 'PROVIDER_HTTP_ERROR',
+          err instanceof AIProviderError &&
+          err.code === 'PROVIDER_RATE_LIMITED' &&
+          err.retryable === true,
       );
     });
 
-    it('sets retryable=false for 4xx and retryable=true for 5xx', async () => {
-      mockFetchError(429);
+    it('maps HTTP 401 to PROVIDER_AUTH_FAILED with retryable=false', async () => {
+      mockFetchError(401);
+      const provider = new GeminiTextProvider(makeConfig());
+      await expect(provider.planText(makeRequest())).rejects.toSatisfy(
+        (err: unknown) =>
+          err instanceof AIProviderError &&
+          err.code === 'PROVIDER_AUTH_FAILED' &&
+          err.retryable === false,
+      );
+    });
+
+    it('maps HTTP 403 to PROVIDER_AUTH_FAILED with retryable=false', async () => {
+      mockFetchError(403);
+      const provider = new GeminiTextProvider(makeConfig());
+      await expect(provider.planText(makeRequest())).rejects.toSatisfy(
+        (err: unknown) =>
+          err instanceof AIProviderError &&
+          err.code === 'PROVIDER_AUTH_FAILED' &&
+          err.retryable === false,
+      );
+    });
+
+    it('maps HTTP 404 to PROVIDER_NOT_FOUND with retryable=false', async () => {
+      mockFetchError(404);
+      const provider = new GeminiTextProvider(makeConfig());
+      await expect(provider.planText(makeRequest())).rejects.toSatisfy(
+        (err: unknown) =>
+          err instanceof AIProviderError &&
+          err.code === 'PROVIDER_NOT_FOUND' &&
+          err.retryable === false,
+      );
+    });
+
+    it('sets retryable=false for 400 and retryable=true for 5xx', async () => {
+      mockFetchError(400);
       const provider = new GeminiTextProvider(makeConfig());
       let caught: AIProviderError | undefined;
       try {
@@ -482,10 +516,37 @@ describe('GeminiTextProvider — chat()', () => {
     expect(body.generationConfig).toBeUndefined();
   });
 
-  it('throws AIProviderError on HTTP 429', async () => {
+  it('maps HTTP 429 to PROVIDER_RATE_LIMITED with retryable=true', async () => {
     mockFetchError(429);
     const provider = new GeminiTextProvider(makeConfig());
-    await expect(provider.chat({ userMessage: 'hi' })).rejects.toBeInstanceOf(AIProviderError);
+    await expect(provider.chat({ userMessage: 'hi' })).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof AIProviderError &&
+        err.code === 'PROVIDER_RATE_LIMITED' &&
+        err.retryable === true,
+    );
+  });
+
+  it('maps HTTP 401 to PROVIDER_AUTH_FAILED with retryable=false', async () => {
+    mockFetchError(401);
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.chat({ userMessage: 'hi' })).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof AIProviderError &&
+        err.code === 'PROVIDER_AUTH_FAILED' &&
+        err.retryable === false,
+    );
+  });
+
+  it('maps HTTP 404 to PROVIDER_NOT_FOUND with retryable=false', async () => {
+    mockFetchError(404);
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.chat({ userMessage: 'hi' })).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof AIProviderError &&
+        err.code === 'PROVIDER_NOT_FOUND' &&
+        err.retryable === false,
+    );
   });
 
   it('throws AIProviderError when response envelope is invalid', async () => {
@@ -496,5 +557,109 @@ describe('GeminiTextProvider — chat()', () => {
     } as Response);
     const provider = new GeminiTextProvider(makeConfig());
     await expect(provider.chat({ userMessage: 'hi' })).rejects.toBeInstanceOf(AIProviderError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enhancePrompt() tests
+// ---------------------------------------------------------------------------
+
+function makeEnhancementEnvelope(result: unknown) {
+  return {
+    candidates: [{ content: { parts: [{ text: JSON.stringify(result) }] } }],
+  };
+}
+
+describe('GeminiTextProvider — enhancePrompt()', () => {
+  it('returns enhanced prompt and inferredType on success', async () => {
+    mockFetchOk(makeEnhancementEnvelope({
+      enhancedPrompt: 'A powerful post about morning routines for high performers',
+      inferredType: 'single_post',
+    }));
+    const provider = new GeminiTextProvider(makeConfig());
+    const result = await provider.enhancePrompt({ prompt: 'morning routine post' });
+    expect(result.enhancedPrompt).toContain('morning routines');
+    expect(result.inferredType).toBe('single_post');
+  });
+
+  it('maps HTTP 429 to PROVIDER_RATE_LIMITED with retryable=true', async () => {
+    mockFetchError(429);
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.enhancePrompt({ prompt: 'test' })).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof AIProviderError &&
+        err.code === 'PROVIDER_RATE_LIMITED' &&
+        err.retryable === true,
+    );
+  });
+
+  it('maps HTTP 401 to PROVIDER_AUTH_FAILED with retryable=false', async () => {
+    mockFetchError(401);
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.enhancePrompt({ prompt: 'test' })).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof AIProviderError &&
+        err.code === 'PROVIDER_AUTH_FAILED' &&
+        err.retryable === false,
+    );
+  });
+
+  it('maps HTTP 404 to PROVIDER_NOT_FOUND — model misconfiguration', async () => {
+    mockFetchError(404);
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.enhancePrompt({ prompt: 'test' })).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof AIProviderError &&
+        err.code === 'PROVIDER_NOT_FOUND' &&
+        err.retryable === false,
+    );
+  });
+
+  it('throws PROVIDER_INVALID_RESPONSE when schema validation fails', async () => {
+    mockFetchOk(makeEnhancementEnvelope({ enhancedPrompt: 42 }));
+    const provider = new GeminiTextProvider(makeConfig());
+    await expect(provider.enhancePrompt({ prompt: 'test' })).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_RESPONSE',
+    );
+  });
+
+  it('never includes the API key in thrown error messages', async () => {
+    const provider = new GeminiTextProvider({ apiKey: 'secret-api-key', model: 'gemini-2.0-flash-lite' });
+    mockFetchError(401);
+    let caughtMessage = '';
+    try {
+      await provider.enhancePrompt({ prompt: 'test' });
+    } catch (err) {
+      caughtMessage = err instanceof Error ? err.message : '';
+    }
+    expect(caughtMessage).not.toContain('secret-api-key');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// globalThis.fetch wrapper regression (Cloudflare Workers binding)
+// ---------------------------------------------------------------------------
+
+describe('GeminiTextProvider — globalThis.fetch wrapper', () => {
+  it('resolves globalThis.fetch at call time, not construction time', async () => {
+    // Provider created with NO injected fetch — exercises the wrapper path.
+    // The wrapper is: (input, init) => globalThis.fetch(input, init)
+    // If the constructor captured the reference directly (old pattern), spy installed
+    // after construction would never fire. The wrapper re-reads globalThis.fetch each call.
+    const provider = new GeminiTextProvider(makeConfig());
+
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => makeGeminiEnvelope(makeValidPlan()),
+    } as Response);
+
+    try {
+      await provider.planText(makeRequest());
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

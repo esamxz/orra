@@ -479,4 +479,25 @@ describe('POST /v1/prompts/enhance — AI mode', () => {
     await enhanceAi(aiApp, { prompt: 'Post about focus' });
     expect(createCalled).toBe(false);
   });
+
+  it('returns 502 PROVIDER_FAILURE when router creation throws PROVIDER_CONFIG_MISSING', async () => {
+    // Simulate AI_PROVIDER=openai with no API key — createAIProviderRouter throws synchronously.
+    const app = new Hono<{ Bindings: Env }>();
+    app.use(requestIdMiddleware);
+    app.use(createAuthMiddleware(fakeVerifier, { repositories: createMinimalFakeRepositories() }));
+    app.route('/v1/prompts', createPromptsRoute());
+    app.onError(errorHandler);
+
+    const res = await app.request(
+      '/v1/prompts/enhance',
+      { method: 'POST', headers: AUTH_HEADER, body: JSON.stringify({ prompt: 'Post about focus' }) },
+      // AI_PROVIDER=openai but no OPENAI_API_KEY — triggers PROVIDER_CONFIG_MISSING in createAIProviderRouter
+      { ENVIRONMENT: 'development', PROMPT_ENHANCER_MODE: 'ai', AI_PROVIDER: 'openai' } as unknown as Record<string, unknown>,
+    );
+
+    expect(res.status).toBe(502);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error?.code).toBe('PROVIDER_FAILURE');
+  });
 });

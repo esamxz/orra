@@ -4,6 +4,8 @@ import { ApiError } from '../errors.js';
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { ProjectRow, ChatThreadRow, ChatMessageRow } from '@orra/db';
+import type { AIProvider } from '@orra/ai';
+import { AIProviderError } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
 // Fake project repository
@@ -857,5 +859,99 @@ describe('Phase 14D: approval card direction hints', () => {
 
     const card = (result.approvalMessage!.metadata as Record<string, unknown>).approvalCard as Record<string, unknown>;
     expect(card.memorySummary).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AI provider chat path (real provider injection)
+// ---------------------------------------------------------------------------
+
+function makeConversationProject(): ProjectRow {
+  return makeProject({ id: 'proj-chat', workspace_id: 'ws-chat' });
+}
+
+function makeRealProvider(reply: string): AIProvider {
+  return {
+    name: 'gemini' as const,
+    async planText() { throw new Error('not used'); },
+    async generateImageOrDocument() { throw new Error('not used'); },
+    async chat() { return { reply }; },
+    async enhancePrompt() { throw new Error('not used'); },
+  };
+}
+
+function makeFailingProvider(): AIProvider {
+  return {
+    name: 'gemini' as const,
+    async planText() { throw new Error('not used'); },
+    async generateImageOrDocument() { throw new Error('not used'); },
+    async chat() {
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'gemini',
+        message: 'Gemini returned HTTP 502',
+        retryable: true,
+      });
+    },
+    async enhancePrompt() { throw new Error('not used'); },
+  };
+}
+
+describe('ChatService — real AI provider chat path', () => {
+  it('stores AI reply as assistant message when provider succeeds', async () => {
+    const projectRepo = createFakeProjectRepository([makeConversationProject()]);
+    const chatRepo = createFakeChatRepository();
+    const provider = makeRealProvider('Great idea! Tell me more about the visual style you want.');
+    const service = new ChatService(chatRepo, projectRepo, undefined, undefined, undefined, provider);
+    const ctx = fakeAuthContext('ws-chat');
+
+    const result = await service.appendUserMessage(ctx, 'proj-chat', { content: 'Hello, help me brainstorm' });
+
+    // Conversation mode with provider returns an approvalMessage which is the assistant reply
+    expect(result.approvalMessage).toBeTruthy();
+    expect(result.approvalMessage!.role).toBe('assistant');
+    expect(result.approvalMessage!.content).toBe('Great idea! Tell me more about the visual style you want.');
+  });
+
+  it('stores CHAT_UNAVAILABLE_MESSAGE when provider throws AIProviderError', async () => {
+    const projectRepo = createFakeProjectRepository([makeConversationProject()]);
+    const chatRepo = createFakeChatRepository();
+    const provider = makeFailingProvider();
+    const service = new ChatService(chatRepo, projectRepo, undefined, undefined, undefined, provider);
+    const ctx = fakeAuthContext('ws-chat');
+
+    const result = await service.appendUserMessage(ctx, 'proj-chat', { content: 'Hello' });
+
+    expect(result.approvalMessage!.role).toBe('assistant');
+    expect(result.approvalMessage!.content).toContain('temporarily unavailable');
+  });
+
+  it('does not create generation jobs when provider responds to conversation', async () => {
+    const projectRepo = createFakeProjectRepository([makeConversationProject()]);
+    const chatRepo = createFakeChatRepository();
+    const provider = makeRealProvider('Sure, what would you like to create?');
+    const service = new ChatService(chatRepo, projectRepo, undefined, undefined, undefined, provider);
+    const ctx = fakeAuthContext('ws-chat');
+
+    const result = await service.appendUserMessage(ctx, 'proj-chat', { content: 'Hello' });
+
+    // No job was created — only user + assistant messages in conversation mode
+    expect(result.intent.mode).toBe('conversation');
+    // approvalMessage is the AI reply, not an approval card
+    const metadata = result.approvalMessage?.metadata as Record<string, unknown> | undefined;
+    expect(metadata?.approvalCard).toBeUndefined();
+  });
+
+  it('does not attempt AI chat without provider injected', async () => {
+    const projectRepo = createFakeProjectRepository([makeConversationProject()]);
+    const chatRepo = createFakeChatRepository();
+    // No provider — conversation mode returns without assistant message
+    const service = new ChatService(chatRepo, projectRepo);
+    const ctx = fakeAuthContext('ws-chat');
+
+    const result = await service.appendUserMessage(ctx, 'proj-chat', { content: 'Hello' });
+
+    expect(result.intent.mode).toBe('conversation');
+    expect(result.approvalMessage).toBeUndefined();
   });
 });

@@ -50,6 +50,8 @@ export { TextPlanResultSchema, PlannedCardSchema, PromptEnhancementResultSchema 
 
 export { extractJsonObjectFromText } from './json.js';
 export { normalizeTextPlanResult } from './normalization.js';
+export { resolveImageRequestSize } from './imageSize.js';
+export type { ImageSizeInput, ImageSizeProvider } from './imageSize.js';
 export { buildTextPlanPrompt, buildEnhancementPrompt } from './prompts.js';
 
 export type { AIProviderRouter, AIProviderRouterConfig } from './router.js';

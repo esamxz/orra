@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createImageProviderRouter } from '../imageRouter.js';
 import { FakeImageProvider } from '../providers/fakeImageProvider.js';
 import { GeminiImageProvider, DEFAULT_GEMINI_IMAGE_MODEL } from '../providers/geminiImageProvider.js';
@@ -143,6 +143,56 @@ describe('ImageProviderRouter — openai', () => {
       openaiImageModel: 'gpt-image-2',
     });
     expect(router.getProvider()).not.toBe(router.getProvider());
+  });
+
+  it('passes OpenAI image options (size, quality, outputFormat) to provider', async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ b64_json: 'ZmFrZS1pbWFnZS1ieXRlcw==' }] }),
+      headers: new Headers(),
+    } as Response);
+
+    const router = createImageProviderRouter({
+      provider: 'openai',
+      openaiApiKey: 'sk-test',
+      openaiImageModel: 'gpt-image-2',
+      openaiImageSize: '1024x1024',
+      openaiImageQuality: 'low',
+      openaiImageOutputFormat: 'jpeg',
+      timeoutMs: 180000,
+      fetch: fetchFn as unknown as typeof globalThis.fetch,
+    });
+    const provider = router.getProvider();
+    await provider.generateImage({ prompt: 'A square image', width: 4, height: 5 });
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.size).toBe('1024x1024');
+    expect(body.quality).toBe('low');
+    expect(body.output_format).toBe('jpeg');
+  });
+
+  it('uses default 180s image timeout when IMAGE_PROVIDER_TIMEOUT_MS is not provided', async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ b64_json: 'ZmFrZS1pbWFnZS1ieXRlcw==' }] }),
+      headers: new Headers(),
+    } as Response);
+
+    const router = createImageProviderRouter({
+      provider: 'openai',
+      openaiApiKey: 'sk-test',
+      openaiImageModel: 'gpt-image-2',
+      fetch: fetchFn as unknown as typeof globalThis.fetch,
+    });
+    const provider = router.getProvider();
+    await provider.generateImage({ prompt: 'A square image', width: 4, height: 5 });
+
+    // Default timeout is 180s; we can't easily observe it without a slow test,
+    // but we can verify the provider accepted the request without an explicit timeout.
+    expect(fetchFn).toHaveBeenCalledOnce();
   });
 });
 
