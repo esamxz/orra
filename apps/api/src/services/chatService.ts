@@ -412,6 +412,7 @@ export class ChatService {
     return {
       brandSystemId: brand.id,
       name: brand.name,
+      description: brand.description,
       tone: brand.tone_of_voice,
       colors: Object.keys(colors).length > 0 ? colors : undefined,
       typography:

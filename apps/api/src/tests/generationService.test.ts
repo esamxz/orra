@@ -1748,6 +1748,7 @@ describe('GenerationService', () => {
         id: 'brand-fake-1',
         workspace_id: 'ws-1',
         name: 'Test Brand',
+        description: 'A productivity brand',
         tone_of_voice: 'calm, premium',
         visual_direction: 'minimal',
         rules: null,
@@ -1839,6 +1840,7 @@ describe('GenerationService', () => {
     expect(plan!.brandContext).toBeDefined();
     const brandCtx = plan!.brandContext as BrandContextDto;
     expect(brandCtx.name).toBe('Test Brand');
+    expect(brandCtx.description).toBe('A productivity brand');
     expect(brandCtx.tone).toBe('calm, premium');
     expect(brandCtx.colors).toMatchObject({ primary: '#ff0000', secondary: '#00ff00' });
     expect(brandCtx.typography).toMatchObject({ headingFont: 'Newsreader', bodyFont: 'Inter' });

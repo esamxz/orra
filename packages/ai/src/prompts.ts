@@ -11,10 +11,22 @@ import type { ProjectContextMemory } from '@orra/shared';
 // Extracted from GeminiTextProvider so providers don't duplicate this logic.
 // ---------------------------------------------------------------------------
 
+function buildBrandSection(ctx: NonNullable<TextPlanRequest['brandContext']>): string {
+  const lines: string[] = [
+    `You are creating content for the brand "${ctx.name}".`,
+  ];
+  if (ctx.description) lines.push(`Brand description: ${ctx.description}`);
+  if (ctx.tone) lines.push(`Tone of voice: ${ctx.tone}`);
+  if (ctx.visualDirection) lines.push(`Visual direction: ${ctx.visualDirection}`);
+  if (ctx.rules) lines.push(`Brand rules: ${ctx.rules.slice(0, 300)}`);
+  lines.push(
+    `Important: if the user's prompt mentions "${ctx.name}", treat this as referring to the selected brand above — do not invent an unrelated industry, product category, or company.`,
+  );
+  return `\nBrand context:\n${lines.join('\n')}\n`;
+}
+
 export function buildTextPlanPrompt(input: TextPlanRequest): string {
-  const brandSection = input.brandContext
-    ? `Brand tone: ${input.brandContext.tone ?? 'not specified'}\nVisual direction: ${input.brandContext.visualDirection ?? 'not specified'}`
-    : 'No brand context.';
+  const brandSection = input.brandContext ? buildBrandSection(input.brandContext) : '';
 
   const memorySection = buildMemorySection(input.projectMemory);
   const chatSection = buildRecentChatSection(input.recentChatMessages);

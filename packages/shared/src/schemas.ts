@@ -229,6 +229,7 @@ export const ApprovalStateSchema = z.object({
 export const BrandContextSchema = z.object({
   brandSystemId: z.string().uuid(),
   name: z.string().min(1),
+  description: z.string().nullable().optional(),
   tone: z.string().nullable().optional(),
   colors: z.object({
     primary: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),

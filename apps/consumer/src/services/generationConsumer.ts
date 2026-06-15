@@ -4,7 +4,7 @@ import type { CreditRepository } from '@orra/api/src/repositories/creditReposito
 import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import type { ChatRepository } from '@orra/api/src/repositories/chatRepository.js';
 import type { AssetRepository } from '@orra/api/src/repositories/assetRepository.js';
-import type { ArtifactDocument, BackgroundLayer, ProjectContextMemory, Ratio } from '@orra/shared';
+import type { ArtifactDocument, BackgroundLayer, BrandContextDto, ProjectContextMemory, Ratio } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
 import { generateArtifactDocument, generateSingleCard } from './artifactDocumentBuilder.js';
 import { storeGeneratedImage } from './generatedImageStorage.js';
@@ -280,7 +280,7 @@ export class GenerationConsumer {
       const isRealImageProvider = imageProvider && imageProvider.id !== 'fake';
 
       if (isRealImageProvider && this.assetRepo && this.r2Bucket) {
-        const imagePrompt = buildImagePrompt(aiPlan);
+        const imagePrompt = buildImagePrompt(aiPlan, brandContext);
         const t0img = Date.now();
         console.info('[provider_image]', { jobId: message.jobId, provider: imageProvider.id, status: 'started' });
 
@@ -451,12 +451,25 @@ export class GenerationConsumer {
 // Image generation helpers
 // ---------------------------------------------------------------------------
 
-function buildImagePrompt(plan: TextPlanResult): string {
+// Phase 11B TODO: logo assets must eventually become pinned project_assets
+// and LogoLayer references. BrandSystemRow has no logo_asset_id column yet.
+function buildImagePrompt(plan: TextPlanResult, brandContext?: BrandContextDto | null): string {
   const parts: string[] = [];
   if (plan.title) parts.push(plan.title);
   if (plan.visualDirection) parts.push(`Visual style: ${plan.visualDirection}`);
+  // Brand visual direction always anchors even when AI plan has its own direction.
+  if (brandContext?.visualDirection) parts.push(`Brand visual direction: ${brandContext.visualDirection}`);
   if (plan.styleNotes.length > 0) parts.push(plan.styleNotes.slice(0, 3).join(', '));
-  return parts.join('. ') || 'Professional visual content background';
+  if (brandContext?.colors) {
+    const colorRoles = ['primary', 'secondary', 'accent', 'background', 'text'] as const;
+    const palette = colorRoles
+      .filter((r) => brandContext.colors![r])
+      .map((r) => `${r} ${brandContext.colors![r]}`)
+      .join(', ');
+    if (palette) parts.push(`Brand palette: ${palette}`);
+  }
+  parts.push('No text, logos, watermarks, or written words in the image. Leave clean negative space for app-rendered editable text.');
+  return parts.join('. ');
 }
 
 function attachBackgroundLayer(
