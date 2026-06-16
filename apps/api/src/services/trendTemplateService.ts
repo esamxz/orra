@@ -22,23 +22,32 @@ export interface TrendTemplateDto {
   isFeatured: boolean;
   tags: string[];
   sortIndex: number;
+  referenceR2Key: string | null;
 }
 
+/**
+ * Defensive mapper that returns safe defaults for every extended column.
+ * This keeps the API stable while the `trend_templates_extend` migration is
+ * rolling out across environments; rows fetched before the migration is applied
+ * (or from a stale view) will simply use the documented defaults instead of
+ * exposing undefined values to clients.
+ */
 function toDto(row: TrendTemplateRow): TrendTemplateDto {
   return {
     id: row.id,
     title: row.title,
-    description: row.description,
+    description: row.description ?? null,
     prompt: row.prompt,
-    category: row.category,
-    projectType: row.project_type as 'post' | 'carousel',
-    ratioHint: row.ratio_hint,
-    platformHint: row.platform_hint,
-    assetHints: row.asset_hints,
-    previewVariant: row.preview_variant,
-    isFeatured: row.is_featured,
-    tags: row.tags,
-    sortIndex: row.sort_index,
+    category: row.category ?? null,
+    projectType: (row.project_type as 'post' | 'carousel') ?? 'post',
+    ratioHint: row.ratio_hint ?? null,
+    platformHint: row.platform_hint ?? null,
+    assetHints: row.asset_hints ?? [],
+    previewVariant: row.preview_variant ?? 'cover',
+    isFeatured: row.is_featured ?? false,
+    tags: row.tags ?? [],
+    sortIndex: row.sort_index ?? 0,
+    referenceR2Key: row.reference_r2_key ?? null,
   };
 }
 

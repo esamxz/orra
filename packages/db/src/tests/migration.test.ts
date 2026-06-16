@@ -50,6 +50,7 @@ beforeAll(() => {
   hardening = readFileSync(HARDENING, 'utf-8').toLowerCase();
   atomic = readFileSync(ATOMIC, 'utf-8').toLowerCase();
   chatThread = readFileSync(CHAT_THREAD, 'utf-8').toLowerCase();
+  trendTemplatesExtend = readFileSync(TREND_TEMPLATES_EXTEND, 'utf-8').toLowerCase();
 });
 
 // ---------------------------------------------------------------------------
@@ -638,8 +639,10 @@ describe('circular FK resolution: artifacts ↔ artifact_versions', () => {
 
 const CREDIT_RPC = join(MIGRATIONS_DIR, '20260609000001_orra_credit_ledger_rpc.sql');
 const MEMORY = join(MIGRATIONS_DIR, '20260610000001_orra_project_context_memory.sql');
+const TREND_TEMPLATES_EXTEND = join(MIGRATIONS_DIR, '20260616000001_trend_templates_extend.sql');
 let creditRpc: string;
 let memory: string;
+let trendTemplatesExtend: string;
 
 beforeAll(() => {
   creditRpc = readFileSync(CREDIT_RPC, 'utf-8').toLowerCase();
@@ -739,5 +742,59 @@ describe('project context memory migration', () => {
 
   it('project_id index exists', () => {
     expect(has(memory, 'idx_project_context_memories_project_id')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trend templates extension migration
+// ---------------------------------------------------------------------------
+
+describe('trend templates extension migration', () => {
+  it('migration file is readable', () => {
+    expect(trendTemplatesExtend.length).toBeGreaterThan(0);
+  });
+
+  it('extends trend_templates with category', () => {
+    expect(has(trendTemplatesExtend, 'category')).toBe(true);
+  });
+
+  it('extends trend_templates with project_type defaulting to post', () => {
+    expect(has(trendTemplatesExtend, 'project_type')).toBe(true);
+    expect(has(trendTemplatesExtend, "default 'post'")).toBe(true);
+  });
+
+  it('extends trend_templates with ratio_hint', () => {
+    expect(has(trendTemplatesExtend, 'ratio_hint')).toBe(true);
+  });
+
+  it('extends trend_templates with platform_hint', () => {
+    expect(has(trendTemplatesExtend, 'platform_hint')).toBe(true);
+  });
+
+  it('extends trend_templates with asset_hints array', () => {
+    expect(has(trendTemplatesExtend, 'asset_hints')).toBe(true);
+  });
+
+  it('extends trend_templates with preview_variant defaulting to cover', () => {
+    expect(has(trendTemplatesExtend, 'preview_variant')).toBe(true);
+    expect(has(trendTemplatesExtend, "default 'cover'")).toBe(true);
+  });
+
+  it('extends trend_templates with is_featured defaulting to false', () => {
+    expect(has(trendTemplatesExtend, 'is_featured')).toBe(true);
+    expect(has(trendTemplatesExtend, 'default false')).toBe(true);
+  });
+
+  it('extends trend_templates with sort_index defaulting to 0', () => {
+    expect(has(trendTemplatesExtend, 'sort_index')).toBe(true);
+    expect(has(trendTemplatesExtend, 'default 0')).toBe(true);
+  });
+
+  it('adds project_type check constraint', () => {
+    expect(has(trendTemplatesExtend, 'trend_templates_project_type_check')).toBe(true);
+  });
+
+  it('adds index on active templates by sort_index', () => {
+    expect(has(trendTemplatesExtend, 'idx_trend_templates_active_sort')).toBe(true);
   });
 });

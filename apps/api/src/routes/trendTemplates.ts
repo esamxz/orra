@@ -25,10 +25,19 @@ function buildServiceContext(c: Context<{ Bindings: Env }>): ReturnType<typeof c
 // GET /v1/trend-templates — list active templates ordered by sort_index
 trendTemplateRoutes.get('/', async (c) => {
   const ctx = buildServiceContext(c);
-  const repos = getRepositories(ctx);
-  const service = new TrendTemplateService(repos.trendTemplate);
-  const templates = await service.listActive(ctx);
-  return c.json({ ok: true, data: templates });
+  const requestId = getRequestId(c) ?? 'unknown';
+  try {
+    const repos = getRepositories(ctx);
+    const service = new TrendTemplateService(repos.trendTemplate);
+    const templates = await service.listActive(ctx);
+    return c.json({ ok: true, data: templates });
+  } catch (err) {
+    // Log the real database / service error before the global error handler
+    // turns it into a generic 500. This makes future staging failures visible
+    // in `wrangler tail` without leaking internals to HTTP clients.
+    console.error(`[trend-templates] listActive failed (requestId=${requestId}):`, err);
+    throw err;
+  }
 });
 
 export default trendTemplateRoutes;

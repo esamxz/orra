@@ -202,4 +202,42 @@ describe('GET /v1/trend-templates', () => {
     expect(json.data[0].isFeatured).toBe(true);
     expect(json.data[1].isFeatured).toBe(false);
   });
+
+  it('returns valid DTO defaults when only base trend_template columns exist', async () => {
+    // Simulates a row fetched before the `trend_templates_extend` migration is
+    // applied (or from a stale PostgREST view): only the original base columns
+    // are present and all extended fields are undefined at runtime.
+    const baseOnlyRow = {
+      id: 'tmpl-base-only',
+      title: 'Base Only Template',
+      description: null,
+      prompt: 'A prompt from the base table.',
+      reference_r2_key: null,
+      tags: [],
+      active: true,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    } as unknown as TrendTemplateRow;
+
+    const app = buildApp(createFakeRepositories([baseOnlyRow]));
+    const res = await app.request(
+      '/v1/trend-templates',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse<Array<Record<string, unknown>>>;
+    expect(json.data).toHaveLength(1);
+    const dto = json.data[0];
+    expect(dto.id).toBe('tmpl-base-only');
+    expect(dto.category).toBeNull();
+    expect(dto.projectType).toBe('post');
+    expect(dto.ratioHint).toBeNull();
+    expect(dto.platformHint).toBeNull();
+    expect(dto.assetHints).toEqual([]);
+    expect(dto.previewVariant).toBe('cover');
+    expect(dto.isFeatured).toBe(false);
+    expect(dto.sortIndex).toBe(0);
+    expect(dto.referenceR2Key).toBeNull();
+  });
 });

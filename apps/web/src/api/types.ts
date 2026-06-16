@@ -47,6 +47,7 @@ export interface TrendTemplateDto {
   isFeatured: boolean;
   tags: string[];
   sortIndex: number;
+  referenceR2Key: string | null;
 }
 
 export interface UpdateProjectInput {

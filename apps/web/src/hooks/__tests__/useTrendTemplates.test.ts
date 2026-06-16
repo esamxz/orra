@@ -26,6 +26,7 @@ function makeTemplate(overrides: Partial<TrendTemplateDto> = {}): TrendTemplateD
     isFeatured: true,
     tags: ['calm'],
     sortIndex: 1,
+    referenceR2Key: null,
     ...overrides,
   };
 }
