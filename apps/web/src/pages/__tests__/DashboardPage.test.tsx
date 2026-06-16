@@ -18,9 +18,10 @@ vi.mock('react-router-dom', async () => {
 // Clerk mock — UserButton guarded by CLERK_CONFIGURED (false in tests)
 // Mock the module so jsdom does not choke on the import
 // ---------------------------------------------------------------------------
+const mockUseAuth = vi.fn();
 vi.mock('@clerk/clerk-react', () => ({
   UserButton: () => null,
-  useAuth: vi.fn(() => ({ isLoaded: true, isSignedIn: false, getToken: vi.fn() })),
+  useAuth: () => mockUseAuth(),
   useClerk: vi.fn(() => ({})),
 }));
 
@@ -81,7 +82,7 @@ vi.mock('../../hooks/useTheme', () => ({
 
 const mockTrendTemplatesHook = vi.fn();
 vi.mock('../../hooks/useTrendTemplates', () => ({
-  useTrendTemplates: () => mockTrendTemplatesHook(),
+  useTrendTemplates: (enabled: boolean) => mockTrendTemplatesHook(enabled),
 }));
 
 // ---------------------------------------------------------------------------
@@ -118,42 +119,31 @@ function defaultBrandsHook() {
   };
 }
 
-function defaultTrendTemplatesHook() {
+function makeDashboardTemplate(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    data: [
-      {
-        id: 'tmpl-dash-1',
-        title: 'Dashboard Template',
-        description: 'A template shown on dashboard.',
-        prompt: 'Create a calm, minimal post about productivity.',
-        category: 'Wellness',
-        projectType: 'carousel' as const,
-        ratioHint: '4:5',
-        platformHint: 'Instagram',
-        assetHints: [],
-        previewVariant: 'cover',
-        isFeatured: true,
-        tags: ['calm'],
-        sortIndex: 1,
-      },
-    ],
-    featured: [
-      {
-        id: 'tmpl-dash-1',
-        title: 'Dashboard Template',
-        description: 'A template shown on dashboard.',
-        prompt: 'Create a calm, minimal post about productivity.',
-        category: 'Wellness',
-        projectType: 'carousel' as const,
-        ratioHint: '4:5',
-        platformHint: 'Instagram',
-        assetHints: [],
-        previewVariant: 'cover',
-        isFeatured: true,
-        tags: ['calm'],
-        sortIndex: 1,
-      },
-    ],
+    id: 'tmpl-dash-1',
+    title: 'Dashboard Template',
+    description: 'A template shown on dashboard.',
+    prompt: 'Create a calm, minimal post about productivity.',
+    category: 'Wellness',
+    projectType: 'carousel' as const,
+    ratioHint: '4:5',
+    platformHint: 'Instagram',
+    assetHints: [],
+    previewVariant: 'cover',
+    isFeatured: true,
+    tags: ['calm'],
+    sortIndex: 1,
+    referenceR2Key: null,
+    ...overrides,
+  };
+}
+
+function defaultTrendTemplatesHook() {
+  const template = makeDashboardTemplate();
+  return {
+    data: [template],
+    featured: [template],
     categories: ['Wellness'],
     loading: false,
     error: null,
@@ -180,6 +170,7 @@ describe('DashboardPage', () => {
     URL.revokeObjectURL = vi.fn();
     mockProjectsHook.mockReturnValue(defaultProjectsHook());
     mockBrandsHook.mockReturnValue(defaultBrandsHook());
+    mockUseAuth.mockReturnValue({ isLoaded: true, isSignedIn: true, getToken: vi.fn() });
     mockTrendTemplatesHook.mockReturnValue(defaultTrendTemplatesHook());
     mockCreateProject.mockResolvedValue(makeProject());
     mockCreateNewProject.mockResolvedValue({ project: makeProject(), firstMessage: { id: 'msg-1', content: 'hello' } });
@@ -450,6 +441,81 @@ describe('DashboardPage', () => {
     renderDashboard();
     fireEvent.click(screen.getByRole('button', { name: /see all/i }));
     expect(mockNavigate).toHaveBeenCalledWith('/templates');
+  });
+
+  it('renders featured templates on dashboard', () => {
+    const featured = [
+      makeDashboardTemplate({ id: 'feat-1', title: 'Featured One' }),
+      makeDashboardTemplate({ id: 'feat-2', title: 'Featured Two' }),
+    ];
+    mockTrendTemplatesHook.mockReturnValue({
+      data: featured,
+      featured,
+      categories: ['Wellness'],
+      loading: false,
+      error: null,
+      reload: vi.fn(),
+    });
+
+    renderDashboard();
+    expect(screen.getAllByText('Featured One').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Featured Two').length).toBeGreaterThan(0);
+  });
+
+  it('falls back to first active templates when none are featured', () => {
+    const active = [
+      makeDashboardTemplate({ id: 'a-1', title: 'Active One', isFeatured: false, sortIndex: 1 }),
+      makeDashboardTemplate({ id: 'a-2', title: 'Active Two', isFeatured: false, sortIndex: 2 }),
+    ];
+    mockTrendTemplatesHook.mockReturnValue({
+      data: active,
+      featured: [],
+      categories: ['Wellness'],
+      loading: false,
+      error: null,
+      reload: vi.fn(),
+    });
+
+    renderDashboard();
+    expect(screen.getAllByText('Active One').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Active Two').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/no templates available yet/i)).toBeNull();
+  });
+
+  it('shows empty state only when there are truly zero active templates', () => {
+    mockTrendTemplatesHook.mockReturnValue({
+      data: [],
+      featured: [],
+      categories: [],
+      loading: false,
+      error: null,
+      reload: vi.fn(),
+    });
+
+    renderDashboard();
+    expect(screen.getByText(/no templates available yet/i)).not.toBeNull();
+  });
+
+  it('does not render templates while auth is loading', () => {
+    mockUseAuth.mockReturnValue({ isLoaded: false, isSignedIn: false, getToken: vi.fn() });
+    mockTrendTemplatesHook.mockReturnValue({
+      data: [],
+      featured: [],
+      categories: [],
+      loading: false,
+      error: null,
+      reload: vi.fn(),
+    });
+
+    renderDashboard();
+    // The hook should be called with enabled=false while Clerk is still loading.
+    expect(mockTrendTemplatesHook).toHaveBeenLastCalledWith(false);
+  });
+
+  it('enables template fetch once auth is loaded and signed in', () => {
+    mockUseAuth.mockReturnValue({ isLoaded: true, isSignedIn: true, getToken: vi.fn() });
+    renderDashboard();
+    expect(mockTrendTemplatesHook).toHaveBeenLastCalledWith(true);
   });
 
   // ---------------------------------------------------------------------------

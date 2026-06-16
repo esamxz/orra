@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserButton } from '@clerk/clerk-react';
+import { UserButton, useAuth } from '@clerk/clerk-react';
 import '../styles/dashboard.css';
 import { Icon } from '../data/icons';
 
@@ -94,11 +94,31 @@ export default function DashboardPage() {
   );
 
   // ---------------------------------------------------------------------------
+  // Auth — the dashboard route is protected, but we still gate the template fetch
+  // until Clerk has loaded and confirmed the user is signed in. This prevents
+  // firing an unauthenticated API call on first mount.
+  // ---------------------------------------------------------------------------
+  const { isLoaded, isSignedIn } = useAuth();
+  const templatesEnabled = isLoaded && isSignedIn;
+
+  // ---------------------------------------------------------------------------
   // Credits and projects
   // ---------------------------------------------------------------------------
   const { data: creditData, loading: creditLoading, error: creditError } = useCreditStatus();
   const { projects: apiProjects, state: projectsState } = useProjects('recent');
-  const { featured: featuredTemplates, loading: templatesLoading } = useTrendTemplates();
+  const {
+    data: allTemplates,
+    featured: featuredTemplates,
+    loading: templatesLoading,
+  } = useTrendTemplates(templatesEnabled);
+
+  // ---------------------------------------------------------------------------
+  // Dashboard templates: prefer featured, fall back to first 4 active
+  // ---------------------------------------------------------------------------
+  const dashboardTemplates = useMemo(() => {
+    const source = featuredTemplates.length > 0 ? featuredTemplates : allTemplates;
+    return source.slice(0, 4);
+  }, [featuredTemplates, allTemplates]);
 
   // ---------------------------------------------------------------------------
   // Auto-grow textarea
@@ -518,13 +538,13 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="trend-grid">
-            {templatesLoading && featuredTemplates.length === 0 && (
+            {templatesLoading && dashboardTemplates.length === 0 && (
               <p className="muted" style={{ fontSize: 13 }}>Loading templates…</p>
             )}
-            {!templatesLoading && featuredTemplates.length === 0 && (
+            {!templatesLoading && allTemplates.length === 0 && (
               <p className="muted" style={{ fontSize: 13 }}>No templates available yet.</p>
             )}
-            {featuredTemplates.slice(0, 4).map((t) => (
+            {dashboardTemplates.map((t) => (
               <article key={t.id} className="trend-card">
                 <div className="trend-preview" style={{ containerType: 'inline-size' }}>
                   <CardBg variant={t.previewVariant} />

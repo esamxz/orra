@@ -125,4 +125,20 @@ describe('useTrendTemplates', () => {
     act(() => { result.current.reload(); });
     await waitFor(() => expect(result.current.data[0]?.title).toBe('Second'));
   });
+
+  it('fetches when enabled changes from false to true', async () => {
+    vi.mocked(trendTemplatesApi.listTrendTemplates).mockResolvedValueOnce([makeTemplate()]);
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useTrendTemplates(enabled),
+      { initialProps: { enabled: false } }
+    );
+
+    expect(result.current.data).toEqual([]);
+    expect(vi.mocked(trendTemplatesApi.listTrendTemplates)).not.toHaveBeenCalled();
+
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.data.length).toBe(1));
+    expect(vi.mocked(trendTemplatesApi.listTrendTemplates)).toHaveBeenCalledTimes(1);
+  });
 });
