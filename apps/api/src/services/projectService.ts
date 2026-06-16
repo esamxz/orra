@@ -19,6 +19,7 @@ export interface CreateProjectRequest {
   type: 'post' | 'carousel' | 'from_assets';
   ratio: { name: string; w: number; h: number };
   brandSystemId?: string;
+  sourceTemplateId?: string;
 }
 
 export interface UpdateProjectRequest {
@@ -103,6 +104,7 @@ export class ProjectService {
       type: input.type,
       ratio: input.ratio,
       brandSystemId: input.brandSystemId,
+      sourceTemplateId: input.sourceTemplateId,
     });
 
     // Phase 8B: create the artifact spine (artifact row + initial version).
@@ -278,6 +280,7 @@ export class ProjectService {
       type: input.type,
       ratio: input.ratio,
       brandSystemId: input.brandSystemId,
+      sourceTemplateId: input.sourceTemplateId,
     });
 
     // Step 3: Create the artifact spine.

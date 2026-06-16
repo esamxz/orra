@@ -9,7 +9,8 @@ const CLERK_CONFIGURED = !!(
   import.meta.env &&
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 );
-import { TEMPLATES, CardBg } from '../data/cards';
+import { CardBg } from '../data/cards';
+import { useTrendTemplates } from '../hooks/useTrendTemplates';
 import CreateBrandSystemModal from '../components/brand/CreateBrandSystemModal';
 import { useTheme } from '../hooks/useTheme';
 import { useCreditStatus } from '../hooks/useCreditStatus';
@@ -97,6 +98,7 @@ export default function DashboardPage() {
   // ---------------------------------------------------------------------------
   const { data: creditData, loading: creditLoading, error: creditError } = useCreditStatus();
   const { projects: apiProjects, state: projectsState } = useProjects('recent');
+  const { featured: featuredTemplates, loading: templatesLoading } = useTrendTemplates();
 
   // ---------------------------------------------------------------------------
   // Auto-grow textarea
@@ -119,7 +121,7 @@ export default function DashboardPage() {
   // ---------------------------------------------------------------------------
   // Create project and navigate to workspace
   // ---------------------------------------------------------------------------
-  const handleCreate = async (overrides: { prefill?: string } = {}) => {
+  const handleCreate = async (overrides: { prefill?: string; sourceTemplateId?: string } = {}) => {
     setCreateLoading(true);
     setCreateError(null);
     setAssetError(null);
@@ -130,11 +132,13 @@ export default function DashboardPage() {
       const projectType: 'post' | 'carousel' = type === 'single' ? 'post' : 'carousel';
       const projectName = type === 'carousel' ? 'Untitled carousel' : 'Untitled post';
       const brandArgs = selectedBrandId && selectedBrandId !== '__no-brand__' ? { brandSystemId: selectedBrandId } : {};
+      const templateArgs = overrides.sourceTemplateId ? { sourceTemplateId: overrides.sourceTemplateId } : {};
       const baseArgs = {
         name: projectName,
         type: projectType,
         ratio: { name: selectedRatio.id, w: selectedRatio.w, h: selectedRatio.h },
         ...brandArgs,
+        ...templateArgs,
       };
 
       let project;
@@ -514,24 +518,30 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="trend-grid">
-            {TEMPLATES.map((t) => (
+            {templatesLoading && featuredTemplates.length === 0 && (
+              <p className="muted" style={{ fontSize: 13 }}>Loading templates…</p>
+            )}
+            {!templatesLoading && featuredTemplates.length === 0 && (
+              <p className="muted" style={{ fontSize: 13 }}>No templates available yet.</p>
+            )}
+            {featuredTemplates.slice(0, 4).map((t) => (
               <article key={t.id} className="trend-card">
                 <div className="trend-preview" style={{ containerType: 'inline-size' }}>
-                  <CardBg variant={t.variant} />
-                  <span className="tag">{t.cat}</span>
-                  <div style={{ position: 'absolute', left: 18, bottom: 16, right: 18, color: t.variant === 'pale' ? '#1d2a30' : '#f1f4f4', fontFamily: 'var(--font-display)', fontSize: '6cqw', fontWeight: 500, lineHeight: 1.04 }}>
+                  <CardBg variant={t.previewVariant} />
+                  <span className="tag">{t.category}</span>
+                  <div style={{ position: 'absolute', left: 18, bottom: 16, right: 18, color: t.previewVariant === 'pale' ? '#1d2a30' : '#f1f4f4', fontFamily: 'var(--font-display)', fontSize: '6cqw', fontWeight: 500, lineHeight: 1.04 }}>
                     {t.title}
                   </div>
                 </div>
                 <div className="trend-body">
                   <h3>{t.title}</h3>
-                  <p className="desc">{t.desc}</p>
+                  <p className="desc">{t.description}</p>
                   <div className="prompt-preview">{t.prompt}</div>
                   <div className="trend-foot">
-                    <span className="eyebrow">{t.tag}</span>
+                    <span className="eyebrow">{t.projectType === 'carousel' ? 'Carousel' : 'Single post'}</span>
                     <button
                       className="btn btn-primary btn-sm"
-                      onClick={() => void handleCreate({ prefill: t.prompt })}
+                      onClick={() => void handleCreate({ prefill: t.prompt, sourceTemplateId: t.id })}
                     >
                       <Icon.spark s={15} /> Use this prompt
                     </button>

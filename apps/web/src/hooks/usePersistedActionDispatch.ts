@@ -32,13 +32,59 @@ interface UsePersistedActionDispatchOptions {
   onConflict?: (msg: string) => void;
 }
 
+interface QueueEntry {
+  action: Action;
+}
+
+/**
+ * Merge consecutive setTextStyle or updateLayerProps actions for the same
+ * card+layer into a single entry. Structural actions (addLayer, removeLayer,
+ * reorderLayers, setTextContent) are never coalesced.
+ */
+function coalesceQueue(queue: QueueEntry[]): QueueEntry[] {
+  if (queue.length <= 1) return queue;
+  const out: QueueEntry[] = [];
+  for (const entry of queue) {
+    const prev = out[out.length - 1];
+    const a = prev?.action as any;
+    const b = entry.action as any;
+    if (
+      a &&
+      a.type === 'setTextStyle' &&
+      b.type === 'setTextStyle' &&
+      a.cardId === b.cardId &&
+      a.layerId === b.layerId
+    ) {
+      out[out.length - 1] = {
+        action: { ...a, style: { ...a.style, ...b.style } } as Action,
+      };
+    } else if (
+      a &&
+      a.type === 'updateLayerProps' &&
+      b.type === 'updateLayerProps' &&
+      a.cardId === b.cardId &&
+      a.layerId === b.layerId
+    ) {
+      out[out.length - 1] = {
+        action: { ...a, props: { ...a.props, ...b.props } } as Action,
+      };
+    } else {
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
 /**
  * Document history hook with kernel-based undo/redo and server persistence.
  *
- * Every committed action (dispatch, undo, redo) is applied locally first for
- * instant feedback, then sent to the server with the correct baseVersion.
+ * Actions are applied locally first for instant feedback, then serialised
+ * through a queue that sends one request at a time using the last confirmed
+ * server version as baseVersion. Same-microtask dispatches are coalesced
+ * before the first flush so rapid inspector edits produce a single request.
  *
- * The server is authoritative: on mismatch we adopt the server document.
+ * An epoch counter invalidates any in-flight response that resolves after a
+ * reset or conflict recovery, preventing stale reconciliation.
  */
 export function usePersistedActionDispatch(
   initial: ArtifactDocument | null,
@@ -61,7 +107,17 @@ export function usePersistedActionDispatch(
     artifactVersionNumber: number | null;
   }>({ currentVersionId: null, artifactVersionNumber: null });
 
-  const inFlightCountRef = useRef(0);
+  // Serial queue — holds actions not yet sent to server
+  const queueRef = useRef<QueueEntry[]>([]);
+  // Last server-confirmed document version; used as baseVersion at flush time
+  const serverVersionRef = useRef<number>(initial?.version ?? 0);
+  // Whether the serial flush loop is currently running
+  const isFlushingRef = useRef(false);
+  // Whether a microtask flush is already scheduled (prevents double scheduling)
+  const scheduledFlushRef = useRef(false);
+  // Monotonic counter incremented on reset/refetch/conflict; guards stale responses
+  const queueEpochRef = useRef(0);
+
   const mountedRef = useRef(true);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,8 +170,7 @@ export function usePersistedActionDispatch(
       return;
     }
 
-    // Server is ahead or artifact changed — adopt server state and clear
-    // stacks so stale inverses cannot corrupt the document.
+    // Server is ahead or artifact changed — adopt server state and clear stacks.
     setState({ document: serverDoc, past: [], future: [] });
   }, []);
 
@@ -127,6 +182,7 @@ export function usePersistedActionDispatch(
       try {
         const refreshed = await getArtifact(id);
         if (!mountedRef.current) return false;
+        serverVersionRef.current = refreshed.document.version;
         setState({ document: refreshed.document, past: [], future: [] });
         setServerMeta({
           currentVersionId: refreshed.currentVersionId,
@@ -149,22 +205,35 @@ export function usePersistedActionDispatch(
   );
 
   /**
-   * Send a single action to the server and reconcile the response.
+   * Serial flush loop. Processes one queue entry at a time, using the last
+   * confirmed server version as baseVersion. An epoch guard discards responses
+   * that arrive after a reset or conflict recovery.
    */
-  const handlePersist = useCallback(
-    async (baseVersion: number, action: Action) => {
-      if (!artifactId) return;
+  const flushQueue = useCallback(async () => {
+    if (isFlushingRef.current || !artifactId) return;
+    isFlushingRef.current = true;
+    const epochAtStart = queueEpochRef.current;
 
-      inFlightCountRef.current++;
-      if (!mountedRef.current) return;
+    while (queueRef.current.length > 0) {
+      if (!mountedRef.current || queueEpochRef.current !== epochAtStart) break;
+
+      // Coalesce pending entries before sending the next one
+      queueRef.current = coalesceQueue(queueRef.current);
+      const entry = queueRef.current[0];
+      if (!entry) break;
+
+      const baseVersion = serverVersionRef.current;
       setSaveStatus('saving');
       setSaveError(null);
 
       try {
         const result = await applyArtifactAction(artifactId, {
           baseVersion,
-          action,
+          action: entry.action,
         });
+
+        // Epoch check after await — reset or conflict may have occurred while in-flight
+        if (!mountedRef.current || queueEpochRef.current !== epochAtStart) break;
 
         const parsed = ArtifactDocumentSchema.safeParse(result.document);
         if (!parsed.success) {
@@ -174,30 +243,29 @@ export function usePersistedActionDispatch(
           );
         }
 
-        if (!mountedRef.current) return;
+        serverVersionRef.current = result.version;
         setServerMeta({
           currentVersionId: result.currentVersionId,
           artifactVersionNumber: result.artifactVersionNumber,
         });
-
         reconcileServerDocument(parsed.data);
+        queueRef.current = queueRef.current.slice(1);
+        if (queueRef.current.length === 0) setSavedThenIdle();
 
-        inFlightCountRef.current--;
-        if (inFlightCountRef.current <= 0) {
-          inFlightCountRef.current = 0;
-          setSavedThenIdle();
-        }
       } catch (err) {
-        inFlightCountRef.current--;
-        if (inFlightCountRef.current < 0) inFlightCountRef.current = 0;
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || queueEpochRef.current !== epochAtStart) break;
+
+        queueRef.current = [];
 
         if (err instanceof ApiClientError && err.code === 'VERSION_CONFLICT') {
           setSaveStatus('conflict');
           onConflict?.('This project changed. Reloaded the latest version.');
-          const refetchOk = await refetchAndReset(artifactId);
-          if (mountedRef.current && refetchOk) setSaveStatus('idle');
-          return;
+          queueEpochRef.current++;
+          const ok = await refetchAndReset(artifactId);
+          // TODO: after refetch, reapply the latest pending style/geometry edit
+          // once against the fresh server version (safe replay for inspector edits).
+          if (mountedRef.current && ok) setSaveStatus('idle');
+          break;
         }
 
         const msg =
@@ -207,29 +275,42 @@ export function usePersistedActionDispatch(
         setSaveStatus('error');
         setSaveError(msg);
         onError?.(msg);
-
-        // Refetch to avoid leaving UI out of sync with server
+        queueEpochRef.current++;
         await refetchAndReset(artifactId);
+        break;
       }
-    },
-    [
-      artifactId,
-      onError,
-      onConflict,
-      reconcileServerDocument,
-      refetchAndReset,
-      setSavedThenIdle,
-    ],
-  );
+    }
+
+    isFlushingRef.current = false;
+  }, [
+    artifactId,
+    onError,
+    onConflict,
+    reconcileServerDocument,
+    refetchAndReset,
+    setSavedThenIdle,
+  ]);
 
   /**
-   * Apply an action locally, then persist it to the server.
-   * Captures baseVersion BEFORE the local apply.
+   * Schedule a flush via microtask so multiple same-tick dispatches accumulate
+   * in queueRef before the first flush begins, enabling effective coalescing.
+   */
+  const scheduleFlush = useCallback(() => {
+    if (scheduledFlushRef.current) return;
+    scheduledFlushRef.current = true;
+    queueMicrotask(() => {
+      scheduledFlushRef.current = false;
+      flushQueue().catch(() => {});
+    });
+  }, [flushQueue]);
+
+  /**
+   * Apply an action locally for instant feedback, then enqueue it for server
+   * persistence. The server call is deferred to a microtask so rapid
+   * same-tick dispatches coalesce before the first request is sent.
    */
   const dispatch = useCallback(
     (action: Action): boolean => {
-      const baseVersion = stateRef.current.document?.version ?? 0;
-
       const next = historyApply(stateRef.current, action);
       if ('error' in next) {
         onError?.(next.error);
@@ -239,60 +320,59 @@ export function usePersistedActionDispatch(
       setState(next);
 
       if (artifactId) {
-        handlePersist(baseVersion, action).catch(() => {});
+        queueRef.current = [...queueRef.current, { action }];
+        scheduleFlush();
       }
 
       return true;
     },
-    [artifactId, onError, handlePersist],
+    [artifactId, onError, scheduleFlush],
   );
 
   /**
-   * Undo the most recent action locally, then persist the inverse action.
-   *
-   * Note: if another action is currently in flight, the undo's baseVersion
-   * includes that optimistic edit. The server may reject it with
-   * VERSION_CONFLICT if it hasn't processed the prior action yet. A proper
-   * action queue is deferred to a later phase.
+   * Undo the most recent action locally, then enqueue the inverse action for
+   * server persistence.
    */
   const undo = useCallback(() => {
     if (!stateRef.current.document || stateRef.current.past.length === 0) return;
 
     const undoAction = stateRef.current.past[stateRef.current.past.length - 1];
-    const baseVersion = stateRef.current.document.version;
-
     const next = historyUndo(stateRef.current);
     if ('error' in next) return;
 
     setState(next);
 
     if (artifactId) {
-      handlePersist(baseVersion, undoAction).catch(() => {});
+      queueRef.current = [...queueRef.current, { action: undoAction }];
+      scheduleFlush();
     }
-  }, [artifactId, handlePersist]);
+  }, [artifactId, scheduleFlush]);
 
   /**
-   * Redo the most recent undone action locally, then persist it.
-   *
-   * Same in-flight race note as undo — a proper action queue is deferred.
+   * Redo the most recent undone action locally, then enqueue it for server
+   * persistence.
    */
   const redo = useCallback(() => {
     if (!stateRef.current.document || stateRef.current.future.length === 0) return;
 
     const redoAction = stateRef.current.future[stateRef.current.future.length - 1];
-    const baseVersion = stateRef.current.document.version;
-
     const next = historyRedo(stateRef.current);
     if ('error' in next) return;
 
     setState(next);
 
     if (artifactId) {
-      handlePersist(baseVersion, redoAction).catch(() => {});
+      queueRef.current = [...queueRef.current, { action: redoAction }];
+      scheduleFlush();
     }
-  }, [artifactId, handlePersist]);
+  }, [artifactId, scheduleFlush]);
 
   const reset = useCallback((doc: ArtifactDocument | null) => {
+    queueRef.current = [];
+    isFlushingRef.current = false;
+    scheduledFlushRef.current = false;
+    queueEpochRef.current++;
+    serverVersionRef.current = doc?.version ?? 0;
     setState({ document: doc, past: [], future: [] });
     setSaveStatus('idle');
     setSaveError(null);

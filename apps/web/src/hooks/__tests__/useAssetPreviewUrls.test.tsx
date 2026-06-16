@@ -118,4 +118,37 @@ describe('useAssetPreviewUrls', () => {
       expect(mockedGetUrl).not.toHaveBeenCalled();
     });
   });
+
+  it('skips preview-url fetch for placeholder asset IDs in assetIds array', async () => {
+    const { result } = renderHook(
+      () => useAssetPreviewUrls('project-1', ['00000000-0000-0000-0000-000000000002']),
+      { wrapper },
+    );
+    // Allow any microtasks/effects to run
+    await waitFor(() => expect(result.current.urls).toEqual({}));
+    expect(mockedGetUrl).not.toHaveBeenCalled();
+    expect(result.current.urls['00000000-0000-0000-0000-000000000002']).toBeUndefined();
+  });
+
+  it('fetchUrl returns null without API call for placeholder IDs', async () => {
+    const { result } = renderHook(
+      () => useAssetPreviewUrls('project-1', []),
+      { wrapper },
+    );
+    const url = await result.current.fetchUrl('00000000-0000-0000-0000-000000000099');
+    expect(url).toBeNull();
+    expect(mockedGetUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not skip real asset IDs that happen to start with zeros in later groups', async () => {
+    // This ID does NOT match the placeholder pattern (first 4 groups are not all zeros)
+    const realId = 'a1b2c3d4-0000-0000-0000-000000000001';
+    mockedGetUrl.mockResolvedValueOnce({ preview: { url: 'https://signed.example.com/real' } });
+    const { result } = renderHook(
+      () => useAssetPreviewUrls('project-1', [realId]),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.urls[realId]).toBeDefined());
+    expect(mockedGetUrl).toHaveBeenCalledWith('project-1', realId);
+  });
 });

@@ -6,6 +6,10 @@ export interface UseAssetPreviewUrlsResult {
   fetchUrl: (assetId: string) => Promise<string | null>;
 }
 
+// Matches placeholder UUIDs produced by mock/test generators (e.g. 00000000-0000-0000-0000-000000000002).
+// Generation handoff must replace these with real project asset IDs before the document is committed.
+const PLACEHOLDER_UUID_RE = /^0{8}-0{4}-0{4}-0{4}-/;
+
 /**
  * Resolve short-lived signed preview URLs for a set of asset IDs.
  *
@@ -23,6 +27,16 @@ export function useAssetPreviewUrls(
   const fetchUrl = useCallback(
     async (assetId: string): Promise<string | null> => {
       if (!projectId) return null;
+      if (PLACEHOLDER_UUID_RE.test(assetId)) {
+        if (import.meta.env.DEV) {
+          console.warn(
+            '[useAssetPreviewUrls] Document contains placeholder asset reference;' +
+            ' generation handoff should replace this with a real project asset id.' +
+            ` assetId=${assetId}`,
+          );
+        }
+        return null;
+      }
       if (cacheRef.current[assetId]) return cacheRef.current[assetId];
       if (pendingRef.current.has(assetId)) return null;
 
@@ -46,7 +60,10 @@ export function useAssetPreviewUrls(
   useEffect(() => {
     if (!projectId) return;
     const needed = [...new Set(assetIds)].filter(
-      (id) => !cacheRef.current[id] && !pendingRef.current.has(id),
+      (id) =>
+        !PLACEHOLDER_UUID_RE.test(id) &&
+        !cacheRef.current[id] &&
+        !pendingRef.current.has(id),
     );
     for (const id of needed) {
       fetchUrl(id).catch(() => {});

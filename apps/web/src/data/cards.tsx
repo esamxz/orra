@@ -1,6 +1,5 @@
 /* ORRA — sample content + social card renderer */
 import React from 'react';
-import { getFeaturedTemplates } from './trendTemplates';
 
 export const BRANDS = [
   { id:'still', name:'Still Studio', initial:'S', logoBg:'#1d2a30', logoFg:'#eef1f1',
@@ -13,16 +12,6 @@ export const BRANDS = [
     colors:['#1c1a17','#5a5048','#b8aca0','#efece6'], fonts:['Newsreader','Geist Mono'],
     tone:['Minimal','Bold','Mono'] },
 ];
-
-export const TEMPLATES = getFeaturedTemplates().map((t) => ({
-  id: t.id,
-  tag: t.projectType === 'carousel' ? 'Carousel' : 'Single post',
-  cat: t.category,
-  title: t.title,
-  variant: t.previewVariant,
-  desc: t.description,
-  prompt: t.prompt,
-}));
 
 export const PROJECTS = [
   { id:'p1', name:'Morning rituals', mode:'Carousel', when:'2 hours ago', variant:'cover', cards:5 },

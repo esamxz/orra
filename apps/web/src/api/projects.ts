@@ -40,6 +40,7 @@ export async function deleteProject(id: string): Promise<{ deleted: boolean }> {
 
 export interface CreateNewProjectInput extends CreateProjectInput {
   prompt: string;
+  sourceTemplateId?: string;
 }
 
 export interface CreateNewProjectResponse {

@@ -1,29 +1,31 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/trendTemplates.css';
-import { TREND_TEMPLATES, getAllCategories, type TrendTemplate } from '../data/trendTemplates';
 import { CardBg } from '../data/cards';
 import { Icon } from '../data/icons';
 import { useCreditStatus } from '../hooks/useCreditStatus';
+import { useTrendTemplates } from '../hooks/useTrendTemplates';
 import UsageStatus from '../components/workspace/UsageStatus';
-import { createNewProject, type CreateNewProjectInput } from '../api/projects';
+import { createNewProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
+import type { TrendTemplateDto } from '../api/types';
 
 const DEFAULT_RATIO = { name: '4:5' as const, w: 1080, h: 1350 };
 
 export default function TrendTemplatesPage() {
   const navigate = useNavigate();
   const { data: creditData, loading: creditLoading } = useCreditStatus();
+  const { data: allTemplates, categories: apiCategories, loading, error, reload } = useTrendTemplates(true);
 
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [creating, setCreating] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const categories = useMemo(() => ['All', ...getAllCategories()], []);
+  const categories = useMemo(() => ['All', ...apiCategories], [apiCategories]);
 
   const filtered = useMemo(() => {
-    let result = TREND_TEMPLATES;
+    let result = allTemplates;
     if (activeCategory !== 'All') {
       result = result.filter((t) => t.category === activeCategory);
     }
@@ -32,25 +34,25 @@ export default function TrendTemplatesPage() {
       result = result.filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
-          t.description.toLowerCase().includes(q) ||
+          (t.description ?? '').toLowerCase().includes(q) ||
           t.tags.some((tag) => tag.toLowerCase().includes(q)),
       );
     }
     return result;
-  }, [activeCategory, search]);
+  }, [allTemplates, activeCategory, search]);
 
-  const handleUseTemplate = async (template: TrendTemplate) => {
+  const handleUseTemplate = async (template: TrendTemplateDto) => {
     if (creating) return;
     setCreating(template.id);
     setCreateError(null);
     try {
-      const input: CreateNewProjectInput = {
+      const result = await createNewProject({
         name: template.title,
         type: template.projectType,
         ratio: DEFAULT_RATIO,
         prompt: template.prompt,
-      };
-      const result = await createNewProject(input);
+        sourceTemplateId: template.id,
+      });
       navigate(`/workspace/${result.project.id}`, {
         state: {
           firstPrompt: template.prompt,
@@ -136,7 +138,20 @@ export default function TrendTemplatesPage() {
           </p>
         )}
 
-        {filtered.length === 0 ? (
+        {loading && allTemplates.length === 0 && (
+          <p className="tmpl-status">Loading templates…</p>
+        )}
+
+        {error && !loading && (
+          <div className="tmpl-empty">
+            <p>Could not load templates.</p>
+            <button className="btn btn-ghost btn-sm" onClick={reload}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && filtered.length === 0 && (
           <div className="tmpl-empty">
             <p>No templates match your search.</p>
             <button
@@ -146,7 +161,9 @@ export default function TrendTemplatesPage() {
               Clear filters
             </button>
           </div>
-        ) : (
+        )}
+
+        {!error && filtered.length > 0 && (
           <div className="tmpl-grid">
             {filtered.map((t) => (
               <TemplateCard
@@ -165,10 +182,10 @@ export default function TrendTemplatesPage() {
 }
 
 interface TemplateCardProps {
-  template: TrendTemplate;
+  template: TrendTemplateDto;
   isCreating: boolean;
   disabled: boolean;
-  onUse: (template: TrendTemplate) => void;
+  onUse: (template: TrendTemplateDto) => void;
 }
 
 function TemplateCard({ template: t, isCreating, disabled, onUse }: TemplateCardProps) {

@@ -209,6 +209,7 @@ function createFakeRepositories(options: {
     },
     asset: {} as unknown as Repositories['asset'],
     projectMemory: {} as unknown as Repositories['projectMemory'],
+    trendTemplate: {} as unknown as Repositories['trendTemplate'],
   } as unknown as Repositories;
 
   return { repos, reserveCalls, jobs };

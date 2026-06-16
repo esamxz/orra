@@ -1,7 +1,7 @@
 import Konva from 'konva';
 import JSZip from 'jszip';
 import type { ArtifactDocument } from '@orra/shared';
-import { buildCardRenderData, type RenderLayer, type RenderImageLayer } from '@orra/renderer';
+import { buildCardRenderData, type RenderLayer, type RenderBackgroundLayer, type RenderImageLayer } from '@orra/renderer';
 import { buildExportFilename, buildZipFilename, assertCarouselExportReady, loadImageForExport } from './exportHelpers.js';
 import { fontStyleFromWeight, hexToRgba } from '../utils/renderUtils.js';
 import type { AssetUrlResolver } from './assetResolver.js';
@@ -37,8 +37,12 @@ export async function preloadImageAssets(
 ): Promise<Map<string, HTMLImageElement>> {
   const preloaded = new Map<string, HTMLImageElement>();
 
-  const imageLayers = layers.filter((l): l is RenderImageLayer => l.kind === 'image');
-  if (imageLayers.length === 0) return preloaded;
+  // Background and image layers both carry assetId values that must be resolved.
+  const assetLayers = layers.filter(
+    (l): l is RenderImageLayer | RenderBackgroundLayer =>
+      l.kind === 'image' || l.kind === 'background',
+  );
+  if (assetLayers.length === 0) return preloaded;
 
   if (!resolver) {
     throw new ExportError(
@@ -47,7 +51,7 @@ export async function preloadImageAssets(
     );
   }
 
-  for (const layer of imageLayers) {
+  for (const layer of assetLayers) {
     const { assetId } = layer;
     if (preloaded.has(assetId)) continue; // dedupe: same asset on multiple layers
 
@@ -89,9 +93,21 @@ function buildExportNode(
   });
 
   switch (layer.kind) {
-    case 'background':
-      // baseColor rect already fills the canvas; skip
-      return null;
+    case 'background': {
+      const img = preloadedImages.get(layer.assetId);
+      if (img) {
+        group.add(new Konva.Image({
+          x: 0,
+          y: 0,
+          width: layer.w,
+          height: layer.h,
+          image: img,
+          listening: false,
+        }));
+      }
+      // If img is absent, the baseColor rect drawn before layers acts as fallback.
+      break;
+    }
 
     case 'image': {
       const img = preloadedImages.get(layer.assetId);

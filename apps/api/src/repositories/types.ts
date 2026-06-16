@@ -9,6 +9,7 @@ import type { CreditRepository } from './creditRepository.js';
 import type { BrandSystemRepository } from './brandSystemRepository.js';
 import type { AssetRepository } from './assetRepository.js';
 import type { ProjectMemoryRepository } from './projectMemoryRepository.js';
+import type { TrendTemplateRepository } from './trendTemplateRepository.js';
 
 // ---------------------------------------------------------------------------
 // Repository context
@@ -27,4 +28,5 @@ export interface Repositories {
   brandSystem: BrandSystemRepository;
   asset: AssetRepository;
   projectMemory: ProjectMemoryRepository;
+  trendTemplate: TrendTemplateRepository;
 }

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { Icon } from '../../data/icons';
-import type { Layer, Action, TextLayer } from '@orra/shared';
+import type { Layer, Action, TextLayer, TextStyleUpdate, LayerGeometryAndStyle } from '@orra/shared';
 import {
   getFontByFamily,
   getFontsByCategory,
@@ -15,6 +15,12 @@ import {
   buildReorderLayersAction,
 } from './inspectorActions';
 
+export interface InspectorPreviewOverrides {
+  layerId: string;
+  style?: Partial<TextStyleUpdate>;
+  geometry?: Partial<LayerGeometryAndStyle>;
+}
+
 interface Props {
   layer: Layer;
   cardId: string;
@@ -25,6 +31,9 @@ interface Props {
   onClose: () => void;
   brandColors?: string[];
   brandFonts?: string[];
+  /** Called during continuous controls (slider drag, color pick) for canvas preview.
+   *  Pass null to clear the preview (e.g. before committing). */
+  onPreview?: (overrides: InspectorPreviewOverrides | null) => void;
 }
 
 type StylePresetKey = 'modern' | 'editorial' | 'bold' | 'custom';
@@ -93,50 +102,120 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
   );
 }
 
+/**
+ * Range slider that previews locally during drag and commits a single action
+ * on pointer release. Pointer capture ensures pointerUp fires even if the
+ * pointer leaves the element while dragging.
+ */
 function SliderInput({
-  label, value, min, max, step, suffix = '', disabled, onChange,
+  label, value, min, max, step, suffix = '', disabled, onChange, onPreview,
 }: {
   label: string; value: number; min: number; max: number; step: number;
-  suffix?: string; disabled?: boolean; onChange: (v: number) => void;
+  suffix?: string; disabled?: boolean;
+  /** Called once on pointerUp — triggers a persisted action. */
+  onChange: (v: number) => void;
+  /** Called on every tick during drag — canvas preview only, no persist. */
+  onPreview?: (v: number) => void;
 }) {
+  const [localValue, setLocalValue] = useState(value);
+  const isDraggingRef = useRef(false);
+
+  // Sync from parent when the committed artifact value changes (undo/layer switch)
+  useEffect(() => {
+    if (!isDraggingRef.current) setLocalValue(value);
+  }, [value]);
+
   return (
     <div className="insp-field">
       <div className="insp-field-header">
         <span className="insp-field-label">{label}</span>
-        <span className="insp-field-value">{value}{suffix}</span>
+        <span className="insp-field-value">{localValue}{suffix}</span>
       </div>
       <input
         type="range" className="insp-slider"
-        min={min} max={max} step={step} value={value} disabled={disabled}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
+        min={min} max={max} step={step} value={localValue} disabled={disabled}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          setLocalValue(v);
+          onPreview?.(v);
+        }}
+        onPointerDown={(e) => {
+          isDraggingRef.current = true;
+          // Capture pointer so pointerUp fires even if the pointer leaves the element.
+          // Guard for jsdom which doesn't implement setPointerCapture.
+          const el = e.currentTarget as HTMLInputElement;
+          if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+        }}
+        onPointerUp={(e) => {
+          isDraggingRef.current = false;
+          // Read from the DOM element directly to avoid stale closure
+          onChange(parseFloat((e.currentTarget as HTMLInputElement).value));
+        }}
       />
     </div>
   );
 }
 
+/**
+ * Number input that uses a local string for in-progress typing and commits
+ * on blur or Enter. Escape cancels and restores the last committed value.
+ */
 function CompactNumber({
   label, value, disabled, onChange, suffix = '',
 }: {
-  label: string; value: number; disabled?: boolean; onChange: (v: number) => void; suffix?: string;
+  label: string; value: number; disabled?: boolean;
+  onChange: (v: number) => void; suffix?: string;
 }) {
+  const [local, setLocal] = useState(String(value));
+
+  // Sync when the committed value changes from outside (undo, layer switch)
+  useEffect(() => setLocal(String(value)), [value]);
+
+  const commit = () => {
+    const v = parseFloat(local);
+    if (!Number.isNaN(v) && v !== value) onChange(v);
+    else setLocal(String(value)); // restore on invalid or unchanged
+  };
+
   return (
     <div className="insp-compact">
       <span className="insp-compact-label">{label}</span>
       <input
         type="number" className="insp-compact-input"
-        value={value} disabled={disabled}
-        onChange={(e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) onChange(v); }}
+        value={local} disabled={disabled}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.currentTarget.blur(); }
+          if (e.key === 'Escape') { setLocal(String(value)); e.currentTarget.blur(); }
+        }}
       />
       {suffix && <span className="insp-compact-suffix">{suffix}</span>}
     </div>
   );
 }
 
+/**
+ * Color swatch grid + native color picker.
+ * Swatch clicks commit immediately; the color picker previews during
+ * continuous interaction and commits on blur (picker close).
+ */
 function SwatchInput({
-  label, value, disabled, brandColors = [], onChange,
+  label, value, disabled, brandColors = [], onChange, onPreview,
 }: {
-  label: string; value: string; disabled?: boolean; brandColors?: string[]; onChange: (v: string) => void;
+  label: string; value: string; disabled?: boolean; brandColors?: string[];
+  /** Called once per committed color choice. */
+  onChange: (v: string) => void;
+  /** Called during color picker drag for canvas preview only. */
+  onPreview?: (v: string) => void;
 }) {
+  // Local state keeps the color picker value stable during picking.
+  // A controlled input without local state has its DOM value reset by React
+  // after every onChange, which makes onBlur read the original value instead
+  // of the picked one (jsdom and some browsers both exhibit this).
+  const [localColor, setLocalColor] = useState(value);
+  useEffect(() => { setLocalColor(value); }, [value]);
+
   const presets = useMemo(() => {
     const neutrals = ['#1d2a30', '#354e53', '#5e7680', '#a4b7bd', '#c8d1d8', '#e6eaeb', '#f1f4f4', '#ffffff'];
     return Array.from(new Set([...brandColors, ...neutrals]));
@@ -160,7 +239,14 @@ function SwatchInput({
           />
         ))}
         <div className="insp-swatch-custom">
-          <input type="color" value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} title="Custom color" />
+          <input
+            type="color"
+            value={localColor}
+            disabled={disabled}
+            title="Custom color"
+            onChange={(e) => { setLocalColor(e.target.value); onPreview?.(e.target.value); }}
+            onBlur={() => onChange(localColor)}
+          />
         </div>
       </div>
     </div>
@@ -290,12 +376,35 @@ function WeightDropdown({
   );
 }
 
+/**
+ * Position control with a percentage input and range slider.
+ * Number input commits on blur/Enter; slider commits on pointerUp.
+ * Both use pointer capture to survive drags that leave the element.
+ */
 function PositionControl({
-  label, value, max, disabled, onChange,
+  label, value, max, disabled, onChange, onPreview,
 }: {
-  label: string; value: number; max: number; disabled?: boolean; onChange: (px: number) => void;
+  label: string; value: number; max: number; disabled?: boolean;
+  onChange: (px: number) => void;
+  onPreview?: (px: number) => void;
 }) {
-  const percent = Math.min(100, Math.max(0, Math.round((value / max) * 100)));
+  const toPercent = (px: number) => Math.min(100, Math.max(0, Math.round((px / max) * 100)));
+  const toPx = (pct: number) => Math.round((pct / 100) * max);
+
+  const [localPct, setLocalPct] = useState(String(toPercent(value)));
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isDraggingRef.current) setLocalPct(String(toPercent(value)));
+  }, [value, max]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const commitPct = (pct: number) => {
+    const clamped = Math.min(100, Math.max(0, pct));
+    onChange(toPx(clamped));
+  };
+
+  const displayPct = Math.min(100, Math.max(0, parseFloat(localPct) || 0));
+
   return (
     <div className="insp-pos">
       <div className="insp-pos-header">
@@ -303,22 +412,44 @@ function PositionControl({
         <div className="insp-pos-input-wrap">
           <input
             type="number" className="insp-pos-input"
-            value={percent} min={0} max={100} disabled={disabled}
-            onChange={(e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) onChange(Math.round((v / 100) * max)); }}
+            value={localPct} min={0} max={100} disabled={disabled}
+            onChange={(e) => setLocalPct(e.target.value)}
+            onBlur={() => {
+              const v = parseFloat(localPct);
+              if (!Number.isNaN(v)) commitPct(v);
+              else setLocalPct(String(toPercent(value)));
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.currentTarget.blur(); }
+              if (e.key === 'Escape') { setLocalPct(String(toPercent(value))); e.currentTarget.blur(); }
+            }}
           />
           <span className="insp-pos-suffix">%</span>
         </div>
       </div>
       <input
         type="range" className="insp-slider"
-        min={0} max={100} step={1} value={percent} disabled={disabled}
-        onChange={(e) => onChange(Math.round((parseFloat(e.target.value) / 100) * max))}
+        min={0} max={100} step={1} value={displayPct} disabled={disabled}
+        onChange={(e) => {
+          const pct = parseFloat(e.target.value);
+          setLocalPct(String(pct));
+          onPreview?.(toPx(pct));
+        }}
+        onPointerDown={(e) => {
+          isDraggingRef.current = true;
+          const el = e.currentTarget as HTMLInputElement;
+          if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+        }}
+        onPointerUp={(e) => {
+          isDraggingRef.current = false;
+          commitPct(parseFloat((e.currentTarget as HTMLInputElement).value));
+        }}
       />
     </div>
   );
 }
 
-export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onAction, onClose, brandColors, brandFonts }: Props) {
+export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onAction, onClose, brandColors, brandFonts, onPreview }: Props) {
   const isLocked = layer.locked;
   const isBackground = layer.type === 'background';
   const isText = layer.type === 'text';
@@ -351,6 +482,17 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
     (props: Parameters<typeof buildUpdateLayerPropsAction>[2]) => { onAction(buildUpdateLayerPropsAction(cardId, layer.id, props)); },
     [cardId, layer.id, onAction],
   );
+
+  // Preview helpers — update canvas without persisting
+  const previewStyle = useCallback(
+    (style: Partial<TextStyleUpdate>) => onPreview?.({ layerId: layer.id, style }),
+    [layer.id, onPreview],
+  );
+  const previewGeometry = useCallback(
+    (geometry: Partial<LayerGeometryAndStyle>) => onPreview?.({ layerId: layer.id, geometry }),
+    [layer.id, onPreview],
+  );
+  const clearPreview = useCallback(() => onPreview?.(null), [onPreview]);
 
   const handleApplyPreset = useCallback(
     (key: StylePresetKey) => {
@@ -460,7 +602,7 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
           </Section>
         )}
 
-        {/* Size */}
+        {/* Size — slider: preview during drag, commit on pointerUp */}
         {textLayer && (
           <Section title="Size">
             <SliderInput
@@ -469,12 +611,13 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
               min={8} max={200} step={1}
               suffix="px"
               disabled={isLocked}
-              onChange={(fontSize) => dispatchTextStyle({ fontSize })}
+              onPreview={(fontSize) => previewStyle({ fontSize })}
+              onChange={(fontSize) => { clearPreview(); dispatchTextStyle({ fontSize }); }}
             />
           </Section>
         )}
 
-        {/* Color */}
+        {/* Color — swatches commit immediately; color picker previews, commits on blur */}
         {textLayer && (
           <Section title="Color">
             <SwatchInput
@@ -482,12 +625,13 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
               value={textLayer.color}
               disabled={isLocked}
               brandColors={brandColors}
-              onChange={(color) => dispatchTextStyle({ color })}
+              onPreview={(color) => previewStyle({ color })}
+              onChange={(color) => { clearPreview(); dispatchTextStyle({ color }); }}
             />
           </Section>
         )}
 
-        {/* Alignment */}
+        {/* Alignment — discrete, commits immediately */}
         {textLayer && (
           <Section title="Alignment">
             <AlignmentInput
@@ -530,7 +674,7 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
           </Section>
         )}
 
-        {/* Opacity */}
+        {/* Opacity — slider: preview during drag, commit on pointerUp */}
         <Section title="Opacity">
           <SliderInput
             label="Opacity"
@@ -538,19 +682,28 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
             min={0} max={100} step={1}
             suffix="%"
             disabled={isLocked}
-            onChange={(v) => dispatchGeometry({ opacity: v / 100 })}
+            onPreview={(v) => previewGeometry({ opacity: v / 100 })}
+            onChange={(v) => { clearPreview(); dispatchGeometry({ opacity: v / 100 }); }}
           />
         </Section>
 
-        {/* Position */}
+        {/* Position — number input commits on blur/Enter; slider commits on pointerUp */}
         <Section title="Position">
           <div className="insp-pair">
-            <PositionControl label="X" value={layer.x} max={cardW} disabled={isLocked} onChange={(x) => dispatchGeometry({ x })} />
-            <PositionControl label="Y" value={layer.y} max={cardH} disabled={isLocked} onChange={(y) => dispatchGeometry({ y })} />
+            <PositionControl
+              label="X" value={layer.x} max={cardW} disabled={isLocked}
+              onPreview={(x) => previewGeometry({ x })}
+              onChange={(x) => { clearPreview(); dispatchGeometry({ x }); }}
+            />
+            <PositionControl
+              label="Y" value={layer.y} max={cardH} disabled={isLocked}
+              onPreview={(y) => previewGeometry({ y })}
+              onChange={(y) => { clearPreview(); dispatchGeometry({ y }); }}
+            />
           </div>
         </Section>
 
-        {/* Dimensions */}
+        {/* Dimensions — blur/Enter commit only */}
         <Section title="Dimensions">
           <div className="insp-pair">
             <CompactNumber label="W" value={layer.w} disabled={isLocked} onChange={(w) => dispatchGeometry({ w })} />
@@ -558,7 +711,7 @@ export default function Inspector({ layer, cardId, cardW, cardH, cardLayers, onA
           </div>
         </Section>
 
-        {/* Rotation */}
+        {/* Rotation — blur/Enter commit only */}
         <Section title="Rotation">
           <CompactNumber label="Angle" value={layer.rotation} disabled={isLocked} onChange={(rotation) => dispatchGeometry({ rotation })} suffix="°" />
         </Section>

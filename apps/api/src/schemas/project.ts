@@ -33,6 +33,7 @@ export const ProjectIdParamSchema = z.object({
 // as the first project chat message (no intent classification, no approval card).
 export const NewProjectSchema = CreateProjectSchema.extend({
   prompt: z.string().trim().min(1).max(8000),
+  sourceTemplateId: z.string().uuid().optional(),
 });
 
 export type NewProjectRequest = z.infer<typeof NewProjectSchema>;

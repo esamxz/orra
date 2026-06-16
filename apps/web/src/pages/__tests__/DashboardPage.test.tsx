@@ -79,6 +79,11 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({ theme: 'dark', toggle: vi.fn() }),
 }));
 
+const mockTrendTemplatesHook = vi.fn();
+vi.mock('../../hooks/useTrendTemplates', () => ({
+  useTrendTemplates: () => mockTrendTemplatesHook(),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -113,6 +118,49 @@ function defaultBrandsHook() {
   };
 }
 
+function defaultTrendTemplatesHook() {
+  return {
+    data: [
+      {
+        id: 'tmpl-dash-1',
+        title: 'Dashboard Template',
+        description: 'A template shown on dashboard.',
+        prompt: 'Create a calm, minimal post about productivity.',
+        category: 'Wellness',
+        projectType: 'carousel' as const,
+        ratioHint: '4:5',
+        platformHint: 'Instagram',
+        assetHints: [],
+        previewVariant: 'cover',
+        isFeatured: true,
+        tags: ['calm'],
+        sortIndex: 1,
+      },
+    ],
+    featured: [
+      {
+        id: 'tmpl-dash-1',
+        title: 'Dashboard Template',
+        description: 'A template shown on dashboard.',
+        prompt: 'Create a calm, minimal post about productivity.',
+        category: 'Wellness',
+        projectType: 'carousel' as const,
+        ratioHint: '4:5',
+        platformHint: 'Instagram',
+        assetHints: [],
+        previewVariant: 'cover',
+        isFeatured: true,
+        tags: ['calm'],
+        sortIndex: 1,
+      },
+    ],
+    categories: ['Wellness'],
+    loading: false,
+    error: null,
+    reload: vi.fn(),
+  };
+}
+
 function renderDashboard() {
   return render(
     <MemoryRouter>
@@ -132,6 +180,7 @@ describe('DashboardPage', () => {
     URL.revokeObjectURL = vi.fn();
     mockProjectsHook.mockReturnValue(defaultProjectsHook());
     mockBrandsHook.mockReturnValue(defaultBrandsHook());
+    mockTrendTemplatesHook.mockReturnValue(defaultTrendTemplatesHook());
     mockCreateProject.mockResolvedValue(makeProject());
     mockCreateNewProject.mockResolvedValue({ project: makeProject(), firstMessage: { id: 'msg-1', content: 'hello' } });
     mockEnhancePrompt.mockResolvedValue({

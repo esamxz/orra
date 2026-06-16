@@ -236,6 +236,14 @@ export interface TrendTemplateRow {
   reference_r2_key: string | null;
   tags: string[];
   active: boolean;
+  category: string | null;
+  project_type: string;         // 'post' | 'carousel'
+  ratio_hint: string | null;
+  platform_hint: string | null;
+  asset_hints: string[];
+  preview_variant: string;
+  is_featured: boolean;
+  sort_index: number;
   created_at: string;
   updated_at: string;
 }

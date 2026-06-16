@@ -14,6 +14,7 @@ export interface CreateProjectInput {
   type: 'post' | 'carousel' | 'from_assets';
   ratio: { name: string; w: number; h: number };
   brandSystemId?: string;
+  sourceTemplateId?: string;
 }
 
 export interface ListProjectsInput {
@@ -91,6 +92,7 @@ export class SupabaseProjectRepository implements ProjectRepository {
         type: input.type,
         ratio: input.ratio,
         brand_system_id: input.brandSystemId ?? null,
+        source_template_id: input.sourceTemplateId ?? null,
       })
       .select()
       .single();

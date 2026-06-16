@@ -66,6 +66,7 @@ function createMinimalFakeRepositories(): Repositories {
     brandSystem: {} as unknown as Repositories['brandSystem'],
     asset: {} as unknown as Repositories['asset'],
     projectMemory: {} as unknown as Repositories['projectMemory'],
+    trendTemplate: {} as unknown as Repositories['trendTemplate'],
   } as unknown as Repositories;
 }
 

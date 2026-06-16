@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { loadImageForExport } from '../exportHelpers.js';
 import { ExportError, preloadImageAssets } from '../exportCard.js';
 import { createProjectAssetResolver } from '../assetResolver.js';
-import type { RenderLayer } from '@orra/renderer';
+import type { RenderLayer, RenderBackgroundLayer } from '@orra/renderer';
 
 // ---------------------------------------------------------------------------
 // Module mock — must be at top level for Vitest to hoist before imports
@@ -33,6 +33,22 @@ function makeImageLayer(assetId: string, overrides?: Partial<RenderLayer>): Rend
     assetId,
     ...overrides,
   } as RenderLayer;
+}
+
+function makeBackgroundRenderLayer(assetId: string): RenderBackgroundLayer {
+  return {
+    kind: 'background',
+    id: crypto.randomUUID(),
+    x: 0,
+    y: 0,
+    w: 1080,
+    h: 1350,
+    rotation: 0,
+    opacity: 1,
+    locked: false,
+    assetId,
+    baseColor: '#1d2a30',
+  };
 }
 
 function makeTextLayer(): RenderLayer {
@@ -349,6 +365,108 @@ describe('preloadImageAssets', () => {
     expect(resolver).toHaveBeenCalledWith('asset-x');
     expect(layers[0]).not.toHaveProperty('url');
     expect(layers[0]).not.toHaveProperty('signedUrl');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// preloadImageAssets — background layers
+// ---------------------------------------------------------------------------
+// Background layers (kind:'background') carry the generated AI image via assetId.
+// They must be resolved and preloaded the same way as image layers. Before this
+// fix, background layers were silently skipped, producing a flat-colour export.
+
+describe('preloadImageAssets — background layers', () => {
+  let mockImageInstances: MockImageInstance[];
+
+  beforeEach(() => {
+    mockImageInstances = [];
+    vi.stubGlobal(
+      'Image',
+      class MockImage {
+        src = '';
+        crossOrigin = '';
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor() {
+          mockImageInstances.push(this as unknown as MockImageInstance);
+        }
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('resolves background layer assetId just like an image layer', async () => {
+    const resolver = vi.fn().mockResolvedValue('https://signed.example.com/bg-1');
+    const layers: RenderLayer[] = [makeBackgroundRenderLayer('bg-asset-1')];
+
+    const loadPromise = preloadImageAssets(layers, resolver);
+    await vi.waitFor(() => expect(mockImageInstances.length).toBeGreaterThanOrEqual(1));
+    mockImageInstances[0].onload?.();
+
+    const result = await loadPromise;
+    expect(resolver).toHaveBeenCalledWith('bg-asset-1');
+    expect(result.has('bg-asset-1')).toBe(true);
+  });
+
+  it('returns empty map with only text layers — no resolver needed', async () => {
+    const layers: RenderLayer[] = [makeTextLayer()];
+    const result = await preloadImageAssets(layers, undefined);
+    expect(result.size).toBe(0);
+  });
+
+  it('throws IMAGE_URL_FAILED when no resolver but a background layer is present', async () => {
+    const layers: RenderLayer[] = [makeBackgroundRenderLayer('bg-asset-2')];
+    await expect(preloadImageAssets(layers, undefined)).rejects.toMatchObject({
+      code: 'IMAGE_URL_FAILED',
+    });
+  });
+
+  it('throws IMAGE_URL_FAILED when resolver returns null for a background layer', async () => {
+    const resolver = vi.fn().mockResolvedValue(null);
+    const layers: RenderLayer[] = [makeBackgroundRenderLayer('bg-asset-missing')];
+    await expect(preloadImageAssets(layers, resolver)).rejects.toMatchObject({
+      code: 'IMAGE_URL_FAILED',
+    });
+  });
+
+  it('deduplicates when background and image layer share the same assetId', async () => {
+    const resolver = vi.fn().mockResolvedValue('https://signed.example.com/shared');
+    const layers: RenderLayer[] = [
+      makeBackgroundRenderLayer('shared-asset'),
+      makeImageLayer('shared-asset'),
+    ];
+
+    const loadPromise = preloadImageAssets(layers, resolver);
+    await vi.waitFor(() => expect(mockImageInstances.length).toBeGreaterThanOrEqual(1));
+    mockImageInstances[0].onload?.();
+    await loadPromise;
+
+    // Same assetId should only be resolved once
+    expect(resolver).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves background and image layers with different assetIds independently', async () => {
+    const resolver = vi.fn()
+      .mockResolvedValueOnce('https://signed.example.com/bg')
+      .mockResolvedValueOnce('https://signed.example.com/img');
+    const layers: RenderLayer[] = [
+      makeBackgroundRenderLayer('bg-asset'),
+      makeImageLayer('img-asset'),
+    ];
+
+    const loadPromise = preloadImageAssets(layers, resolver);
+    await vi.waitFor(() => expect(mockImageInstances.length).toBeGreaterThanOrEqual(1));
+    mockImageInstances[0].onload?.();
+    await vi.waitFor(() => expect(mockImageInstances.length).toBeGreaterThanOrEqual(2));
+    mockImageInstances[1].onload?.();
+
+    const result = await loadPromise;
+    expect(result.size).toBe(2);
+    expect(result.has('bg-asset')).toBe(true);
+    expect(result.has('img-asset')).toBe(true);
   });
 });
 

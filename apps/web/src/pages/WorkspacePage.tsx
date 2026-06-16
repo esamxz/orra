@@ -27,11 +27,12 @@ import {
   normalizeZ,
   makeCard,
 } from '../data/mockArtifacts';
-import type { Action, TextLayer } from '@orra/shared';
+import type { Action, TextLayer, ArtifactDocument } from '@orra/shared';
 import KonvaStage from '../components/workspace/KonvaStage';
 import ApprovalCard from '../components/workspace/ApprovalCard';
 import CarouselRail from '../components/workspace/CarouselRail';
 import Inspector from '../components/workspace/Inspector';
+import type { InspectorPreviewOverrides } from '../components/workspace/Inspector';
 import ExportMenu from '../components/workspace/ExportMenu';
 import VersionHistoryPopover from '../components/workspace/VersionHistoryPopover';
 import UsageStatus from '../components/workspace/UsageStatus';
@@ -298,11 +299,42 @@ export default function WorkspacePage() {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   /* ----- kernel action dispatch ----- */
+
+  // Inspector drag/type preview — overrides one layer's values on canvas without persisting
+  const [previewLayerOverrides, setPreviewLayerOverrides] = useState<InspectorPreviewOverrides | null>(null);
+
+  const handlePreview = useCallback((overrides: InspectorPreviewOverrides | null) => {
+    setPreviewLayerOverrides(overrides);
+  }, []);
+
   const handleInspectorAction = useCallback((action: Action) => {
+    setPreviewLayerOverrides(null); // clear preview before dispatch so canvas shows committed artifact
     dispatch(action);
   }, [dispatch]);
 
+  // Clear preview when user selects a different layer
+  useEffect(() => { setPreviewLayerOverrides(null); }, [selectedLayerId]);
+
   const card = artifact ? artifact.cards[activeCardIndex] : null;
+
+  // Patch the active card's target layer with preview values for real-time canvas feedback
+  const documentWithPreview = useMemo<ArtifactDocument | null>(() => {
+    if (!artifact || !previewLayerOverrides) return artifact;
+    const { layerId, style, geometry } = previewLayerOverrides;
+    return {
+      ...artifact,
+      cards: artifact.cards.map((c, i) => {
+        if (i !== activeCardIndex) return c;
+        return {
+          ...c,
+          layers: c.layers.map((l) => {
+            if (l.id !== layerId) return l;
+            return { ...l, ...(style ?? {}), ...(geometry ?? {}) } as typeof l;
+          }),
+        };
+      }),
+    };
+  }, [artifact, previewLayerOverrides, activeCardIndex]);
 
   // Preview URLs for image layers on the active card
   const activeImageAssetIds = useMemo(() => {
@@ -1283,7 +1315,7 @@ export default function WorkspacePage() {
                 <div className="canvas-frame" style={{width:fr.w, height:fr.h, position:'relative'}}>
                   {artifact && (
                     <KonvaStage
-                      document={artifact}
+                      document={documentWithPreview ?? artifact}
                       activeCardIndex={activeCardIndex}
                       selectedLayerId={selectedLayerId}
                       onSelectLayer={(id, type) => selectLayer(id, type)}
@@ -1326,6 +1358,7 @@ export default function WorkspacePage() {
                 cardH={artifact.ratio.h}
                 cardLayers={card.layers}
                 onAction={handleInspectorAction}
+                onPreview={handlePreview}
                 onClose={()=>clearSelection()}
                 brandColors={workspaceBrand.colors}
                 brandFonts={workspaceBrand.fonts}

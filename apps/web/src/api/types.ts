@@ -30,6 +30,23 @@ export interface CreateProjectInput {
   type: 'post' | 'carousel' | 'from_assets';
   ratio: Ratio;
   brandSystemId?: string;
+  sourceTemplateId?: string;
+}
+
+export interface TrendTemplateDto {
+  id: string;
+  title: string;
+  description: string | null;
+  prompt: string;
+  category: string | null;
+  projectType: 'post' | 'carousel';
+  ratioHint: string | null;
+  platformHint: string | null;
+  assetHints: string[];
+  previewVariant: string;
+  isFeatured: boolean;
+  tags: string[];
+  sortIndex: number;
 }
 
 export interface UpdateProjectInput {
