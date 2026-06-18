@@ -9,7 +9,7 @@ import type { AIProviderObserver } from '../observability.js';
 import { NoopAIProviderObserver } from '../observability.js';
 
 // ---------------------------------------------------------------------------
-// Fake image provider — Phase 15A
+// Fake image provider — Phase 16A
 // ---------------------------------------------------------------------------
 // Deterministic, no network calls, no API keys, no R2 access.
 // Returns a tiny hardcoded byte payload — not a renderable image.
@@ -28,12 +28,12 @@ export class FakeImageProvider implements ImageProvider {
 
   constructor(private readonly observer: AIProviderObserver = new NoopAIProviderObserver()) {}
 
-  async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  async generateFromText(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
     const t0 = Date.now();
 
     this.observer.observe({
       provider: 'fake',
-      operation: 'generateImage',
+      operation: 'generateFromText',
       status: 'started',
       model: 'fake-image-v1',
       ...(Number.isFinite(request.width) ? { requestWidth: request.width } : {}),
@@ -81,7 +81,7 @@ export class FakeImageProvider implements ImageProvider {
 
       this.observer.observe({
         provider: 'fake',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'succeeded',
         durationMs: Date.now() - t0,
         model: 'fake-image-v1',
@@ -93,7 +93,7 @@ export class FakeImageProvider implements ImageProvider {
     } catch (err) {
       this.observer.observe({
         provider: 'fake',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'failed',
         durationMs: Date.now() - t0,
         errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNKNOWN',
@@ -124,11 +124,20 @@ export class FakeImageProvider implements ImageProvider {
         });
       }
 
-      if (!request.image || request.image.byteLength === 0) {
+      if (!request.sourceImages || request.sourceImages.length === 0) {
         throw new AIProviderError({
           code: 'PROVIDER_INVALID_REQUEST',
           provider: 'fake',
-          message: 'Source image must not be empty',
+          message: 'At least one source image is required',
+        });
+      }
+
+      const primary = request.sourceImages[0];
+      if (!primary.bytes || primary.bytes.byteLength === 0) {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_REQUEST',
+          provider: 'fake',
+          message: 'Primary source image must not be empty',
         });
       }
 
@@ -148,6 +157,8 @@ export class FakeImageProvider implements ImageProvider {
         });
       }
 
+      const totalSourceBytes = request.sourceImages.reduce((sum, img) => sum + img.bytes.byteLength, 0);
+
       const result: ImageGenerationResult = {
         provider: 'fake',
         model: 'fake-image-v1',
@@ -156,7 +167,7 @@ export class FakeImageProvider implements ImageProvider {
         height: request.height,
         data: new Uint8Array(FAKE_IMAGE_DATA),
         seed: 0,
-        metadata: { edit: true, sourceByteLength: request.image.byteLength },
+        metadata: { edit: true, sourceByteLength: totalSourceBytes, sourceCount: request.sourceImages.length },
       };
 
       this.observer.observe({

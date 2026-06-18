@@ -14,7 +14,7 @@
 //   - CTA defaults to "Not set". Missing CTA never blocks generation.
 // ---------------------------------------------------------------------------
 
-import type { ApprovalCardDto, ApprovalAction, BrandContextDto } from '@orra/shared';
+import type { ApprovalCardDto, ApprovalAction, BrandContextDto, MediaIntent } from '@orra/shared';
 import type { DirectorIntentResult } from './directorIntentService.js';
 import { estimateGenerationCredits } from './generationService.js';
 
@@ -37,6 +37,8 @@ export interface BuildApprovalCardInput {
   primarySourceAssetId?: string;
   /** All source assets referenced by the prompt. */
   sourceAssetIds?: string[];
+  /** Explicit media intent from the frontend. */
+  mediaIntent?: MediaIntent;
 }
 
 const DEFAULT_STYLE = 'calm, premium, focused';
@@ -56,14 +58,18 @@ function buildSummaryLine(input: BuildApprovalCardInput): string {
   const topic = hint?.rawTopic ?? extractTopicFallback(input.content, input.projectName);
   const typeLabel = hint?.artifactType === 'carousel' ? 'carousel' : 'post';
   const cardCount = hint?.requestedCardCount;
-  const isEdit = hint?.generationMode === 'edit_uploaded_image';
+  const mediaIntent = input.mediaIntent;
 
-  if (isEdit) {
+  if (mediaIntent === 'edit_image' || hint?.generationMode === 'edit_uploaded_image') {
     return `Ready to edit your uploaded image: ${topic}.`;
   }
 
   if (hint?.artifactType === 'carousel' && cardCount && cardCount > 1) {
     return `Ready to create a ${cardCount}-card ${typeLabel} about ${topic}.`;
+  }
+
+  if (mediaIntent === 'generate_image') {
+    return `Ready to generate an image: ${topic}.`;
   }
 
   return `Ready to create a ${typeLabel} about ${topic}.`;
@@ -186,5 +192,6 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
     estimatedCredits,
     ...(generationMode !== undefined && { generationMode }),
     ...(sourceAssetCount !== undefined && { sourceAssetCount }),
+    ...(input.mediaIntent !== undefined && { mediaIntent: input.mediaIntent }),
   };
 }

@@ -245,6 +245,8 @@ export class GenerationService {
     const approvalCard = metadata.approvalCard as
       | Record<string, unknown>
       | undefined;
+    const mediaIntent = (metadata.mediaIntent as string | undefined)
+      ?? (approvalCard?.mediaIntent as string | undefined);
     const intent = metadata.intent as Record<string, unknown> | undefined;
     const hint = intent?.generationHint as Record<string, unknown> | undefined;
     const artifactType = hint?.artifactType as string | undefined;
@@ -314,6 +316,7 @@ export class GenerationService {
         generationScope: input.generationScope ?? 'full_artifact',
         ...(input.targetCardId !== undefined && { targetCardId: input.targetCardId }),
         ...(generationMode !== undefined && { generationMode }),
+        ...(mediaIntent !== undefined && { mediaIntent }),
         ...(primarySourceAssetId !== undefined && {
           primarySourceAssetId,
           sourceAssetIds: sourceAssetIds ?? [primarySourceAssetId],

@@ -1,5 +1,5 @@
-import type { ArtifactDocument } from '@orra/shared';
-export type { ApprovalCardDto } from '@orra/shared';
+import type { ArtifactDocument, MediaIntent } from '@orra/shared';
+export type { ApprovalCardDto, MediaIntent } from '@orra/shared';
 
 // ---------------------------------------------------------------------------
 // Frontend API types
@@ -100,6 +100,8 @@ export interface AppendProjectMessageInput {
   content: string;
   /** 0-based index of the currently selected card. Sent for card/text edits. */
   selectedCardIndex?: number;
+  /** Explicit media intent. */
+  intent?: MediaIntent;
   /** Primary uploaded asset to use as the source for image-to-image edits. */
   primarySourceAssetId?: string;
   /** Additional source assets referenced by the prompt. */

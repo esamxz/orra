@@ -10,6 +10,7 @@ import type {
   PromptEnhancementOutput,
   ChatInput,
   ChatOutput,
+  SourceImageInput,
 } from '../types.js';
 import { AIProviderError } from '../errors.js';
 import { extractJsonObjectFromText } from '../json.js';
@@ -18,6 +19,7 @@ import { PromptEnhancementResultSchema } from '../schemas.js';
 import type { AIProviderObserver } from '../observability.js';
 import { NoopAIProviderObserver } from '../observability.js';
 import { buildTextPlanPrompt, buildEnhancementPrompt } from '../prompts.js';
+import { uint8ArrayToBase64 } from '../base64.js';
 
 export interface OpenAITextProviderConfig {
   apiKey: string;
@@ -291,6 +293,97 @@ export class OpenAITextProvider implements AIProvider {
     }
 
     return { reply: content[0].text };
+  }
+
+  async analyzeImage(input: { prompt: string; sourceImages: SourceImageInput[] }): Promise<ChatOutput> {
+    if (!input.sourceImages || input.sourceImages.length === 0) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_REQUEST',
+        provider: 'openai',
+        message: 'analyzeImage requires at least one source image',
+      });
+    }
+
+    const url = `${this.baseUrl}/responses`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    const content: Array<Record<string, unknown>> = input.sourceImages.map((img) => {
+      const base64 = uint8ArrayToBase64(img.bytes);
+      return {
+        type: 'image_url',
+        image_url: { url: `data:${img.contentType};base64,${base64}` },
+      };
+    });
+    content.push({ type: 'input_text', text: input.prompt });
+
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          input: [{ role: 'user', content }],
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new AIProviderError({
+          code: 'PROVIDER_TIMEOUT',
+          provider: 'openai',
+          message: `OpenAI analyzeImage request timed out after ${this.timeoutMs}ms`,
+          retryable: true,
+        });
+      }
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'openai',
+        message: `OpenAI analyzeImage network error: ${err instanceof Error ? err.message : 'unknown'}`,
+        retryable: true,
+      });
+    }
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      throw mapHttpError(response.status, 'openai');
+    }
+
+    let raw: unknown;
+    try {
+      raw = await response.json();
+    } catch {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_RESPONSE',
+        provider: 'openai',
+        message: 'OpenAI analyzeImage response body was not valid JSON',
+      });
+    }
+
+    const envelope = OpenAITextResponseEnvelopeSchema.safeParse(raw);
+    if (!envelope.success) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_RESPONSE',
+        provider: 'openai',
+        message: 'OpenAI analyzeImage response did not match expected envelope shape',
+      });
+    }
+
+    const responseContent = envelope.data.output[0].content;
+    if (!responseContent || responseContent.length === 0) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_RESPONSE',
+        provider: 'openai',
+        message: 'OpenAI analyzeImage response output[0].content was missing or empty',
+      });
+    }
+
+    return { reply: responseContent[0].text };
   }
 
   async enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput> {

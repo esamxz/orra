@@ -88,10 +88,11 @@ chatRoutes.post(
     const repos = getRepositories(ctx);
     const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
     const aiProvider = buildAIProvider(c);
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, repos.artifact, aiProvider, repos.asset);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, repos.artifact, aiProvider, repos.asset, c.env.ORRA_ASSETS);
     const result = await service.appendUserMessage(ctx, id, {
       content: body.content,
       selectedCardIndex: body.selectedCardIndex,
+      intent: body.intent,
       primarySourceAssetId: body.primarySourceAssetId,
       sourceAssetIds: body.sourceAssetIds,
     });

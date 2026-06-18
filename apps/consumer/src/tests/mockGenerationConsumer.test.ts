@@ -1670,6 +1670,7 @@ function createSpyRouter(): { router: AIProviderRouter; calls: { projectType: st
       return { kind: 'mock_document' as const };
     },
     async chat() { throw new Error('not used'); },
+    async analyzeImage() { throw new Error('not used'); },
     async enhancePrompt() {
       throw new Error('not used');
     },
@@ -1689,6 +1690,7 @@ function createFailingRouter(): AIProviderRouter {
         return { kind: 'mock_document' as const };
       },
       async chat() { throw new Error('not used'); },
+      async analyzeImage() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -1808,6 +1810,7 @@ function createCapturingRouter(): {
         return { kind: 'mock_document' as const };
       },
       async chat() { throw new Error('not used'); },
+      async analyzeImage() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -1923,6 +1926,7 @@ describe('Gemini router integration', () => {
           });
         },
         async chat() { throw new Error('not used'); },
+        async analyzeImage() { throw new Error('not used'); },
         async enhancePrompt() {
           throw new Error('not used');
         },
@@ -2023,6 +2027,7 @@ function createExtendedCapturingRouter(): {
         return { kind: 'mock_document' as const };
       },
       async chat() { throw new Error('not used'); },
+      async analyzeImage() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -2207,6 +2212,7 @@ function createPlanContentRouter(planOverrides: Partial<TextPlanResult> = {}): A
       return { kind: 'mock_document' as const };
     },
     async chat() { throw new Error('not used'); },
+    async analyzeImage() { throw new Error('not used'); },
     async enhancePrompt() {
       throw new Error('not used');
     },
@@ -2314,6 +2320,7 @@ function createAIProviderErrorRouter(code: string): AIProviderRouter {
         return { kind: 'mock_document' as const };
       },
       async chat() { throw new Error('not used'); },
+      async analyzeImage() { throw new Error('not used'); },
       async enhancePrompt() {
         throw new Error('not used');
       },
@@ -2796,10 +2803,10 @@ const DEFAULT_IMAGE_RESULT: ImageGenerationResult = {
   data: PNG_BYTES,
 };
 
-function makeRealImageRouter(generateImage: () => Promise<ImageGenerationResult>): ImageProviderRouter {
+function makeRealImageRouter(generateFromText: () => Promise<ImageGenerationResult>): ImageProviderRouter {
   const provider: ImageProvider = {
     id: 'openai',
-    generateImage,
+    generateFromText,
     editImage: vi.fn().mockRejectedValue(new Error('editImage not mocked for this test')),
   };
   return { getProvider: () => provider };
@@ -2809,7 +2816,7 @@ function makeFakeImageRouter(): ImageProviderRouter {
   return {
     getProvider: () => ({
       id: 'fake',
-      generateImage: vi.fn(),
+      generateFromText: vi.fn(),
       editImage: vi.fn(),
     }),
   };
@@ -2930,7 +2937,7 @@ describe('P1: MockGenerationConsumer — image integration', () => {
     }
 
     // generateImage was never called (id==='fake' path skips it)
-    expect(fakeImageRouter.getProvider().generateImage).not.toHaveBeenCalled();
+    expect(fakeImageRouter.getProvider().generateFromText).not.toHaveBeenCalled();
   });
 
   it('real provider success + R2 success: job succeeds, artifact has background layer with assetId', async () => {
@@ -2939,8 +2946,8 @@ describe('P1: MockGenerationConsumer — image integration', () => {
     const artifactRepo = createFakeArtifactRepository(artifact, version);
     const creditRepo = makeBalanceRepo();
 
-    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
-    const imageRouter = makeRealImageRouter(generateImage);
+    const generateFromText = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateFromText);
     const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000001');
     const r2Bucket = makeR2Bucket();
 
@@ -2980,8 +2987,8 @@ describe('P1: MockGenerationConsumer — image integration', () => {
     const artifactRepo = createFakeArtifactRepository(artifact, version);
     const creditRepo = makeBalanceRepo();
 
-    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
-    const imageRouter = makeRealImageRouter(generateImage);
+    const generateFromText = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateFromText);
     const r2Bucket = makeR2Bucket(true); // throws on put
     const assetRepo = makeImageAssetRepo();
 
@@ -3011,7 +3018,7 @@ describe('P1: MockGenerationConsumer — image integration', () => {
     const artifactRepo = createFakeArtifactRepository(artifact, version);
     const creditRepo = makeBalanceRepo();
 
-    const generateImage = vi.fn().mockRejectedValue(
+    const generateFromText = vi.fn().mockRejectedValue(
       new AIProviderError({
         code: 'PROVIDER_HTTP_ERROR',
         provider: 'openai',
@@ -3019,7 +3026,7 @@ describe('P1: MockGenerationConsumer — image integration', () => {
         retryable: false,
       })
     );
-    const imageRouter = makeRealImageRouter(generateImage);
+    const imageRouter = makeRealImageRouter(generateFromText);
     const assetRepo = makeImageAssetRepo();
     const r2Bucket = makeR2Bucket();
 
@@ -3090,8 +3097,8 @@ describe('P1: MockGenerationConsumer — image integration', () => {
     const artifactRepo = createFakeArtifactRepository(artifact, version);
     const creditRepo = makeBalanceRepo();
 
-    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
-    const imageRouter = makeRealImageRouter(generateImage);
+    const generateFromText = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateFromText);
     const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000002');
     const r2Bucket = makeR2Bucket();
 
@@ -3344,8 +3351,8 @@ describe('Visual artifact generation handoff', () => {
     const artifactRepo = createFakeArtifactRepository(artifact, version);
     const creditRepo = makeBalanceRepo();
 
-    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
-    const imageRouter = makeRealImageRouter(generateImage);
+    const generateFromText = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateFromText);
     const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000005');
     const r2Bucket = makeR2Bucket();
 
@@ -3391,8 +3398,8 @@ describe('Visual artifact generation handoff', () => {
     const artifactRepo = createFakeArtifactRepository(artifact, version);
     const creditRepo = makeBalanceRepo();
 
-    const generateImage = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
-    const imageRouter = makeRealImageRouter(generateImage);
+    const generateFromText = vi.fn().mockResolvedValue(DEFAULT_IMAGE_RESULT);
+    const imageRouter = makeRealImageRouter(generateFromText);
     const assetRepo = makeImageAssetRepo('aaaabbbb-cccc-dddd-eeee-000000000006');
     const r2Bucket = makeR2Bucket();
 
@@ -3504,7 +3511,7 @@ function makeEditR2Bucket(initial: Record<string, Uint8Array> = {}): R2Bucket & 
 function makeEditImageRouter(editImage: (req: ImageEditRequest) => Promise<ImageGenerationResult>): ImageProviderRouter {
   const provider: ImageProvider = {
     id: 'openai',
-    generateImage: vi.fn().mockRejectedValue(new Error('generateImage not mocked for edit test')),
+    generateFromText: vi.fn().mockRejectedValue(new Error('generateFromText not mocked for edit test')),
     editImage,
   };
   return { getProvider: () => provider };
@@ -3638,12 +3645,13 @@ describe('Uploaded image reference / image edit track', () => {
     // Source bytes loaded from R2
     expect(r2Bucket.getCalls).toContain(r2Key);
 
-    // editImage called with source bytes and raw instruction
+    // editImage called with source bytes and a normalized edit prompt
     expect(editImage).toHaveBeenCalledTimes(1);
     const editRequest = editImage.mock.calls[0][0] as ImageEditRequest;
-    expect(editRequest.prompt).toBe('make this image Minecraft style');
-    expect(editRequest.image).toEqual(SOURCE_PNG_BYTES);
-    expect(editRequest.mimeType).toBe('image/png');
+    expect(editRequest.prompt).toContain('make this image Minecraft style');
+    expect(editRequest.prompt).toContain('Do not add text, logos, watermarks, or signatures');
+    expect(editRequest.sourceImages[0].bytes).toEqual(SOURCE_PNG_BYTES);
+    expect(editRequest.sourceImages[0].contentType).toBe('image/png');
   });
 
   it('edit_uploaded_image creates generated_edit asset and attaches editable image layer', async () => {
@@ -3700,7 +3708,8 @@ describe('Uploaded image reference / image edit track', () => {
     expect(assetRepo.createdAssets).toHaveLength(1);
     expect(assetRepo.createdAssets[0].kind).toBe('generated_edit');
     expect(assetRepo.createdAssets[0].analysis).toMatchObject({ generationMode: 'edit_uploaded_image', sourceAssetId });
-    expect(assetRepo.createdAssets[0].sourcePrompt).toBe('make this image Minecraft style');
+    expect(assetRepo.createdAssets[0].sourcePrompt).toContain('make this image Minecraft style');
+    expect(assetRepo.createdAssets[0].sourcePrompt).toContain('Do not add text, logos, watermarks, or signatures');
 
     // R2 upload under generated-edit prefix
     expect(r2Bucket.putCalls.some(k => k.includes('generated-edit-0.png'))).toBe(true);
@@ -3814,6 +3823,7 @@ describe('Uploaded image reference / image edit track', () => {
     await consumer.processMessage({ jobId: 'job-1' });
 
     const editRequest = editImage.mock.calls[0][0] as ImageEditRequest;
-    expect(editRequest.prompt).toBe('Ready to edit your uploaded image.');
+    expect(editRequest.prompt).toContain('Ready to edit your uploaded image.');
+    expect(editRequest.prompt).toContain('Do not add text, logos, watermarks, or signatures');
   });
 });

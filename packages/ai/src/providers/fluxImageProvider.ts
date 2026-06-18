@@ -87,12 +87,12 @@ export class FluxImageProvider implements ImageProvider {
       config.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
-  async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  async generateFromText(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
     const t0 = Date.now();
 
     this.observer.observe({
       provider: 'flux',
-      operation: 'generateImage',
+      operation: 'generateFromText',
       status: 'started',
       model: this.model,
       ...(Number.isFinite(request.width) ? { requestWidth: request.width } : {}),
@@ -148,7 +148,7 @@ export class FluxImageProvider implements ImageProvider {
 
       this.observer.observe({
         provider: 'flux',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'succeeded',
         durationMs: Date.now() - t0,
         model: this.model,
@@ -160,7 +160,7 @@ export class FluxImageProvider implements ImageProvider {
     } catch (err) {
       this.observer.observe({
         provider: 'flux',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'failed',
         durationMs: Date.now() - t0,
         errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNAVAILABLE',
@@ -183,11 +183,11 @@ export class FluxImageProvider implements ImageProvider {
       operation: 'editImage',
       status: 'failed',
       durationMs: Date.now() - t0,
-      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+      errorCode: 'PROVIDER_EDIT_UNSUPPORTED',
       retryable: false,
     });
     throw new AIProviderError({
-      code: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+      code: 'PROVIDER_EDIT_UNSUPPORTED',
       provider: 'flux',
       message: 'FLUX does not support image-to-image edits',
       retryable: false,

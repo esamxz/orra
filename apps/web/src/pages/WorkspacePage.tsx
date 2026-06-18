@@ -16,7 +16,7 @@ import { appendProjectMessage, prepareProjectMessage, submitApprovalAction } fro
 import { createGenerationJob } from '../api/generation';
 import { updateProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
-import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto, ApprovalAction } from '../api/types';
+import type { ChatMessageDto, DirectorIntentResult, ApprovalCardDto, ApprovalAction, MediaIntent, AppendProjectMessageInput } from '../api/types';
 import type { ApprovalState } from '@orra/shared';
 import '../styles/workspace.css';
 import { Icon } from '../data/icons';
@@ -52,6 +52,42 @@ function frameSize(ratio: string, maxH=540, maxW=620) {
   return { w: Math.round(w), h: Math.round(h) };
 }
 
+
+function classifyMediaIntent(text: string, selectedAssetId: string | null): MediaIntent | undefined {
+  const t = text.toLowerCase();
+
+  if (selectedAssetId) {
+    const analyzePhrases = ['describe', 'what is', "what's", 'analyze', 'tell me about this', 'explain this'];
+    if (analyzePhrases.some((p) => t.includes(p))) return 'analyze_image';
+
+    const assetReferencePhrases = [
+      'this image',
+      'this photo',
+      'this picture',
+      'the image',
+      'this asset',
+      'make this',
+      'turn this',
+      'stylize this',
+      'transform this',
+      'edit this',
+    ];
+    if (assetReferencePhrases.some((p) => t.includes(p))) return 'edit_image';
+
+    // Asset is selected but the prompt does not reference it — let the backend
+    // classify without a source asset so general generation/chat stays normal.
+    return undefined;
+  }
+
+  // Let the backend handle safe text/layer edits and ambiguous conversation.
+  const editPhrases = ['bigger', 'smaller', 'larger', 'font', 'color', 'move', 'align', 'spacing', 'duplicate', 'delete', 'remove', 'add text', 'change text', 'edit text', 'rename', 'position'];
+  if (editPhrases.some((p) => t.includes(p))) return undefined;
+
+  const generationPhrases = ['create', 'make', 'design', 'build', 'generate', 'draft'];
+  if (generationPhrases.some((p) => t.includes(p))) return 'generate_image';
+
+  return undefined;
+}
 
 interface LocationState {
   mode?: string;
@@ -530,14 +566,19 @@ export default function WorkspacePage() {
       if (taRef.current) taRef.current.style.height = 'auto';
 
       try {
-        const saved = await appendProjectMessage(projectId, {
+        const intent = classifyMediaIntent(text, selectedAssetId);
+        const messageInput: AppendProjectMessageInput = {
           content: text,
           selectedCardIndex: activeCardIndex,
-          ...(selectedAssetId && {
-            primarySourceAssetId: selectedAssetId,
-            sourceAssetIds: [selectedAssetId],
-          }),
-        });
+        };
+        if (intent) {
+          messageInput.intent = intent;
+          if ((intent === 'edit_image' || intent === 'analyze_image') && selectedAssetId) {
+            messageInput.primarySourceAssetId = selectedAssetId;
+            messageInput.sourceAssetIds = [selectedAssetId];
+          }
+        }
+        const saved = await appendProjectMessage(projectId, messageInput);
         // If the response includes an edit result, apply it to the in-memory document.
         if (saved.editResult) {
           resetArtifact(saved.editResult.document);

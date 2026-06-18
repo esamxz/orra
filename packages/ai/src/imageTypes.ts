@@ -1,10 +1,11 @@
+import type { SourceImageInput } from './types.js';
+
 // ---------------------------------------------------------------------------
-// Image provider types — Phase 15A
+// Image provider types — Phase 16A
 // ---------------------------------------------------------------------------
-// These types define the image generation seam. Only FakeImageProvider is
-// implemented in Phase 15A. Real provider adapters (FLUX, Gemini Image, etc.)
-// come in Phase 15B. Generated image R2 storage and artifact integration come
-// in later phases. Image generation is not wired into the generation pipeline yet.
+// These types define the image generation and editing seam. Image generation is
+// text-to-image; image editing is image-to-image using one or more source
+// assets. Both return the same ImageGenerationResult shape.
 
 export type ImageGenerationKind = 'background' | 'object' | 'reference' | 'unknown';
 
@@ -22,6 +23,7 @@ export interface ImageGenerationRequest {
   transparentBackground?: boolean;
   seed?: number;
   style?: string;
+  quality?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -39,18 +41,22 @@ export interface ImageGenerationResult {
 
 export interface ImageEditRequest {
   prompt: string;
-  image: Uint8Array;
-  mimeType: string;
-  mask?: Uint8Array;
-  maskMimeType?: string;
+  /** One or more source images to edit. The first image is the primary subject. */
+  sourceImages: SourceImageInput[];
   width: number;
   height: number;
+  size?: string;
   format?: ImageOutputFormat;
+  quality?: string;
+  /** Optional mask image for inpainting/region edits. */
+  mask?: SourceImageInput | null;
   metadata?: Record<string, unknown>;
 }
 
 export interface ImageProvider {
   readonly id: string;
-  generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult>;
+  /** Text-to-image generation. */
+  generateFromText(request: ImageGenerationRequest): Promise<ImageGenerationResult>;
+  /** Image-to-image editing using source images. */
   editImage(request: ImageEditRequest): Promise<ImageGenerationResult>;
 }

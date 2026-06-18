@@ -85,12 +85,22 @@ export interface PromptEnhancementOutput {
   cardCount?: number;
 }
 
+// Phase 16A: source image input shared by chat/analysis and image editing.
+export interface SourceImageInput {
+  bytes: Uint8Array;
+  contentType: string;
+  filename?: string;
+  assetId: string;
+}
+
 export interface ChatInput {
   userMessage: string;
   recentMessages?: RecentChatMessage[];
   projectType?: string;
   projectMemory?: ProjectContextMemory | null;
   currentArtifactSummary?: CurrentArtifactSummary | null;
+  /** Images attached to a chat or analysis message. */
+  sourceImages?: SourceImageInput[];
 }
 
 export interface ChatOutput {
@@ -103,4 +113,11 @@ export interface AIProvider {
   generateImageOrDocument(input: MockDocumentRequest): Promise<MockDocumentResult>;
   enhancePrompt(input: PromptEnhancementInput): Promise<PromptEnhancementOutput>;
   chat(input: ChatInput): Promise<ChatOutput>;
+  /**
+   * Analyze one or more source images and return a text description/answer.
+   * Required for analyze_image intent. May throw AIProviderError with
+   * PROVIDER_CAPABILITY_UNSUPPORTED if the configured provider/model cannot
+   * process images.
+   */
+  analyzeImage(input: { prompt: string; sourceImages: SourceImageInput[] }): Promise<ChatOutput>;
 }

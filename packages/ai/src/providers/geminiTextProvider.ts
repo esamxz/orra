@@ -10,6 +10,7 @@ import type {
   PromptEnhancementOutput,
   ChatInput,
   ChatOutput,
+  SourceImageInput,
 } from '../types.js';
 import { AIProviderError } from '../errors.js';
 import { extractJsonObjectFromText } from '../json.js';
@@ -18,6 +19,7 @@ import { PromptEnhancementResultSchema } from '../schemas.js';
 import type { AIProviderObserver } from '../observability.js';
 import { NoopAIProviderObserver } from '../observability.js';
 import { buildTextPlanPrompt, buildEnhancementPrompt } from '../prompts.js';
+import { uint8ArrayToBase64 } from '../base64.js';
 
 export interface GeminiTextProviderConfig {
   apiKey: string;
@@ -272,6 +274,81 @@ export class GeminiTextProvider implements AIProvider {
         code: 'PROVIDER_INVALID_RESPONSE',
         provider: 'gemini',
         message: 'Gemini chat response did not match expected envelope shape',
+      });
+    }
+
+    return { reply: envelope.data.candidates[0].content.parts[0].text };
+  }
+
+  async analyzeImage(input: { prompt: string; sourceImages: SourceImageInput[] }): Promise<ChatOutput> {
+    if (!input.sourceImages || input.sourceImages.length === 0) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_REQUEST',
+        provider: 'gemini',
+        message: 'analyzeImage requires at least one source image',
+      });
+    }
+
+    const url = `${this.baseUrl}/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    const parts: Array<Record<string, unknown>> = input.sourceImages.map((img) => ({
+      inlineData: {
+        mimeType: img.contentType,
+        data: uint8ArrayToBase64(img.bytes),
+      },
+    }));
+    parts.push({ text: input.prompt });
+
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts }] }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new AIProviderError({
+          code: 'PROVIDER_TIMEOUT',
+          provider: 'gemini',
+          message: `Gemini analyzeImage request timed out after ${this.timeoutMs}ms`,
+          retryable: true,
+        });
+      }
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'gemini',
+        message: `Gemini analyzeImage network error: ${err instanceof Error ? err.message : 'unknown'}`,
+        retryable: true,
+      });
+    }
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      throw mapGeminiHttpError(response.status);
+    }
+
+    let raw: unknown;
+    try {
+      raw = await response.json();
+    } catch {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_RESPONSE',
+        provider: 'gemini',
+        message: 'Gemini analyzeImage response body was not valid JSON',
+      });
+    }
+
+    const envelope = GeminiEnvelopeSchema.safeParse(raw);
+    if (!envelope.success) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_RESPONSE',
+        provider: 'gemini',
+        message: 'Gemini analyzeImage response did not match expected envelope shape',
       });
     }
 

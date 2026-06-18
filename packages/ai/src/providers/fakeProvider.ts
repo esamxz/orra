@@ -1,4 +1,4 @@
-import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, MockDocumentRequest, MockDocumentResult, PromptEnhancementInput, PromptEnhancementOutput, ChatInput, ChatOutput } from '../types.js';
+import type { AIProvider, TextPlanRequest, TextPlanResult, PlannedCard, MockDocumentRequest, MockDocumentResult, PromptEnhancementInput, PromptEnhancementOutput, ChatInput, ChatOutput, SourceImageInput } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Fake AI provider
@@ -98,6 +98,14 @@ export class FakeAIProvider implements AIProvider {
   async chat(_input: ChatInput): Promise<ChatOutput> {
     return {
       reply: "[Fake AI] Try: 'Create a post about discipline' or 'Make a 5-card carousel about productivity'.",
+    };
+  }
+
+  async analyzeImage(input: { prompt: string; sourceImages: SourceImageInput[] }): Promise<ChatOutput> {
+    const count = input.sourceImages.length;
+    const totalBytes = input.sourceImages.reduce((sum, img) => sum + img.bytes.byteLength, 0);
+    return {
+      reply: `[Fake AI] I see ${count} image(s) (${totalBytes} bytes). You asked: "${input.prompt}". In a real vision model this would be a descriptive analysis.`,
     };
   }
 

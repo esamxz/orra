@@ -61,7 +61,7 @@ export class GeminiImageProvider implements ImageProvider {
     this.fetchFn = config.fetch ?? ((input, init) => globalThis.fetch(input, init));
   }
 
-  async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  async generateFromText(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
     if (!request.prompt?.trim()) {
       throw new AIProviderError({
         code: 'PROVIDER_INVALID_REQUEST',
@@ -74,7 +74,7 @@ export class GeminiImageProvider implements ImageProvider {
 
     this.observer.observe({
       provider: 'gemini',
-      operation: 'generateImage',
+      operation: 'generateFromText',
       status: 'started',
       model: this.model,
       requestWidth: request.width,
@@ -172,7 +172,7 @@ export class GeminiImageProvider implements ImageProvider {
 
       this.observer.observe({
         provider: 'gemini',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'succeeded',
         durationMs: Date.now() - t0,
         model: this.model,
@@ -184,7 +184,7 @@ export class GeminiImageProvider implements ImageProvider {
     } catch (err) {
       this.observer.observe({
         provider: 'gemini',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'failed',
         durationMs: Date.now() - t0,
         errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNKNOWN',
@@ -203,11 +203,20 @@ export class GeminiImageProvider implements ImageProvider {
       });
     }
 
-    if (!request.image || request.image.byteLength === 0) {
+    if (!request.sourceImages || request.sourceImages.length === 0) {
       throw new AIProviderError({
         code: 'PROVIDER_INVALID_REQUEST',
         provider: 'gemini',
-        message: 'Source image must not be empty',
+        message: 'At least one source image is required',
+      });
+    }
+
+    const primary = request.sourceImages[0];
+    if (!primary.bytes || primary.bytes.byteLength === 0) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_REQUEST',
+        provider: 'gemini',
+        message: 'Primary source image must not be empty',
       });
     }
 
@@ -227,7 +236,15 @@ export class GeminiImageProvider implements ImageProvider {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const imageBase64 = uint8ArrayToBase64(request.image);
+      // Build parts array: all source images as inlineData, then prompt text.
+      const parts: Array<Record<string, unknown>> = request.sourceImages.map((img) => ({
+        inlineData: {
+          mimeType: img.contentType,
+          data: uint8ArrayToBase64(img.bytes),
+        },
+      }));
+      parts.push({ text: request.prompt });
+
       let response: Response;
       try {
         response = await this.fetchFn(url, {
@@ -237,19 +254,7 @@ export class GeminiImageProvider implements ImageProvider {
             'x-goog-api-key': this.apiKey,
           },
           body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: request.mimeType,
-                      data: imageBase64,
-                    },
-                  },
-                  { text: request.prompt },
-                ],
-              },
-            ],
+            contents: [{ parts }],
             generationConfig: { responseModalities: ['IMAGE'] },
           }),
           signal: controller.signal,
@@ -302,8 +307,8 @@ export class GeminiImageProvider implements ImageProvider {
         });
       }
 
-      const parts = envelope.data.candidates[0].content.parts;
-      const imagePart = parts.find((p) => p.inlineData);
+      const responseParts = envelope.data.candidates[0].content.parts;
+      const imagePart = responseParts.find((p) => p.inlineData);
       if (!imagePart?.inlineData) {
         throw new AIProviderError({
           code: 'PROVIDER_INVALID_RESPONSE',

@@ -52,6 +52,17 @@ export interface QueueMessage {
   jobId: string;
 }
 
+export class GenerationConsumerError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly retryable = false
+  ) {
+    super(message);
+    this.name = 'GenerationConsumerError';
+  }
+}
+
 export class GenerationConsumer {
   constructor(
     private jobRepo: GenerationJobRepository,
@@ -309,7 +320,7 @@ export class GenerationConsumer {
           console.info('[provider_image]', { jobId: message.jobId, provider: imageProvider.id, status: 'started' });
 
           stepCode = 'PROVIDER_IMAGE_FAILED';
-          const imageResult = await imageProvider.generateImage({
+          const imageResult = await imageProvider.generateFromText({
             prompt: imagePrompt,
             width: currentDocument.ratio.w,
             height: currentDocument.ratio.h,
@@ -438,6 +449,9 @@ export class GenerationConsumer {
       console.info(`Job ${message.jobId} completed successfully. Result version ${committedVersion.id}, captured ${capturedCredits} credits. imageAttached=${imageAttached}`);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error during generation';
+      if (err instanceof GenerationConsumerError) {
+        stepCode = err.code;
+      }
       console.error(`Job ${message.jobId} failed during processing: ${errMsg}`);
 
       // Safe fallback: refund reserved credits if the job is still running
@@ -505,32 +519,64 @@ export class GenerationConsumer {
       workspaceId: job.workspace_id,
     });
     if (!sourceAsset) {
-      throw new Error(`Source asset ${primarySourceAssetId} not found for project`);
+      throw new GenerationConsumerError(
+        `Source asset ${primarySourceAssetId} not found for project`,
+        'SOURCE_ASSET_NOT_FOUND',
+        false,
+      );
     }
 
     // Load original image bytes from R2.
     const r2Object = await this.r2Bucket.get(sourceAsset.r2_key);
     if (!r2Object) {
-      throw new Error(`Source image bytes missing from R2 for asset ${primarySourceAssetId}`);
+      throw new GenerationConsumerError(
+        `Source image bytes missing from R2 for asset ${primarySourceAssetId}`,
+        'SOURCE_OBJECT_NOT_FOUND',
+        false,
+      );
     }
     const sourceBytes = new Uint8Array(await r2Object.arrayBuffer());
 
     // Resolve the edit prompt from the original user message. The approval card
     // summary line is a fallback; the raw user instruction is the strongest
     // signal for an image-to-image edit.
-    const editPrompt = await this.resolveEditPrompt(job, plan);
+    const userInstruction = await this.resolveEditPrompt(job, plan);
+    const editPrompt = buildImageEditPrompt(userInstruction);
 
     const t0img = Date.now();
     console.info('[provider_image_edit]', { jobId, provider: imageProvider.id, status: 'started' });
 
-    const imageResult = await imageProvider.editImage({
-      prompt: editPrompt,
-      image: sourceBytes,
-      mimeType: sourceAsset.content_type ?? 'image/png',
-      width: currentDocument.ratio.w,
-      height: currentDocument.ratio.h,
-      format: 'png',
-    });
+    let imageResult;
+    try {
+      imageResult = await imageProvider.editImage({
+        prompt: editPrompt,
+        sourceImages: [{
+          bytes: sourceBytes,
+          contentType: sourceAsset.content_type ?? 'image/png',
+          assetId: sourceAsset.id,
+        }],
+        width: currentDocument.ratio.w,
+        height: currentDocument.ratio.h,
+        format: 'png',
+      });
+    } catch (err) {
+      if (err instanceof AIProviderError && err.code === 'PROVIDER_EDIT_UNSUPPORTED') {
+        throw new GenerationConsumerError(
+          'The configured image provider does not support image-to-image edits',
+          'PROVIDER_EDIT_UNSUPPORTED',
+          false,
+        );
+      }
+      throw err;
+    }
+
+    if (!imageResult.data || imageResult.data.length === 0) {
+      throw new GenerationConsumerError(
+        'Image provider returned no image data for the edit request',
+        'PROVIDER_RETURNED_TEXT_INSTEAD_OF_IMAGE',
+        false,
+      );
+    }
 
     console.info('[provider_image_edit]', {
       jobId,
@@ -552,17 +598,26 @@ export class GenerationConsumer {
     }
 
     // Store edited output as a new project asset and attach it as an image layer.
-    const assetId = await storeEditedImage({
-      workspaceId: job.workspace_id,
-      projectId: job.project_id,
-      imageBytes: imageResult.data,
-      mimeType: imageResult.mimeType,
-      cardIndex: targetCardIndex,
-      r2Bucket: this.r2Bucket,
-      assetRepo: this.assetRepo,
-      sourceAssetId: primarySourceAssetId,
-      sourcePrompt: editPrompt,
-    });
+    let assetId: string;
+    try {
+      assetId = await storeEditedImage({
+        workspaceId: job.workspace_id,
+        projectId: job.project_id,
+        imageBytes: imageResult.data,
+        mimeType: imageResult.mimeType,
+        cardIndex: targetCardIndex,
+        r2Bucket: this.r2Bucket,
+        assetRepo: this.assetRepo,
+        sourceAssetId: primarySourceAssetId,
+        sourcePrompt: editPrompt,
+      });
+    } catch (storageErr) {
+      throw new GenerationConsumerError(
+        `Failed to upload edited image result: ${storageErr instanceof Error ? storageErr.message : String(storageErr)}`,
+        'RESULT_UPLOAD_FAILED',
+        false,
+      );
+    }
 
     return attachImageLayer(currentDocument, targetCardIndex, assetId, editPrompt, currentDocument.ratio);
   }
@@ -701,4 +756,18 @@ function attachImageLayer(
   });
 
   return { ...doc, cards: updatedCards };
+}
+
+function buildImageEditPrompt(userInstruction: string): string {
+  const instruction = userInstruction.trim();
+  if (!instruction) {
+    return 'Transform the source image while preserving its subject and composition. Do not add text, logos, watermarks, or signatures.';
+  }
+  return [
+    'Transform the source image according to the following instruction.',
+    'Preserve the original subject, composition, and important details.',
+    'Do not add text, logos, watermarks, or signatures.',
+    'Instruction:',
+    instruction,
+  ].join(' ');
 }

@@ -168,7 +168,7 @@ describe('FluxImageProvider', () => {
     const mockFetch = makeFluxFetch();
     const provider = makeFluxProvider({ fetch: mockFetch });
 
-    await provider.generateImage(makeRequest({ format: 'jpeg', seed: 42 }));
+    await provider.generateFromText(makeRequest({ format: 'jpeg', seed: 42 }));
 
     expect(mockFetch).toHaveBeenCalledTimes(3);
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -185,7 +185,7 @@ describe('FluxImageProvider', () => {
   it('sends a GET poll request to the get_result endpoint with the job id', async () => {
     const mockFetch = makeFluxFetch();
     const provider = makeFluxProvider({ fetch: mockFetch });
-    await provider.generateImage(makeRequest());
+    await provider.generateFromText(makeRequest());
 
     const [pollUrl] = mockFetch.mock.calls[1] as [string, RequestInit];
     expect(pollUrl).toContain('get_result?id=');
@@ -195,7 +195,7 @@ describe('FluxImageProvider', () => {
   it('fetches image bytes from the sample URL returned by the poll', async () => {
     const mockFetch = makeFluxFetch();
     const provider = makeFluxProvider({ fetch: mockFetch });
-    await provider.generateImage(makeRequest());
+    await provider.generateFromText(makeRequest());
 
     const [imageUrl] = mockFetch.mock.calls[2] as [string, RequestInit];
     expect(imageUrl).toBe(MOCK_SAMPLE_URL);
@@ -205,7 +205,7 @@ describe('FluxImageProvider', () => {
   it('sends x-key authorization header on submit and poll requests', async () => {
     const mockFetch = makeFluxFetch();
     const provider = makeFluxProvider({ apiKey: 'secret-flux-key', fetch: mockFetch });
-    await provider.generateImage(makeRequest());
+    await provider.generateFromText(makeRequest());
 
     const [, submitInit] = mockFetch.mock.calls[0] as [string, RequestInit];
     const [, pollInit] = mockFetch.mock.calls[1] as [string, RequestInit];
@@ -218,14 +218,14 @@ describe('FluxImageProvider', () => {
       ok: false, status: 401, json: async () => ({}),
     } as Response);
     const err = await catchErr(
-      makeFluxProvider({ apiKey: 'my-secret-key', fetch: mockFetch }).generateImage(makeRequest()),
+      makeFluxProvider({ apiKey: 'my-secret-key', fetch: mockFetch }).generateFromText(makeRequest()),
     );
     expect((err as Error).message).not.toContain('my-secret-key');
   });
 
   // Case 8: normalizes a successful mocked response into ImageGenerationResult
   it('returns a valid ImageGenerationResult on success', async () => {
-    const result = await makeFluxProvider().generateImage(makeRequest());
+    const result = await makeFluxProvider().generateFromText(makeRequest());
     expect(result.provider).toBe('flux');
     expect(result.model).toBe('flux-schnell');
     expect(result.data).toBeInstanceOf(Uint8Array);
@@ -235,7 +235,7 @@ describe('FluxImageProvider', () => {
 
   // Case 9: preserves width and height in result
   it('preserves requested width and height in the result', async () => {
-    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateImage(
+    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateFromText(
       makeRequest({ width: 1024, height: 768 }),
     );
     expect(result.width).toBe(1024);
@@ -244,20 +244,20 @@ describe('FluxImageProvider', () => {
 
   // Case 10: preserves seed when supported
   it('preserves seed in result when provided', async () => {
-    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateImage(
+    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateFromText(
       makeRequest({ seed: 777 }),
     );
     expect(result.seed).toBe(777);
   });
 
   it('omits seed from result when not provided in request', async () => {
-    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateImage(makeRequest());
+    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateFromText(makeRequest());
     expect(result.seed).toBeUndefined();
   });
 
   // Case 11: transparentBackground handled safely with a warning
   it('adds a warning when transparentBackground is requested (unsupported by flux-schnell)', async () => {
-    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateImage(
+    const result = await makeFluxProvider({ fetch: makeFluxFetch() }).generateFromText(
       makeRequest({ transparentBackground: true }),
     );
     expect(result.warnings).toHaveLength(1);
@@ -266,12 +266,12 @@ describe('FluxImageProvider', () => {
   });
 
   it('has no warnings when transparentBackground is false or omitted', async () => {
-    const r1 = await makeFluxProvider({ fetch: makeFluxFetch() }).generateImage(
+    const r1 = await makeFluxProvider({ fetch: makeFluxFetch() }).generateFromText(
       makeRequest({ transparentBackground: false }),
     );
     expect(r1.warnings).toHaveLength(0);
 
-    const r2 = await makeFluxProvider({ fetch: makeFluxFetch() }).generateImage(makeRequest());
+    const r2 = await makeFluxProvider({ fetch: makeFluxFetch() }).generateFromText(makeRequest());
     expect(r2.warnings).toHaveLength(0);
   });
 
@@ -279,7 +279,7 @@ describe('FluxImageProvider', () => {
   it('rejects an empty prompt with PROVIDER_INVALID_REQUEST', async () => {
     // Validation is synchronous (before fetch) — mock not consumed, single call is fine
     const err = await catchErr(
-      makeFluxProvider({ fetch: vi.fn() }).generateImage(makeRequest({ prompt: '' })),
+      makeFluxProvider({ fetch: vi.fn() }).generateFromText(makeRequest({ prompt: '' })),
     );
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_REQUEST');
@@ -288,14 +288,14 @@ describe('FluxImageProvider', () => {
 
   it('rejects a whitespace-only prompt with PROVIDER_INVALID_REQUEST', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: vi.fn() }).generateImage(makeRequest({ prompt: '   ' })),
+      makeFluxProvider({ fetch: vi.fn() }).generateFromText(makeRequest({ prompt: '   ' })),
     );
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_REQUEST');
   });
 
   it('rejects width of 0 with PROVIDER_INVALID_REQUEST', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: vi.fn() }).generateImage(makeRequest({ width: 0 })),
+      makeFluxProvider({ fetch: vi.fn() }).generateFromText(makeRequest({ width: 0 })),
     );
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_REQUEST');
@@ -303,14 +303,14 @@ describe('FluxImageProvider', () => {
 
   it('rejects negative height with PROVIDER_INVALID_REQUEST', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: vi.fn() }).generateImage(makeRequest({ height: -100 })),
+      makeFluxProvider({ fetch: vi.fn() }).generateFromText(makeRequest({ height: -100 })),
     );
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_REQUEST');
   });
 
   it('rejects NaN width with PROVIDER_INVALID_REQUEST', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: vi.fn() }).generateImage(makeRequest({ width: NaN })),
+      makeFluxProvider({ fetch: vi.fn() }).generateFromText(makeRequest({ width: NaN })),
     );
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_REQUEST');
@@ -319,7 +319,7 @@ describe('FluxImageProvider', () => {
   // Case 13: handles provider 4xx safely
   it('throws PROVIDER_HTTP_ERROR with retryable=false for submit 4xx', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: makeFluxFetch({ submitStatus: 400 }) }).generateImage(makeRequest()),
+      makeFluxProvider({ fetch: makeFluxFetch({ submitStatus: 400 }) }).generateFromText(makeRequest()),
     );
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_HTTP_ERROR');
@@ -330,7 +330,7 @@ describe('FluxImageProvider', () => {
 
   it('throws PROVIDER_HTTP_ERROR with retryable=false for poll 4xx', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: makeFluxFetch({ pollStatus: 404 }) }).generateImage(makeRequest()),
+      makeFluxProvider({ fetch: makeFluxFetch({ pollStatus: 404 }) }).generateFromText(makeRequest()),
     );
     expect((err as AIProviderError).code).toBe('PROVIDER_HTTP_ERROR');
     expect((err as AIProviderError).retryable).toBe(false);
@@ -339,7 +339,7 @@ describe('FluxImageProvider', () => {
   // Case 14: handles provider 5xx safely
   it('throws PROVIDER_HTTP_ERROR with retryable=true for submit 5xx', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: makeFluxFetch({ submitStatus: 503 }) }).generateImage(makeRequest()),
+      makeFluxProvider({ fetch: makeFluxFetch({ submitStatus: 503 }) }).generateFromText(makeRequest()),
     );
     expect((err as AIProviderError).code).toBe('PROVIDER_HTTP_ERROR');
     expect((err as AIProviderError).retryable).toBe(true);
@@ -347,7 +347,7 @@ describe('FluxImageProvider', () => {
 
   it('throws PROVIDER_HTTP_ERROR with retryable=true for poll 5xx', async () => {
     const err = await catchErr(
-      makeFluxProvider({ fetch: makeFluxFetch({ pollStatus: 500 }) }).generateImage(makeRequest()),
+      makeFluxProvider({ fetch: makeFluxFetch({ pollStatus: 500 }) }).generateFromText(makeRequest()),
     );
     expect((err as AIProviderError).code).toBe('PROVIDER_HTTP_ERROR');
     expect((err as AIProviderError).retryable).toBe(true);
@@ -360,7 +360,7 @@ describe('FluxImageProvider', () => {
       status: 200,
       json: async () => { throw new SyntaxError('Unexpected token'); },
     } as unknown as Response);
-    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateImage(makeRequest()));
+    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateFromText(makeRequest()));
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_RESPONSE');
     expect((err as AIProviderError).provider).toBe('flux');
@@ -372,7 +372,7 @@ describe('FluxImageProvider', () => {
       status: 200,
       json: async () => ({ status: 'ok' }), // missing 'id'
     } as Response);
-    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateImage(makeRequest()));
+    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateFromText(makeRequest()));
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_RESPONSE');
   });
 
@@ -386,7 +386,7 @@ describe('FluxImageProvider', () => {
         status: 200,
         json: async () => { throw new SyntaxError('bad json'); },
       } as unknown as Response);
-    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateImage(makeRequest()));
+    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateFromText(makeRequest()));
     expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_RESPONSE');
   });
 
@@ -398,7 +398,7 @@ describe('FluxImageProvider', () => {
       .mockResolvedValue({
         ok: true, status: 200, json: async () => ({ status: 'Pending', result: null }),
       } as Response);
-    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateImage(makeRequest()));
+    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateFromText(makeRequest()));
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_TIMEOUT');
     expect((err as AIProviderError).retryable).toBe(true);
@@ -407,7 +407,7 @@ describe('FluxImageProvider', () => {
   // Case 16: handles network failure safely
   it('throws PROVIDER_UNAVAILABLE on network failure during submit', async () => {
     const mockFetch = vi.fn().mockRejectedValueOnce(new TypeError('fetch failed'));
-    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateImage(makeRequest()));
+    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateFromText(makeRequest()));
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_UNAVAILABLE');
     expect((err as AIProviderError).retryable).toBe(true);
@@ -416,7 +416,7 @@ describe('FluxImageProvider', () => {
   it('throws PROVIDER_TIMEOUT on AbortError during submit', async () => {
     const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
     const mockFetch = vi.fn().mockRejectedValueOnce(abortErr);
-    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateImage(makeRequest()));
+    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateFromText(makeRequest()));
     expect(err).toBeInstanceOf(AIProviderError);
     expect((err as AIProviderError).code).toBe('PROVIDER_TIMEOUT');
     expect((err as AIProviderError).retryable).toBe(true);
@@ -428,7 +428,7 @@ describe('FluxImageProvider', () => {
         ok: true, status: 200, json: async () => ({ id: MOCK_JOB_ID }),
       } as Response)
       .mockRejectedValueOnce(new TypeError('fetch failed'));
-    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateImage(makeRequest()));
+    const err = await catchErr(makeFluxProvider({ fetch: mockFetch }).generateFromText(makeRequest()));
     expect((err as AIProviderError).code).toBe('PROVIDER_UNAVAILABLE');
   });
 
@@ -442,7 +442,7 @@ describe('FluxImageProvider', () => {
       ok: false, status: 500, json: async () => ({}),
     } as Response);
     const err = await catchErr(
-      new FluxImageProvider({ apiKey, fetch: mockFetch, sleep: async () => {} }).generateImage(
+      new FluxImageProvider({ apiKey, fetch: mockFetch, sleep: async () => {} }).generateFromText(
         makeRequest(),
       ),
     );
@@ -452,7 +452,7 @@ describe('FluxImageProvider', () => {
   it('error messages do not include raw prompt text', async () => {
     const sensitivePrompt = 'confidential brand campaign brief 2026';
     const err = await catchErr(
-      makeFluxProvider({ fetch: vi.fn() }).generateImage(
+      makeFluxProvider({ fetch: vi.fn() }).generateFromText(
         makeRequest({ prompt: sensitivePrompt, width: 0 }),
       ),
     );
@@ -469,7 +469,7 @@ describe('FluxImageProvider', () => {
       maxPollAttempts: 3,
       observer,
     });
-    await provider.generateImage(makeRequest({ prompt: 'sensitive brief content' }));
+    await provider.generateFromText(makeRequest({ prompt: 'sensitive brief content' }));
 
     for (const event of events) {
       const serialized = JSON.stringify(event);
@@ -488,11 +488,11 @@ describe('FluxImageProvider', () => {
       maxPollAttempts: 3,
       observer,
     });
-    await provider.generateImage(makeRequest({ width: 512, height: 768 }));
+    await provider.generateFromText(makeRequest({ width: 512, height: 768 }));
 
     expect(events).toHaveLength(2);
     expect(events[0].status).toBe('started');
-    expect(events[0].operation).toBe('generateImage');
+    expect(events[0].operation).toBe('generateFromText');
     expect(events[0].provider).toBe('flux');
     expect(events[1].status).toBe('succeeded');
     expect(events[1].requestWidth).toBe(512);
@@ -508,7 +508,7 @@ describe('FluxImageProvider', () => {
       sleep: async () => {},
       observer,
     });
-    await catchErr(provider.generateImage(makeRequest({ prompt: '' })));
+    await catchErr(provider.generateFromText(makeRequest({ prompt: '' })));
 
     expect(events).toHaveLength(2);
     expect(events[0].status).toBe('started');
@@ -524,7 +524,7 @@ describe('FluxImageProvider', () => {
         fetch: vi.fn().mockRejectedValueOnce(new TypeError('network down')),
         sleep: async () => {},
         observer,
-      }).generateImage(makeRequest({ prompt: 'sensitive prompt text' })),
+      }).generateFromText(makeRequest({ prompt: 'sensitive prompt text' })),
     );
     const failedEvent = events.find((e) => e.status === 'failed')!;
     const serialized = JSON.stringify(failedEvent);
@@ -545,7 +545,7 @@ describe('FluxImageProvider', () => {
       baseUrl: 'https://custom.api.example.com',
       model: 'flux-pro',
     });
-    await provider.generateImage(makeRequest());
+    await provider.generateFromText(makeRequest());
 
     const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('custom.api.example.com');

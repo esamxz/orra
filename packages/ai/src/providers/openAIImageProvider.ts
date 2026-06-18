@@ -182,7 +182,7 @@ export class OpenAIImageProvider implements ImageProvider {
     this.fetchFn = config.fetch ?? ((input, init) => globalThis.fetch(input, init));
   }
 
-  async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  async generateFromText(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
     if (!request.prompt?.trim()) {
       throw new AIProviderError({
         code: 'PROVIDER_INVALID_REQUEST',
@@ -213,7 +213,7 @@ export class OpenAIImageProvider implements ImageProvider {
 
     this.observer.observe({
       provider: 'openai',
-      operation: 'generateImage',
+      operation: 'generateFromText',
       status: 'started',
       model: this.model,
       requestWidth: request.width,
@@ -342,7 +342,7 @@ export class OpenAIImageProvider implements ImageProvider {
 
       this.observer.observe({
         provider: 'openai',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'succeeded',
         durationMs: Date.now() - t0,
         model: this.model,
@@ -356,7 +356,7 @@ export class OpenAIImageProvider implements ImageProvider {
       const durationMs = Date.now() - t0;
       this.observer.observe({
         provider: 'openai',
-        operation: 'generateImage',
+        operation: 'generateFromText',
         status: 'failed',
         durationMs,
         errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNKNOWN',
@@ -374,11 +374,19 @@ export class OpenAIImageProvider implements ImageProvider {
         message: 'Prompt must not be empty',
       });
     }
-    if (!request.image || request.image.length === 0) {
+    if (!request.sourceImages || request.sourceImages.length === 0) {
       throw new AIProviderError({
         code: 'PROVIDER_INVALID_REQUEST',
         provider: 'openai',
-        message: 'Source image bytes must not be empty',
+        message: 'At least one source image is required',
+      });
+    }
+    const primary = request.sourceImages[0];
+    if (!primary.bytes || primary.bytes.length === 0) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_REQUEST',
+        provider: 'openai',
+        message: 'Primary source image bytes must not be empty',
       });
     }
 
@@ -402,7 +410,7 @@ export class OpenAIImageProvider implements ImageProvider {
     });
     const requestQuality = this.quality;
     const requestOutputFormat = this.outputFormat;
-    const sourceMimeType = request.mimeType ?? 'image/png';
+    const sourceMimeType = primary.contentType ?? 'image/png';
 
     console.info('[openai_image_edit]', {
       provider: 'openai',
@@ -410,7 +418,7 @@ export class OpenAIImageProvider implements ImageProvider {
       model: this.model,
       size: requestSize,
       sourceMimeType,
-      sourceByteLength: request.image.length,
+      sourceByteLength: primary.bytes.length,
       ...(requestQuality && { quality: requestQuality }),
       ...(requestOutputFormat && { outputFormat: requestOutputFormat }),
       timeoutMs: this.timeoutMs,
@@ -433,7 +441,7 @@ export class OpenAIImageProvider implements ImageProvider {
     const formData = new FormData();
     // TypeScript's lib.dom types are strict about BlobPart, but every runtime
     // we target accepts an ArrayBuffer here. Use the underlying buffer.
-    const sourceBlob = new Blob([request.image.buffer as ArrayBuffer], { type: sourceMimeType });
+    const sourceBlob = new Blob([primary.bytes.buffer as ArrayBuffer], { type: sourceMimeType });
     const fileExtension = sourceMimeType === 'image/jpeg' ? 'jpg' : 'png';
     formData.append('image', sourceBlob, `source.${fileExtension}`);
     formData.append('model', this.model);

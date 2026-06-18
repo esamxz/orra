@@ -16,7 +16,8 @@ import { buildApprovalCard } from './approvalCardBuilder.js';
 import type { ProjectMemoryService } from './projectMemoryService.js';
 import { ArtifactService } from './artifactService.js';
 import { buildEditActions, buildEditConfirmation } from './editActionBuilder.js';
-import type { AIProvider } from '@orra/ai';
+import type { AIProvider, SourceImageInput } from '@orra/ai';
+import type { MediaIntent } from '@orra/shared';
 
 const CHAT_UNAVAILABLE_MESSAGE = 'Orra AI is temporarily unavailable. Please try again in a moment.';
 
@@ -42,8 +43,10 @@ export interface AppendUserMessageRequest {
   content: string;
   /** 0-based index of the currently selected card. Used for card/text edits. */
   selectedCardIndex?: number;
-  /** Primary uploaded asset to use as the source for an image-to-image edit. */
-  primarySourceAssetId?: string;
+  /** Explicit media intent. When omitted the service falls back to Director classification. */
+  intent?: MediaIntent;
+  /** Primary uploaded asset to use as the source for an image-to-image edit or analysis. */
+  primarySourceAssetId?: string | null;
   /** Additional source assets referenced by the prompt. */
   sourceAssetIds?: string[];
 }
@@ -91,7 +94,7 @@ function mapMessageRow(
 
 async function validateSourceAssetForProject(
   assetRepo: AssetRepository | undefined,
-  input: { primarySourceAssetId?: string; sourceAssetIds?: string[] },
+  input: { primarySourceAssetId?: string | null; sourceAssetIds?: string[] },
   projectId: string,
   workspaceId: string
 ): Promise<{ primarySourceAssetId?: string; sourceAssetIds?: string[] }> {
@@ -127,6 +130,15 @@ async function validateSourceAssetForProject(
   };
 }
 
+function directorIntentToMediaIntent(intent: DirectorIntentResult): MediaIntent {
+  if (intent.mode === 'generation') {
+    return intent.generationHint?.generationMode === 'edit_uploaded_image'
+      ? 'edit_image'
+      : 'generate_image';
+  }
+  return 'chat_text';
+}
+
 export class ChatService {
   constructor(
     private chatRepo: ChatRepository,
@@ -135,7 +147,8 @@ export class ChatService {
     private projectMemoryService?: ProjectMemoryService,
     private artifactRepo?: ArtifactRepository,
     private aiProvider?: AIProvider,
-    private assetRepo?: AssetRepository
+    private assetRepo?: AssetRepository,
+    private r2Bucket?: R2Bucket
   ) {}
 
   /**
@@ -224,11 +237,13 @@ export class ChatService {
           primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
           sourceAssetIds: validatedSourceAssets.sourceAssetIds,
         }),
+        ...(input.intent !== undefined && { mediaIntent: input.intent }),
       } as unknown as import('@orra/db').Json,
     });
 
     const message = mapMessageRow(row, projectId);
     const intent = classifyDirectorIntent(input.content, !!validatedSourceAssets.primarySourceAssetId);
+    const mediaIntent: MediaIntent = input.intent ?? directorIntentToMediaIntent(intent);
 
     // Fire-and-forget: update project memory from this message.
     if (this.projectMemoryService) {
@@ -237,12 +252,11 @@ export class ChatService {
         .catch((err) => console.error('[memory] updateFromUserMessage failed:', err));
     }
 
-    // For edit intent, apply the kernel action and return the updated document.
-    // No approval card, no generation job, no credit reservation.
+    // Keep backward-compatible safe-kernel edits when no explicit intent is provided.
     let approvalMessage: MessageResponse | undefined;
     let editResult: EditResult | undefined;
 
-    if (intent.mode === 'edit' && intent.editHint) {
+    if (!input.intent && intent.mode === 'edit' && intent.editHint) {
       const editHint = intent.editHint;
 
       // Unsupported image edits: reply gracefully without touching artifact.
@@ -345,76 +359,91 @@ export class ChatService {
       return { message, intent, approvalMessage, editResult };
     }
 
-    // For generation intent, build and persist a lightweight approval card.
-    // No AI calls. No credits move. No generation job starts.
-    if (intent.mode === 'generation') {
-      // Load brand context if the project has a brand system attached.
-      const brandContext = await this.loadBrandContext(workspaceId, project.brand_system_id);
+    // Route by explicit media intent (or backward-compatible Director fallback).
+    if (mediaIntent === 'analyze_image') {
+      approvalMessage = await this.handleAnalyzeImage(
+        workspaceId,
+        projectId,
+        thread.id,
+        message.id,
+        input.content,
+        validatedSourceAssets,
+        intent
+      );
+      return { message, intent, approvalMessage };
+    }
 
-      // Phase 14D: load a compact memory summary for the approval card.
-      // Non-blocking — missing memory never prevents approval card creation.
-      let memorySummary: string | null = null;
-      if (this.projectMemoryService) {
-        try {
-          const mem = await this.projectMemoryService.getMemory(ctx, projectId);
-          if (mem?.summary) memorySummary = mem.summary.slice(0, 120);
-        } catch {
-          // intentionally silent
-        }
+    if (mediaIntent === 'chat_text') {
+      // For conversation mode, call the AI provider if available.
+      // Real provider: must return AI reply or persist unavailable error.
+      // No provider injected: return without assistant message (backward compat for tests).
+      if (this.aiProvider) {
+        const replyContent = await this.callChatProvider(input.content);
+        const replyRow = await this.chatRepo.appendMessage({
+          workspaceId,
+          threadId: thread.id,
+          role: 'assistant',
+          kind: 'text',
+          content: replyContent,
+          metadata: { sourceUserMessageId: message.id, intent, mediaIntent } as unknown as import('@orra/db').Json,
+        });
+        approvalMessage = mapMessageRow(replyRow, projectId);
       }
+      return { message, intent, approvalMessage };
+    }
 
-      const approvalCard = buildApprovalCard({
-        content: input.content,
+    // Remaining intents are generation approvals: generate_image or edit_image.
+    // Load brand context if the project has a brand system attached.
+    const brandContext = await this.loadBrandContext(workspaceId, project.brand_system_id);
+
+    // Phase 14D: load a compact memory summary for the approval card.
+    // Non-blocking — missing memory never prevents approval card creation.
+    let memorySummary: string | null = null;
+    if (this.projectMemoryService) {
+      try {
+        const mem = await this.projectMemoryService.getMemory(ctx, projectId);
+        if (mem?.summary) memorySummary = mem.summary.slice(0, 120);
+      } catch {
+        // intentionally silent
+      }
+    }
+
+    const approvalCard = buildApprovalCard({
+      content: input.content,
+      intent,
+      projectType: project.type,
+      ratioName: (project.ratio as { name: string }).name ?? '4:5',
+      brandContext,
+      projectName: project.name,
+      memorySummary,
+      primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
+      sourceAssetIds: validatedSourceAssets.sourceAssetIds,
+      mediaIntent,
+    });
+
+    const approvalRow = await this.chatRepo.appendMessage({
+      workspaceId,
+      threadId: thread.id,
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: approvalCard.summaryLine,
+      metadata: {
+        approvalCard,
+        sourceUserMessageId: message.id,
         intent,
-        projectType: project.type,
-        ratioName: (project.ratio as { name: string }).name ?? '4:5',
-        brandContext,
-        projectName: project.name,
-        memorySummary,
-        primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
-        sourceAssetIds: validatedSourceAssets.sourceAssetIds,
-      });
+        approvalState: {
+          status: 'pending',
+          updatedAt: new Date().toISOString(),
+        },
+        ...(validatedSourceAssets.primarySourceAssetId && {
+          primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
+          sourceAssetIds: validatedSourceAssets.sourceAssetIds,
+        }),
+        mediaIntent,
+      } as unknown as import('@orra/db').Json,
+    });
 
-      const approvalRow = await this.chatRepo.appendMessage({
-        workspaceId,
-        threadId: thread.id,
-        role: 'assistant',
-        kind: 'approval_summary',
-        content: approvalCard.summaryLine,
-        metadata: {
-          approvalCard,
-          sourceUserMessageId: message.id,
-          intent,
-          approvalState: {
-            status: 'pending',
-            updatedAt: new Date().toISOString(),
-          },
-          ...(validatedSourceAssets.primarySourceAssetId && {
-            primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
-            sourceAssetIds: validatedSourceAssets.sourceAssetIds,
-          }),
-        } as unknown as import('@orra/db').Json,
-      });
-
-      approvalMessage = mapMessageRow(approvalRow, projectId);
-    }
-
-    // For conversation mode, call the AI provider if available.
-    // Real provider: must return AI reply or persist unavailable error.
-    // No provider injected: return without assistant message (backward compat for tests).
-    if (intent.mode === 'conversation' && this.aiProvider) {
-      const replyContent = await this.callChatProvider(input.content);
-      const replyRow = await this.chatRepo.appendMessage({
-        workspaceId,
-        threadId: thread.id,
-        role: 'assistant',
-        kind: 'text',
-        content: replyContent,
-        metadata: { sourceUserMessageId: message.id, intent } as unknown as import('@orra/db').Json,
-      });
-      approvalMessage = mapMessageRow(replyRow, projectId);
-    }
-
+    approvalMessage = mapMessageRow(approvalRow, projectId);
     return { message, intent, approvalMessage };
   }
 
@@ -845,6 +874,85 @@ export class ChatService {
     }
 
     return { message, intent, approvalMessage };
+  }
+
+  private async loadSourceImageInput(
+    assetId: string,
+    projectId: string,
+    workspaceId: string
+  ): Promise<SourceImageInput> {
+    if (!this.assetRepo || !this.r2Bucket) {
+      throw new ApiError('VALIDATION', 'Asset repository and R2 bucket required to load source image.');
+    }
+    const asset = await this.assetRepo.findProjectAssetForWorkspace({
+      id: assetId,
+      projectId,
+      workspaceId,
+    });
+    if (!asset) {
+      throw new ApiError('VALIDATION', 'Source asset not found.');
+    }
+    const r2Object = await this.r2Bucket.get(asset.r2_key);
+    if (!r2Object) {
+      throw new ApiError('NOT_FOUND', 'Source image bytes not found in storage.');
+    }
+    const bytes = new Uint8Array(await r2Object.arrayBuffer());
+    return {
+      bytes,
+      contentType: asset.content_type ?? 'image/png',
+      assetId,
+    };
+  }
+
+  private async handleAnalyzeImage(
+    workspaceId: string,
+    projectId: string,
+    threadId: string,
+    sourceUserMessageId: string,
+    content: string,
+    validatedSourceAssets: { primarySourceAssetId?: string; sourceAssetIds?: string[] },
+    intent: DirectorIntentResult
+  ): Promise<MessageResponse> {
+    const primary = validatedSourceAssets.primarySourceAssetId;
+    let reply: string;
+
+    if (!primary) {
+      reply = 'Image analysis requires a source image.';
+    } else if (!this.aiProvider) {
+      reply = CHAT_UNAVAILABLE_MESSAGE;
+    } else {
+      try {
+        const sourceInput = await this.loadSourceImageInput(primary, projectId, workspaceId);
+        const result = await this.aiProvider.analyzeImage({
+          prompt: content || 'Describe this image.',
+          sourceImages: [sourceInput],
+        });
+        reply = result.reply;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('[analyze_image] failed:', errMsg);
+        reply = CHAT_UNAVAILABLE_MESSAGE;
+      }
+    }
+
+    const row = await this.chatRepo.appendMessage({
+      workspaceId,
+      threadId,
+      role: 'assistant',
+      kind: 'text',
+      content: reply,
+      metadata: {
+        sourceUserMessageId,
+        intent,
+        mediaIntent: 'analyze_image',
+        ...(primary && {
+          primarySourceAssetId: primary,
+          sourceAssetIds: validatedSourceAssets.sourceAssetIds,
+        }),
+      } as unknown as import('@orra/db').Json,
+    });
+
+    return mapMessageRow(row, projectId);
   }
 
   private async callChatProvider(userMessage: string): Promise<string> {

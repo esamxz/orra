@@ -877,6 +877,7 @@ function makeRealProvider(reply: string): AIProvider {
     async generateImageOrDocument() { throw new Error('not used'); },
     async chat() { return { reply }; },
     async enhancePrompt() { throw new Error('not used'); },
+    async analyzeImage() { return { reply }; },
   };
 }
 
@@ -894,6 +895,14 @@ function makeFailingProvider(): AIProvider {
       });
     },
     async enhancePrompt() { throw new Error('not used'); },
+    async analyzeImage() {
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'gemini',
+        message: 'Gemini returned HTTP 502',
+        retryable: true,
+      });
+    },
   };
 }
 

@@ -7,10 +7,23 @@ import { errorHandler } from '../middleware/error-handler.js';
 import { createFakeVerifier } from '../auth/verifier.js';
 import chatRoutes from '../routes/chat.js';
 import type { Repositories } from '../repositories/types.js';
-import type { ProjectRow, ChatThreadRow, ChatMessageRow, ArtifactRow, ArtifactVersionRow } from '@orra/db';
+import type { ProjectRow, ChatThreadRow, ChatMessageRow, ArtifactRow, ArtifactVersionRow, ProjectAssetRow } from '@orra/db';
 import type { CreateProjectInput, FindProjectInput, UpdateProjectInput, DeleteProjectInput } from '../repositories/projectRepository.js';
 
 const fakeVerifier = createFakeVerifier();
+
+function createFakeR2Bucket(objects: Record<string, Uint8Array>): R2Bucket {
+  return {
+    get: async (key: string) => {
+      const bytes = objects[key];
+      if (!bytes) return null;
+      return {
+        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        text: async () => new TextDecoder().decode(bytes),
+      } as R2ObjectBody;
+    },
+  } as unknown as R2Bucket;
+}
 
 interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -251,6 +264,55 @@ function createFakeRepositories(
         throw new Error('not used');
       },
     },
+    asset: {
+      async createProjectAsset() {
+        throw new Error('not used');
+      },
+      async createBrandAsset() {
+        throw new Error('not used');
+      },
+      async listProjectAssets() {
+        return [];
+      },
+      async listBrandAssets() {
+        return [];
+      },
+      async findProjectAssetForWorkspace(input: { id: string; projectId: string; workspaceId: string }) {
+        if (
+          input.id === '11111111-1111-1111-1111-111111111112' &&
+          input.projectId === '11111111-1111-1111-1111-111111111111' &&
+          input.workspaceId === 'ws-fake-1'
+        ) {
+          return {
+            id: '11111111-1111-1111-1111-111111111112',
+            workspace_id: 'ws-fake-1',
+            project_id: '11111111-1111-1111-1111-111111111111',
+            kind: 'upload',
+            r2_key: 'r2/asset-1.png',
+            content_hash: null,
+            content_type: 'image/png',
+            width: null,
+            height: null,
+            size_bytes: 4,
+            source_prompt: null,
+            analysis: null,
+            status: 'uploaded',
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+          } as ProjectAssetRow;
+        }
+        return null;
+      },
+      async findBrandAssetForWorkspace() {
+        return null;
+      },
+      async markProjectAssetUploaded() {
+        throw new Error('not used');
+      },
+      async markBrandAssetUploaded() {
+        throw new Error('not used');
+      },
+    } as unknown as import('../repositories/assetRepository.js').AssetRepository,
   } as unknown as Repositories;
 }
 
@@ -654,6 +716,186 @@ describe('POST /v1/projects/:id/messages', () => {
     expect(data.approvalMessage!.role).toBe('assistant');
     expect(data.approvalMessage!.kind).toBe('approval_summary');
     expect(typeof data.approvalMessage!.content).toBe('string');
+  });
+
+  it('POST with explicit generate_image intent returns approval card with mediaIntent', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'A glowing castle at night', intent: 'generate_image' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      approvalMessage?: { metadata: Record<string, unknown> };
+    };
+    expect(data.approvalMessage).toBeDefined();
+    const meta = data.approvalMessage!.metadata;
+    expect(meta.mediaIntent).toBe('generate_image');
+    const card = meta.approvalCard as Record<string, unknown>;
+    expect(card.mediaIntent).toBe('generate_image');
+    expect(card.summaryLine).toContain('generate an image');
+  });
+
+  it('POST with explicit edit_image intent requires a primary source asset', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: 'Make this image Minecraft style', intent: 'edit_image' }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(false);
+    expect(json.error!.code).toBe('VALIDATION');
+  });
+
+  it('POST with explicit edit_image intent and source asset returns edit approval card', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: 'Make this image Minecraft style',
+          intent: 'edit_image',
+          primarySourceAssetId: '11111111-1111-1111-1111-111111111112',
+          sourceAssetIds: ['11111111-1111-1111-1111-111111111112'],
+        }),
+      },
+      { ENVIRONMENT: 'production' } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      approvalMessage?: { metadata: Record<string, unknown> };
+    };
+    expect(data.approvalMessage).toBeDefined();
+    const meta = data.approvalMessage!.metadata;
+    expect(meta.mediaIntent).toBe('edit_image');
+    const card = meta.approvalCard as Record<string, unknown>;
+    expect(card.mediaIntent).toBe('edit_image');
+    expect(card.generationMode).toBe('edit_uploaded_image');
+    expect(card.summaryLine).toContain('edit your uploaded image');
+  });
+
+  it('POST with explicit analyze_image intent returns assistant text using source bytes', async () => {
+    const repos = createFakeRepositories([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        workspace_id: 'ws-fake-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const r2 = createFakeR2Bucket({ 'r2/asset-1.png': new Uint8Array([1, 2, 3, 4]) });
+
+    const app = buildApp(repos);
+    const res = await app.request(
+      '/v1/projects/11111111-1111-1111-1111-111111111111/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test_valid',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: 'Describe this image',
+          intent: 'analyze_image',
+          primarySourceAssetId: '11111111-1111-1111-1111-111111111112',
+          sourceAssetIds: ['11111111-1111-1111-1111-111111111112'],
+        }),
+      },
+      { ENVIRONMENT: 'production', ORRA_ASSETS: r2 } as unknown as Record<string, unknown>
+    );
+
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as ApiResponse;
+    expect(json.ok).toBe(true);
+    const data = json.data as {
+      approvalMessage?: { role: string; kind: string; content: string; metadata: Record<string, unknown> };
+    };
+    expect(data.approvalMessage).toBeDefined();
+    expect(data.approvalMessage!.role).toBe('assistant');
+    expect(data.approvalMessage!.kind).toBe('text');
+    expect(data.approvalMessage!.content).toContain('1 image(s) (4 bytes)');
+    expect(data.approvalMessage!.metadata.mediaIntent).toBe('analyze_image');
   });
 
   it('POST generation on no-brand project shows No brand selected in approval card', async () => {
@@ -1878,6 +2120,7 @@ function makeMockProvider(chatReply: string): AIProvider {
     async generateImageOrDocument() { throw new Error('not used'); },
     async enhancePrompt() { throw new Error('not used'); },
     async chat() { return { reply: chatReply }; },
+    async analyzeImage() { return { reply: chatReply }; },
   };
 }
 
@@ -1888,6 +2131,14 @@ function makeFailingProvider(): AIProvider {
     async generateImageOrDocument() { throw new Error('not used'); },
     async enhancePrompt() { throw new Error('not used'); },
     async chat() {
+      throw new AIProviderError({
+        code: 'PROVIDER_HTTP_ERROR',
+        provider: 'openai',
+        message: 'OpenAI returned HTTP 500',
+        retryable: false,
+      });
+    },
+    async analyzeImage() {
       throw new AIProviderError({
         code: 'PROVIDER_HTTP_ERROR',
         provider: 'openai',

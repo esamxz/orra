@@ -18,6 +18,22 @@ export const GenerationModeSchema = z.enum([
   'edit_existing_layer',
 ]);
 
+// ---------------------------------------------------------------------------
+// Media intent (explicit user goal for media operations)
+// ---------------------------------------------------------------------------
+// Replaces implicit DirectorMode + GenerationMode guessing. The frontend or
+// caller supplies one of these intents; the API validates it and routes to the
+// correct provider method.
+
+export const MediaIntentSchema = z.enum([
+  'chat_text',
+  'analyze_image',
+  'generate_image',
+  'edit_image',
+]);
+
+export type MediaIntent = z.infer<typeof MediaIntentSchema>;
+
 export const BoxSchema = z.object({
   x: z.number(),
   y: z.number(),
@@ -209,6 +225,8 @@ export const ApprovalCardSchema = z.object({
   // Image-edit track: surfaced when the prompt references an uploaded image.
   generationMode: GenerationModeSchema.optional(),
   sourceAssetCount: z.number().int().min(0).optional(),
+  // Explicit media intent that produced this approval card.
+  mediaIntent: MediaIntentSchema.optional(),
 });
 
 // ---------------------------------------------------------------------------

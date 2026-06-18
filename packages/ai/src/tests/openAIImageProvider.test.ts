@@ -33,8 +33,7 @@ function makeImageRequest(overrides?: Partial<{ prompt: string; width: number; h
 function makeEditRequest(overrides?: Partial<ImageEditRequest>): ImageEditRequest {
   return {
     prompt: 'make this image Minecraft style',
-    image: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
-    mimeType: 'image/png',
+    sourceImages: [{ bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), contentType: 'image/png', assetId: 'asset-1' }],
     width: 1080,
     height: 1350,
     format: 'png',
@@ -73,13 +72,13 @@ function mockFetchError(fetchFn: ReturnType<typeof vi.fn>, name: string, message
 // generateImage tests
 // ---------------------------------------------------------------------------
 
-describe('OpenAIImageProvider — generateImage', () => {
+describe('OpenAIImageProvider — generateFromText', () => {
   it('returns ImageGenerationResult with Uint8Array data on success', async () => {
     const fetchFn = vi.fn();
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    const result = await provider.generateImage(makeImageRequest());
+    const result = await provider.generateFromText(makeImageRequest());
     expect(result.provider).toBe('openai');
     expect(result.model).toBe(FAKE_MODEL);
     expect(result.mimeType).toBe('image/png');
@@ -92,7 +91,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest());
+    await provider.generateFromText(makeImageRequest());
 
     const [url] = fetchFn.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/images/generations');
@@ -104,7 +103,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest());
+    await provider.generateFromText(makeImageRequest());
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -119,7 +118,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest());
+    await provider.generateFromText(makeImageRequest());
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -131,7 +130,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest());
+    await provider.generateFromText(makeImageRequest());
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -144,7 +143,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest());
+    await provider.generateFromText(makeImageRequest());
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -159,7 +158,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest({ width: 4, height: 5 }));
+    await provider.generateFromText(makeImageRequest({ width: 4, height: 5 }));
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -171,7 +170,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest({ width: 4, height: 5, size: '1024x1024' }));
+    await provider.generateFromText(makeImageRequest({ width: 4, height: 5, size: '1024x1024' }));
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -183,7 +182,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn, size: '1024x1024' });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest({ width: 4, height: 5 }));
+    await provider.generateFromText(makeImageRequest({ width: 4, height: 5 }));
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -195,7 +194,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn, size: '1024x1024' });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest({ width: 4, height: 5, size: '1536x1024' }));
+    await provider.generateFromText(makeImageRequest({ width: 4, height: 5, size: '1536x1024' }));
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -212,7 +211,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    const result = await provider.generateImage(makeImageRequest({ width: 4, height: 5 }));
+    const result = await provider.generateFromText(makeImageRequest({ width: 4, height: 5 }));
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -227,7 +226,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.generateImage(makeImageRequest());
+    await provider.generateFromText(makeImageRequest());
 
     const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
@@ -248,7 +247,7 @@ describe('OpenAIImageProvider — generateImage', () => {
 
     let caught: AIProviderError | undefined;
     try {
-      await provider.generateImage(makeImageRequest());
+      await provider.generateFromText(makeImageRequest());
     } catch (err) {
       if (err instanceof AIProviderError) caught = err;
     }
@@ -268,7 +267,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, { error: 'rate limited' }, 429);
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return (
         err instanceof AIProviderError &&
         err.code === 'PROVIDER_RATE_LIMITED' &&
@@ -282,7 +281,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, { error: 'unauthorized' }, 401);
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return (
         err instanceof AIProviderError &&
         err.code === 'PROVIDER_AUTH_FAILED' &&
@@ -296,7 +295,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, { error: 'forbidden' }, 403);
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return (
         err instanceof AIProviderError &&
         err.code === 'PROVIDER_AUTH_FAILED' &&
@@ -310,7 +309,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn, model: 'gpt-image-2' });
     mockFetch(fetchFn, { error: 'not found' }, 404);
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return (
         err instanceof AIProviderError &&
         err.code === 'PROVIDER_NOT_FOUND' &&
@@ -325,7 +324,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, { error: 'unavailable' }, 503);
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return (
         err instanceof AIProviderError &&
         err.code === 'PROVIDER_HTTP_ERROR' &&
@@ -339,7 +338,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn, timeoutMs: 5000 });
     mockFetchError(fetchFn, 'AbortError', 'The operation was aborted');
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return (
         err instanceof AIProviderError &&
         err.code === 'PROVIDER_TIMEOUT' &&
@@ -354,7 +353,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, { data: [{ url: 'https://example.com/img.png' }] });
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_RESPONSE';
     });
   });
@@ -364,7 +363,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, { data: [] });
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_RESPONSE';
     });
   });
@@ -374,7 +373,7 @@ describe('OpenAIImageProvider — generateImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, { output: [{ type: 'image_generation_call', result: FAKE_BASE64 }] });
 
-    await expect(provider.generateImage(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
+    await expect(provider.generateFromText(makeImageRequest())).rejects.toSatisfy((err: unknown) => {
       return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_RESPONSE';
     });
   });
@@ -386,7 +385,7 @@ describe('OpenAIImageProvider — generateImage', () => {
 
     let caughtMessage = '';
     try {
-      await provider.generateImage(makeImageRequest());
+      await provider.generateFromText(makeImageRequest());
     } catch (err) {
       caughtMessage = err instanceof Error ? err.message : String(err);
     }
@@ -396,7 +395,7 @@ describe('OpenAIImageProvider — generateImage', () => {
   it('throws PROVIDER_INVALID_REQUEST for empty prompt', async () => {
     const provider = makeProvider();
     await expect(
-      provider.generateImage({ ...makeImageRequest(), prompt: '' }),
+      provider.generateFromText({ ...makeImageRequest(), prompt: '' }),
     ).rejects.toSatisfy((err: unknown) => {
       return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_REQUEST';
     });
@@ -426,7 +425,7 @@ describe('OpenAIImageProvider — editImage', () => {
     const provider = makeProvider({ fetch: fetchFn });
     mockFetch(fetchFn, makeImageApiResponse());
 
-    await provider.editImage(makeEditRequest({ mimeType: 'image/png' }));
+    await provider.editImage(makeEditRequest({ sourceImages: [{ bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), contentType: 'image/png', assetId: 'asset-1' }] }));
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const form = init.body as FormData;
@@ -491,7 +490,12 @@ describe('OpenAIImageProvider — editImage', () => {
 
   it('throws PROVIDER_INVALID_REQUEST for empty source image', async () => {
     const provider = makeProvider();
-    await expect(provider.editImage({ ...makeEditRequest(), image: new Uint8Array() })).rejects.toSatisfy((err: unknown) => {
+    await expect(
+      provider.editImage({
+        ...makeEditRequest(),
+        sourceImages: [{ bytes: new Uint8Array(), contentType: 'image/png', assetId: 'asset-empty' }],
+      }),
+    ).rejects.toSatisfy((err: unknown) => {
       return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_REQUEST';
     });
   });
@@ -592,7 +596,7 @@ describe('OpenAIImageProvider — default fetch safe wrapper', () => {
     } as Response);
 
     try {
-      await provider.generateImage(makeImageRequest());
+      await provider.generateFromText(makeImageRequest());
       expect(spy).toHaveBeenCalledOnce();
     } finally {
       spy.mockRestore();

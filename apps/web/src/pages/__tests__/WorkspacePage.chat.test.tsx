@@ -319,6 +319,7 @@ describe('WorkspacePage chat persistence', () => {
     await waitFor(() => {
       expect(chatApi.appendProjectMessage).toHaveBeenCalledWith('proj-1', {
         content: 'Make this image Minecraft style',
+        intent: 'edit_image',
         selectedCardIndex: 0,
         primarySourceAssetId: 'asset-1',
         sourceAssetIds: ['asset-1'],

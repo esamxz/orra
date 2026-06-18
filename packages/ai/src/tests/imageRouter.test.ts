@@ -164,7 +164,7 @@ describe('ImageProviderRouter — openai', () => {
       fetch: fetchFn as unknown as typeof globalThis.fetch,
     });
     const provider = router.getProvider();
-    await provider.generateImage({ prompt: 'A square image', width: 4, height: 5 });
+    await provider.generateFromText({ prompt: 'A square image', width: 4, height: 5 });
 
     const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
@@ -188,7 +188,7 @@ describe('ImageProviderRouter — openai', () => {
       fetch: fetchFn as unknown as typeof globalThis.fetch,
     });
     const provider = router.getProvider();
-    await provider.generateImage({ prompt: 'A square image', width: 4, height: 5 });
+    await provider.generateFromText({ prompt: 'A square image', width: 4, height: 5 });
 
     // Default timeout is 180s; we can't easily observe it without a slow test,
     // but we can verify the provider accepted the request without an explicit timeout.
@@ -244,13 +244,13 @@ describe('package exports smoke', () => {
   it('ImageProvider interface is structurally satisfied by FakeImageProvider', () => {
     const provider: ImageProvider = new FakeImageProvider();
     expect(typeof provider.id).toBe('string');
-    expect(typeof provider.generateImage).toBe('function');
+    expect(typeof provider.generateFromText).toBe('function');
   });
 
   it('ImageProvider interface is structurally satisfied by GeminiImageProvider', () => {
     const provider: ImageProvider = new GeminiImageProvider({ apiKey: 'test' });
     expect(typeof provider.id).toBe('string');
-    expect(typeof provider.generateImage).toBe('function');
+    expect(typeof provider.generateFromText).toBe('function');
   });
 
   it('ImageProviderRouter interface is structurally satisfied by createImageProviderRouter()', () => {
@@ -287,7 +287,7 @@ describe('package exports smoke', () => {
   });
 
   it('ImageGenerationResult shape is correct', async () => {
-    const result: ImageGenerationResult = await new FakeImageProvider().generateImage({
+    const result: ImageGenerationResult = await new FakeImageProvider().generateFromText({
       prompt: 'test',
       width: 100,
       height: 100,

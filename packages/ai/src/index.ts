@@ -12,6 +12,7 @@ export type {
   CurrentArtifactSummary,
   PromptEnhancementInput,
   PromptEnhancementOutput,
+  SourceImageInput,
 } from './types.js';
 
 export type {

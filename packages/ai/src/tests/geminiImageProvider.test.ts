@@ -74,7 +74,7 @@ describe('GeminiImageProvider — configuration', () => {
       baseUrl: 'https://gemini.test',
       fetch: mockFetch,
     });
-    return p.generateImage(VALID_REQUEST).then(() => {
+    return p.generateFromText(VALID_REQUEST).then(() => {
       const url = (mockFetch.mock.calls[0] as [string, ...unknown[]])[0] as string;
       expect(url).toContain(DEFAULT_GEMINI_IMAGE_MODEL);
     });
@@ -88,7 +88,7 @@ describe('GeminiImageProvider — configuration', () => {
       baseUrl: 'https://gemini.test',
       fetch: mockFetch,
     });
-    return p.generateImage(VALID_REQUEST).then(() => {
+    return p.generateFromText(VALID_REQUEST).then(() => {
       const url = (mockFetch.mock.calls[0] as [string, ...unknown[]])[0] as string;
       expect(url).toContain('gemini-custom-model');
     });
@@ -112,7 +112,7 @@ describe('GeminiImageProvider — request shape', () => {
       baseUrl: 'https://gemini.test',
       fetch: mockFetch,
     });
-    await p.generateImage(VALID_REQUEST);
+    await p.generateFromText(VALID_REQUEST);
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://gemini.test/v1/models/gemini-2.5-flash-image:generateContent');
     expect((init.method as string).toUpperCase()).toBe('POST');
@@ -125,7 +125,7 @@ describe('GeminiImageProvider — request shape', () => {
       baseUrl: 'https://gemini.test',
       fetch: mockFetch,
     });
-    await p.generateImage(VALID_REQUEST);
+    await p.generateFromText(VALID_REQUEST);
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers['x-goog-api-key']).toBe(FAKE_KEY);
@@ -140,7 +140,7 @@ describe('GeminiImageProvider — request shape', () => {
       baseUrl: 'https://gemini.test',
       fetch: mockFetch,
     });
-    await p.generateImage(VALID_REQUEST);
+    await p.generateFromText(VALID_REQUEST);
     const [url] = mockFetch.mock.calls[0] as [string];
     expect(url).not.toContain('super-secret-key-123');
   });
@@ -152,7 +152,7 @@ describe('GeminiImageProvider — request shape', () => {
       baseUrl: 'https://gemini.test',
       fetch: mockFetch,
     });
-    await p.generateImage(VALID_REQUEST);
+    await p.generateFromText(VALID_REQUEST);
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string) as {
       generationConfig: { responseModalities: string[] };
@@ -175,7 +175,7 @@ describe('GeminiImageProvider — success', () => {
       baseUrl: 'https://gemini.test',
       fetch: mockFetch,
     });
-    const result = await p.generateImage({ prompt: 'test', width: 512, height: 512 });
+    const result = await p.generateFromText({ prompt: 'test', width: 512, height: 512 });
     expect(result.provider).toBe('gemini');
     expect(result.model).toBe('gemini-2.5-flash-image');
     expect(result.mimeType).toBe('image/png');
@@ -189,14 +189,14 @@ describe('GeminiImageProvider — success', () => {
     const base64 = btoa(String.fromCharCode(...bytes));
     const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse('image/png', base64));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    const result = await p.generateImage(VALID_REQUEST);
+    const result = await p.generateFromText(VALID_REQUEST);
     expect(Array.from(result.data)).toEqual(bytes);
   });
 
   it('returns mimeType from response inlineData', async () => {
     const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse('image/jpeg'));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    const result = await p.generateImage(VALID_REQUEST);
+    const result = await p.generateFromText(VALID_REQUEST);
     expect(result.mimeType).toBe('image/jpeg');
   });
 
@@ -220,7 +220,7 @@ describe('GeminiImageProvider — success', () => {
       ),
     );
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    const result = await p.generateImage(VALID_REQUEST);
+    const result = await p.generateFromText(VALID_REQUEST);
     expect(result.data).toBeInstanceOf(Uint8Array);
   });
 });
@@ -232,7 +232,7 @@ describe('GeminiImageProvider — success', () => {
 describe('GeminiImageProvider — input validation', () => {
   it('throws PROVIDER_INVALID_REQUEST for empty prompt', async () => {
     const p = makeProvider();
-    await expect(p.generateImage({ prompt: '', width: 100, height: 100 })).rejects.toMatchObject({
+    await expect(p.generateFromText({ prompt: '', width: 100, height: 100 })).rejects.toMatchObject({
       code: 'PROVIDER_INVALID_REQUEST',
       provider: 'gemini',
     });
@@ -240,7 +240,7 @@ describe('GeminiImageProvider — input validation', () => {
 
   it('throws PROVIDER_INVALID_REQUEST for whitespace-only prompt', async () => {
     const p = makeProvider();
-    await expect(p.generateImage({ prompt: '   ', width: 100, height: 100 })).rejects.toMatchObject({
+    await expect(p.generateFromText({ prompt: '   ', width: 100, height: 100 })).rejects.toMatchObject({
       code: 'PROVIDER_INVALID_REQUEST',
     });
   });
@@ -254,7 +254,7 @@ describe('GeminiImageProvider — HTTP errors', () => {
   it('throws PROVIDER_HTTP_ERROR (not retryable) for 4xx', async () => {
     const mockFetch = vi.fn().mockResolvedValue(new Response('Bad request', { status: 400 }));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_HTTP_ERROR',
       provider: 'gemini',
       retryable: false,
@@ -264,7 +264,7 @@ describe('GeminiImageProvider — HTTP errors', () => {
   it('throws PROVIDER_HTTP_ERROR (retryable) for 5xx', async () => {
     const mockFetch = vi.fn().mockResolvedValue(new Response('Server error', { status: 503 }));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_HTTP_ERROR',
       provider: 'gemini',
       retryable: true,
@@ -274,7 +274,7 @@ describe('GeminiImageProvider — HTTP errors', () => {
   it('error message includes HTTP status code', async () => {
     const mockFetch = vi.fn().mockResolvedValue(new Response('Forbidden', { status: 403 }));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       message: expect.stringContaining('403'),
     });
   });
@@ -284,7 +284,7 @@ describe('GeminiImageProvider — HTTP errors', () => {
     const p = new GeminiImageProvider({ apiKey: 'my-secret-key', baseUrl: 'https://gemini.test', fetch: mockFetch });
     let caught: Error | null = null;
     try {
-      await p.generateImage(VALID_REQUEST);
+      await p.generateFromText(VALID_REQUEST);
     } catch (err) {
       caught = err as Error;
     }
@@ -301,7 +301,7 @@ describe('GeminiImageProvider — network and timeout', () => {
   it('throws PROVIDER_UNAVAILABLE on network error', async () => {
     const mockFetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_UNAVAILABLE',
       provider: 'gemini',
       retryable: true,
@@ -311,7 +311,7 @@ describe('GeminiImageProvider — network and timeout', () => {
   it('throws PROVIDER_TIMEOUT on AbortError', async () => {
     const mockFetch = vi.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch, timeoutMs: 100 });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_TIMEOUT',
       provider: 'gemini',
       retryable: true,
@@ -327,7 +327,7 @@ describe('GeminiImageProvider — response parsing', () => {
   it('throws PROVIDER_INVALID_RESPONSE for non-JSON body', async () => {
     const mockFetch = vi.fn().mockResolvedValue(new Response('not json', { status: 200 }));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_INVALID_RESPONSE',
     });
   });
@@ -337,7 +337,7 @@ describe('GeminiImageProvider — response parsing', () => {
       new Response(JSON.stringify({ candidates: [] }), { status: 200 }),
     );
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_INVALID_RESPONSE',
     });
   });
@@ -352,7 +352,7 @@ describe('GeminiImageProvider — response parsing', () => {
       ),
     );
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_INVALID_RESPONSE',
     });
   });
@@ -369,7 +369,7 @@ describe('GeminiImageProvider — response parsing', () => {
       ),
     );
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
-    await expect(p.generateImage(VALID_REQUEST)).rejects.toMatchObject({
+    await expect(p.generateFromText(VALID_REQUEST)).rejects.toMatchObject({
       code: 'PROVIDER_INVALID_RESPONSE',
     });
   });
@@ -384,7 +384,7 @@ describe('GeminiImageProvider — observer privacy', () => {
     const { events, observer } = captureObserver();
     const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse());
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch, observer });
-    await p.generateImage(VALID_REQUEST);
+    await p.generateFromText(VALID_REQUEST);
     const started = events.find((e) => e.status === 'started');
     expect(started).toBeDefined();
     expect(JSON.stringify(started)).not.toContain(FAKE_KEY);
@@ -394,7 +394,7 @@ describe('GeminiImageProvider — observer privacy', () => {
     const { events, observer } = captureObserver();
     const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse());
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch, observer });
-    await p.generateImage(VALID_REQUEST);
+    await p.generateFromText(VALID_REQUEST);
     const succeeded = events.find((e) => e.status === 'succeeded');
     expect(succeeded?.durationMs).toBeTypeOf('number');
     expect(JSON.stringify(succeeded)).not.toContain(FAKE_KEY);
@@ -404,7 +404,7 @@ describe('GeminiImageProvider — observer privacy', () => {
     const { events, observer } = captureObserver();
     const mockFetch = vi.fn().mockResolvedValue(new Response('error', { status: 500 }));
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch, observer });
-    await p.generateImage(VALID_REQUEST).catch(() => {});
+    await p.generateFromText(VALID_REQUEST).catch(() => {});
     const failed = events.find((e) => e.status === 'failed');
     expect(failed?.errorCode).toBeDefined();
     expect(JSON.stringify(failed)).not.toContain(FAKE_KEY);
@@ -415,7 +415,7 @@ describe('GeminiImageProvider — observer privacy', () => {
     const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse());
     const sensitivePrompt = 'TOP-SECRET-PROMPT-DO-NOT-LOG';
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch, observer });
-    await p.generateImage({ prompt: sensitivePrompt, width: 100, height: 100 });
+    await p.generateFromText({ prompt: sensitivePrompt, width: 100, height: 100 });
     const allEvents = JSON.stringify(events);
     expect(allEvents).not.toContain(sensitivePrompt);
   });
@@ -427,8 +427,7 @@ describe('GeminiImageProvider — observer privacy', () => {
 
 const VALID_EDIT_REQUEST = {
   prompt: 'make this image Minecraft style',
-  image: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
-  mimeType: 'image/png',
+  sourceImages: [{ bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), contentType: 'image/png', assetId: 'asset-1' }],
   width: 1080,
   height: 1080,
 };
@@ -473,7 +472,12 @@ describe('GeminiImageProvider — editImage', () => {
 
   it('throws PROVIDER_INVALID_REQUEST for empty source image', async () => {
     const p = makeProvider();
-    await expect(p.editImage({ ...VALID_EDIT_REQUEST, image: new Uint8Array() })).rejects.toMatchObject({
+    await expect(
+      p.editImage({
+        ...VALID_EDIT_REQUEST,
+        sourceImages: [{ bytes: new Uint8Array(), contentType: 'image/png', assetId: 'asset-empty' }],
+      }),
+    ).rejects.toMatchObject({
       code: 'PROVIDER_INVALID_REQUEST',
       provider: 'gemini',
     });
@@ -525,7 +529,7 @@ describe('GeminiImageProvider — error types', () => {
     const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
     let caught: unknown;
     try {
-      await p.generateImage(VALID_REQUEST);
+      await p.generateFromText(VALID_REQUEST);
     } catch (err) {
       caught = err;
     }
