@@ -18,7 +18,7 @@ function makeTemplate(overrides: Partial<TrendTemplateDto> = {}): TrendTemplateD
     description: 'A test template',
     prompt: 'Create something calm.',
     category: 'Wellness',
-    projectType: 'carousel',
+    projectType: 'post',
     ratioHint: '4:5',
     platformHint: 'Instagram',
     assetHints: [],
@@ -27,6 +27,7 @@ function makeTemplate(overrides: Partial<TrendTemplateDto> = {}): TrendTemplateD
     tags: ['calm'],
     sortIndex: 1,
     referenceR2Key: null,
+    previewUrl: null,
     ...overrides,
   };
 }

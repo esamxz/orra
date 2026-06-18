@@ -25,7 +25,7 @@ function makeTrendTemplateRow(overrides: Partial<TrendTemplateRow> = {}): TrendT
     description: 'A test template',
     prompt: 'Create something calm and minimal.',
     category: 'Wellness',
-    project_type: 'carousel',
+    project_type: 'post',
     ratio_hint: '4:5',
     platform_hint: 'Instagram',
     asset_hints: [],
@@ -172,13 +172,15 @@ describe('GET /v1/trend-templates', () => {
     const dto = json.data[0];
     expect(dto.id).toBe('tmpl-uuid-0001');
     expect(dto.title).toBe('Test Template');
-    expect(dto.projectType).toBe('carousel');
+    expect(dto.projectType).toBe('post');
     expect(dto.ratioHint).toBe('4:5');
     expect(dto.platformHint).toBe('Instagram');
     expect(dto.assetHints).toEqual([]);
     expect(dto.previewVariant).toBe('cover');
     expect(dto.isFeatured).toBe(true);
     expect(dto.sortIndex).toBe(1);
+    expect(dto.referenceR2Key).toBeNull();
+    expect(dto.previewUrl).toBeNull();
     // Confirm snake_case fields are NOT present
     expect('project_type' in dto).toBe(false);
     expect('ratio_hint' in dto).toBe(false);
@@ -201,6 +203,28 @@ describe('GET /v1/trend-templates', () => {
     expect(json.data).toHaveLength(2);
     expect(json.data[0].isFeatured).toBe(true);
     expect(json.data[1].isFeatured).toBe(false);
+  });
+
+  it('returns previewUrl when reference_r2_key exists', async () => {
+    const templates = [
+      makeTrendTemplateRow({
+        id: 'tmpl-preview',
+        title: 'Preview Template',
+        reference_r2_key: 'templates/quiet-editorial/reference.png',
+      }),
+    ];
+    const app = buildApp(createFakeRepositories(templates));
+    const res = await app.request(
+      '/v1/trend-templates',
+      { method: 'GET', headers: { Authorization: 'Bearer test_valid' } },
+      { ENVIRONMENT: 'development' } as unknown as Record<string, unknown>
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as ApiResponse<Array<Record<string, unknown>>>;
+    const dto = json.data[0];
+    expect(dto.referenceR2Key).toBe('templates/quiet-editorial/reference.png');
+    expect(typeof dto.previewUrl).toBe('string');
+    expect((dto.previewUrl as string).length).toBeGreaterThan(0);
   });
 
   it('returns valid DTO defaults when only base trend_template columns exist', async () => {
@@ -239,5 +263,6 @@ describe('GET /v1/trend-templates', () => {
     expect(dto.isFeatured).toBe(false);
     expect(dto.sortIndex).toBe(0);
     expect(dto.referenceR2Key).toBeNull();
+    expect(dto.previewUrl).toBeNull();
   });
 });

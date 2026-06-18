@@ -10,6 +10,7 @@ const CLERK_CONFIGURED = !!(
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 );
 import { CardBg } from '../data/cards';
+import { TrendTemplateCard } from '../components/trends/TrendTemplateCard';
 import { useTrendTemplates } from '../hooks/useTrendTemplates';
 import CreateBrandSystemModal from '../components/brand/CreateBrandSystemModal';
 import { useTheme } from '../hooks/useTheme';
@@ -141,7 +142,9 @@ export default function DashboardPage() {
   // ---------------------------------------------------------------------------
   // Create project and navigate to workspace
   // ---------------------------------------------------------------------------
-  const handleCreate = async (overrides: { prefill?: string; sourceTemplateId?: string } = {}) => {
+  const handleCreate = async (
+    overrides: { prefill?: string; sourceTemplateId?: string; projectType?: 'post' | 'carousel' } = {}
+  ) => {
     setCreateLoading(true);
     setCreateError(null);
     setAssetError(null);
@@ -149,8 +152,8 @@ export default function DashboardPage() {
     try {
       const activePrompt = (overrides.prefill ?? prompt).trim();
       const selectedRatio = RATIOS.find((r) => r.id === ratio) ?? RATIOS[1];
-      const projectType: 'post' | 'carousel' = type === 'single' ? 'post' : 'carousel';
-      const projectName = type === 'carousel' ? 'Untitled carousel' : 'Untitled post';
+      const projectType: 'post' | 'carousel' = overrides.projectType ?? (type === 'single' ? 'post' : 'carousel');
+      const projectName = projectType === 'carousel' ? 'Untitled carousel' : 'Untitled post';
       const brandArgs = selectedBrandId && selectedBrandId !== '__no-brand__' ? { brandSystemId: selectedBrandId } : {};
       const templateArgs = overrides.sourceTemplateId ? { sourceTemplateId: overrides.sourceTemplateId } : {};
       const baseArgs = {
@@ -175,7 +178,7 @@ export default function DashboardPage() {
 
       navigate(`/workspace/${project.id}`, {
         state: {
-          mode: type === 'single' ? 'single' : 'carousel',
+          mode: projectType === 'carousel' ? 'carousel' : 'single',
           ratio,
           brand: selectedBrand,
           currentArtifactId: project.currentArtifactId,
@@ -539,35 +542,31 @@ export default function DashboardPage() {
           </div>
           <div className="trend-grid">
             {templatesLoading && dashboardTemplates.length === 0 && (
-              <p className="muted" style={{ fontSize: 13 }}>Loading templates…</p>
+              <div className="trend-grid-skeleton" aria-label="Loading trend templates">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="trend-skeleton-card" />
+                ))}
+              </div>
             )}
             {!templatesLoading && allTemplates.length === 0 && (
               <p className="muted" style={{ fontSize: 13 }}>No templates available yet.</p>
             )}
             {dashboardTemplates.map((t) => (
-              <article key={t.id} className="trend-card">
-                <div className="trend-preview" style={{ containerType: 'inline-size' }}>
-                  <CardBg variant={t.previewVariant} />
-                  <span className="tag">{t.category}</span>
-                  <div style={{ position: 'absolute', left: 18, bottom: 16, right: 18, color: t.previewVariant === 'pale' ? '#1d2a30' : '#f1f4f4', fontFamily: 'var(--font-display)', fontSize: '6cqw', fontWeight: 500, lineHeight: 1.04 }}>
-                    {t.title}
-                  </div>
-                </div>
-                <div className="trend-body">
-                  <h3>{t.title}</h3>
-                  <p className="desc">{t.description}</p>
-                  <div className="prompt-preview">{t.prompt}</div>
-                  <div className="trend-foot">
-                    <span className="eyebrow">{t.projectType === 'carousel' ? 'Carousel' : 'Single post'}</span>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => void handleCreate({ prefill: t.prompt, sourceTemplateId: t.id })}
-                    >
-                      <Icon.spark s={15} /> Use this prompt
-                    </button>
-                  </div>
-                </div>
-              </article>
+              <TrendTemplateCard
+                key={t.id}
+                title={t.title}
+                label={t.category}
+                previewUrl={t.previewUrl}
+                size="sm"
+                disabled={createLoading}
+                onClick={() =>
+                  void handleCreate({
+                    prefill: t.prompt,
+                    sourceTemplateId: t.id,
+                    projectType: 'post',
+                  })
+                }
+              />
             ))}
           </div>
         </section>

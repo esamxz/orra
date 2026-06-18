@@ -1069,14 +1069,6 @@ export default function WorkspacePage() {
       <div className="work-body">
         {/* CHAT */}
         <section className="chat" style={{ width: chatWidth, flex: 'none' }}>
-          <div className="chat-head">
-            <div>
-              <div className="ttl">Director</div>
-              <div className="sub">Chat to create & refine</div>
-            </div>
-            <span className="ai-badge">{<Icon.sparkFill s={13} />} Orra AI</span>
-          </div>
-
           <div className="chat-scroll" ref={scrollRef}>
             {/* Loading state for real project */}
             {projectId && messagesState === 'loading' && displayMessages.length === 0 && (

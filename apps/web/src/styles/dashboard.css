@@ -436,64 +436,25 @@
 /* ----- trend templates ----- */
 .trend-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
 }
 
-.trend-card {
-  background: var(--panel);
-  border: 1px solid var(--line-soft);
+.trend-grid-skeleton {
+  display: contents;
+}
+
+.trend-skeleton-card {
+  height: 200px;
   border-radius: var(--r-xl);
-  overflow: hidden;
-  box-shadow: var(--sh-1);
-  display: flex;
-  flex-direction: column;
-  transition: transform .16s ease, box-shadow .2s ease;
+  background: linear-gradient(110deg, var(--inset) 8%, var(--panel-2) 18%, var(--inset) 33%);
+  background-size: 200% 100%;
+  animation: trend-skeleton-shimmer 1.5s linear infinite;
 }
 
-.trend-card:hover { transform: translateY(-3px); box-shadow: var(--sh-3); }
-
-.trend-preview {
-  aspect-ratio: 16/9;
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
+@keyframes trend-skeleton-shimmer {
+  to { background-position-x: -200%; }
 }
-
-.trend-preview .tag {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.9);
-  color: var(--ink);
-  box-shadow: var(--sh-1);
-}
-
-.trend-body { padding: 16px 18px 18px; display: flex; flex-direction: column; flex: 1; }
-.trend-body h3 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 5px; }
-.trend-body .desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 0 0 13px; }
-
-.prompt-preview {
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--ink);
-  background: var(--inset);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r-md);
-  padding: 11px 13px;
-  margin: 0 0 14px;
-  font-style: italic;
-}
-
-.prompt-preview::before { content: '\201C'; font-family: var(--font-display); }
-.prompt-preview::after  { content: '\201D'; font-family: var(--font-display); }
 
 .trend-foot {
   margin-top: auto;

@@ -39,7 +39,7 @@ export interface TrendTemplateDto {
   description: string | null;
   prompt: string;
   category: string | null;
-  projectType: 'post' | 'carousel';
+  projectType: 'post';
   ratioHint: string | null;
   platformHint: string | null;
   assetHints: string[];
@@ -48,6 +48,7 @@ export interface TrendTemplateDto {
   tags: string[];
   sortIndex: number;
   referenceR2Key: string | null;
+  previewUrl: string | null;
 }
 
 export interface UpdateProjectInput {

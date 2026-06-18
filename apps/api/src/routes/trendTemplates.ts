@@ -6,6 +6,7 @@ import { createServiceContext, getRepositories } from '../services/service-conte
 import { getAuth } from '../middleware/auth.js';
 import { getRequestId } from '../middleware/request-id.js';
 import type { Repositories } from '../repositories/types.js';
+import { createR2Signer } from '../r2/r2Signer.js';
 
 // ---------------------------------------------------------------------------
 // Trend template routes — protected
@@ -28,7 +29,18 @@ trendTemplateRoutes.get('/', async (c) => {
   const requestId = getRequestId(c) ?? 'unknown';
   try {
     const repos = getRepositories(ctx);
-    const service = new TrendTemplateService(repos.trendTemplate);
+    // Preview signing is optional: if R2 is not configured we still return the
+    // catalog with previewUrl=null and the frontend renders a fallback visual.
+    let signer: ReturnType<typeof createR2Signer> | undefined;
+    try {
+      signer = createR2Signer(c.env);
+    } catch (signerErr) {
+      console.error(
+        `[trend-templates] R2 signer unavailable; returning catalog without preview URLs (requestId=${requestId}):`,
+        signerErr
+      );
+    }
+    const service = new TrendTemplateService(repos.trendTemplate, signer);
     const templates = await service.listActive(ctx);
     return c.json({ ok: true, data: templates });
   } catch (err) {

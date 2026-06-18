@@ -53,7 +53,7 @@ function makeTemplate(overrides: Partial<TrendTemplateDto> = {}): TrendTemplateD
     description: 'A test template description.',
     prompt: 'Create something calm and minimal.',
     category: 'Wellness',
-    projectType: 'carousel',
+    projectType: 'post',
     ratioHint: '4:5',
     platformHint: 'Instagram',
     assetHints: [],
@@ -62,19 +62,20 @@ function makeTemplate(overrides: Partial<TrendTemplateDto> = {}): TrendTemplateD
     tags: ['calm'],
     sortIndex: 1,
     referenceR2Key: null,
+    previewUrl: null,
     ...overrides,
   };
 }
 
 const MOCK_TEMPLATES: TrendTemplateDto[] = [
   makeTemplate({ id: 't1', title: 'Quiet self-improvement', category: 'Wellness', tags: ['mindset', 'habits', 'calm'] }),
-  makeTemplate({ id: 't2', title: 'Editorial quote card', category: 'Quote', projectType: 'post', previewVariant: 'mist', tags: ['quote', 'editorial'] }),
-  makeTemplate({ id: 't3', title: 'Soft product launch', category: 'Product', assetHints: ['Works best with a product photo', 'Optional brand logo'], previewVariant: 'steel', tags: ['product', 'launch'] }),
+  makeTemplate({ id: 't2', title: 'Editorial quote card', category: 'Quote', previewVariant: 'mist', tags: ['quote', 'editorial'] }),
+  makeTemplate({ id: 't3', title: 'Soft product launch', category: 'Product', previewVariant: 'steel', tags: ['product', 'launch'] }),
   makeTemplate({ id: 't4', title: 'Step-by-step explainer', category: 'Education', previewVariant: 'pale', tags: ['how-to', 'tutorial'] }),
-  makeTemplate({ id: 't5', title: 'Minimalist brand story', category: 'Lifestyle', projectType: 'post', isFeatured: false, tags: ['brand', 'story'] }),
-  makeTemplate({ id: 't6', title: 'Day-in-the-life', category: 'Lifestyle', isFeatured: false, previewVariant: 'mist', assetHints: ['Upload 2–4 behind-the-scenes photos'], tags: ['behind-the-scenes', 'personal'] }),
-  makeTemplate({ id: 't7', title: 'Before & after reveal', category: 'Product', isFeatured: false, previewVariant: 'steel', assetHints: ['Upload a before photo', 'Upload an after photo'], tags: ['transformation', 'reveal'] }),
-  makeTemplate({ id: 't8', title: 'Thought leadership post', category: 'Education', projectType: 'post', isFeatured: false, previewVariant: 'cta', platformHint: 'LinkedIn', tags: ['opinion', 'linkedin', 'professional', 'insight'] }),
+  makeTemplate({ id: 't5', title: 'Minimalist brand story', category: 'Lifestyle', isFeatured: false, tags: ['brand', 'story'] }),
+  makeTemplate({ id: 't6', title: 'Day-in-the-life', category: 'Lifestyle', isFeatured: false, previewVariant: 'mist', tags: ['behind-the-scenes', 'personal'] }),
+  makeTemplate({ id: 't7', title: 'Before & after reveal', category: 'Product', isFeatured: false, previewVariant: 'steel', tags: ['transformation', 'reveal'] }),
+  makeTemplate({ id: 't8', title: 'Thought leadership post', category: 'Education', isFeatured: false, previewVariant: 'cta', platformHint: 'LinkedIn', tags: ['opinion', 'linkedin', 'professional', 'insight'] }),
 ];
 
 function defaultHookState(overrides = {}) {
@@ -94,7 +95,7 @@ function makeProject(id = 'proj-tmpl-1') {
     project: {
       id,
       name: 'Test Project',
-      type: 'carousel' as const,
+      type: 'post' as const,
       ratio: { name: '4:5' as const, w: 4, h: 5 },
       brandSystemId: null,
       sourceTemplateId: null,
@@ -137,10 +138,10 @@ describe('TrendTemplatesPage', () => {
     });
   });
 
-  it('renders at least 4 Use this prompt buttons', () => {
+  it('renders all templates as clickable trend cards', () => {
     renderPage();
-    const btns = screen.getAllByRole('button', { name: /use this prompt/i });
-    expect(btns.length).toBeGreaterThanOrEqual(4);
+    const cards = screen.getAllByRole('button', { name: /trend template/i });
+    expect(cards.length).toBe(MOCK_TEMPLATES.length);
   });
 
   it('shows category badge on each card', () => {
@@ -149,15 +150,9 @@ describe('TrendTemplatesPage', () => {
     expect(screen.getAllByText('Quote').length).toBeGreaterThan(0);
   });
 
-  it('shows asset hints when template has assetHints', () => {
+  it('does not show the full template prompt on cards', () => {
     renderPage();
-    expect(screen.getAllByText('Works best with a product photo').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Optional brand logo').length).toBeGreaterThan(0);
-  });
-
-  it('does not render asset hints section when template has none', () => {
-    renderPage();
-    expect(screen.queryByText('Upload product photo')).toBeNull();
+    expect(screen.queryByText(MOCK_TEMPLATES[0].prompt)).toBeNull();
   });
 
   it('renders search input', () => {
@@ -223,53 +218,53 @@ describe('TrendTemplatesPage', () => {
     expect(allChip.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('Use this prompt calls createNewProject with template prompt and type', async () => {
+  it('clicking a trend card calls createNewProject with template prompt and post type', async () => {
     renderPage();
-    const btns = screen.getAllByRole('button', { name: /use this prompt/i });
-    fireEvent.click(btns[0]);
+    const cards = screen.getAllByRole('button', { name: /trend template/i });
+    fireEvent.click(cards[0]);
     await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
     const arg = mockCreateNewProject.mock.calls[0][0] as { prompt: string; type: string };
     expect(typeof arg.prompt).toBe('string');
     expect(arg.prompt.length).toBeGreaterThan(0);
-    expect(['post', 'carousel']).toContain(arg.type);
+    expect(arg.type).toBe('post');
   });
 
-  it('Use this prompt passes sourceTemplateId for attribution', async () => {
+  it('clicking a trend card passes sourceTemplateId for attribution', async () => {
     renderPage();
-    const btns = screen.getAllByRole('button', { name: /use this prompt/i });
-    fireEvent.click(btns[0]);
+    const cards = screen.getAllByRole('button', { name: /trend template/i });
+    fireEvent.click(cards[0]);
     await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
     const arg = mockCreateNewProject.mock.calls[0][0] as { sourceTemplateId: string };
     expect(typeof arg.sourceTemplateId).toBe('string');
     expect(arg.sourceTemplateId.length).toBeGreaterThan(0);
   });
 
-  it('Use this prompt navigates to workspace on success', async () => {
+  it('clicking a trend card navigates to workspace on success', async () => {
     renderPage();
-    const btns = screen.getAllByRole('button', { name: /use this prompt/i });
-    fireEvent.click(btns[0]);
+    const cards = screen.getAllByRole('button', { name: /trend template/i });
+    fireEvent.click(cards[0]);
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
     const dest = mockNavigate.mock.calls[0][0] as string;
     expect(dest).toMatch(/^\/workspace\//);
   });
 
-  it('Use this prompt does not call generation API', async () => {
+  it('clicking a trend card does not call generation API', async () => {
     renderPage();
-    const btns = screen.getAllByRole('button', { name: /use this prompt/i });
-    fireEvent.click(btns[0]);
+    const cards = screen.getAllByRole('button', { name: /trend template/i });
+    fireEvent.click(cards[0]);
     await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalled());
     expect(mockCreateNewProject).toHaveBeenCalledTimes(1);
   });
 
-  it('buttons are disabled while a project is being created', async () => {
+  it('trend cards are disabled while a project is being created', async () => {
     let resolve: (v: ReturnType<typeof makeProject>) => void;
     mockCreateNewProject.mockReturnValue(new Promise<ReturnType<typeof makeProject>>((r) => { resolve = r; }));
     renderPage();
-    const btns = screen.getAllByRole('button', { name: /use this prompt/i });
-    fireEvent.click(btns[0]);
+    const cards = screen.getAllByRole('button', { name: /trend template/i });
+    fireEvent.click(cards[0]);
     await waitFor(() => {
-      const allBtns = screen.getAllByRole('button', { name: /use this prompt|starting/i });
-      expect(allBtns.every((b) => b.hasAttribute('disabled'))).toBe(true);
+      const allCards = screen.getAllByRole('button', { name: /trend template/i });
+      expect(allCards.every((b) => b.hasAttribute('disabled'))).toBe(true);
     });
     resolve!(makeProject());
   });

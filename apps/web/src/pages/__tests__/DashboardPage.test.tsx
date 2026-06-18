@@ -126,7 +126,7 @@ function makeDashboardTemplate(overrides: Record<string, unknown> = {}): Record<
     description: 'A template shown on dashboard.',
     prompt: 'Create a calm, minimal post about productivity.',
     category: 'Wellness',
-    projectType: 'carousel' as const,
+    projectType: 'post' as const,
     ratioHint: '4:5',
     platformHint: 'Instagram',
     assetHints: [],
@@ -135,6 +135,7 @@ function makeDashboardTemplate(overrides: Record<string, unknown> = {}): Record<
     tags: ['calm'],
     sortIndex: 1,
     referenceR2Key: null,
+    previewUrl: null,
     ...overrides,
   };
 }
@@ -368,15 +369,21 @@ describe('DashboardPage', () => {
     expect(screen.queryByText('Still Studio')).toBeNull();
   });
 
-  it('trend template Use this prompt calls createNewProject with template prompt', async () => {
+  it('clicking a trend template card calls createNewProject with template prompt and post type', async () => {
     renderDashboard();
-    const usePromptBtns = screen.getAllByRole('button', { name: /use this prompt/i });
-    expect(usePromptBtns.length).toBeGreaterThan(0);
-    fireEvent.click(usePromptBtns[0]);
+    const cards = screen.getAllByRole('button', { name: /trend template/i });
+    expect(cards.length).toBeGreaterThan(0);
+    fireEvent.click(cards[0]);
     await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
-    const callArg = mockCreateNewProject.mock.calls[0][0] as { prompt: string };
+    const callArg = mockCreateNewProject.mock.calls[0][0] as { prompt: string; type: string };
     expect(typeof callArg.prompt).toBe('string');
     expect(callArg.prompt.length).toBeGreaterThan(0);
+    expect(callArg.type).toBe('post');
+  });
+
+  it('trend template cards do not show the full prompt text', () => {
+    renderDashboard();
+    expect(screen.queryByText('Create a calm, minimal post about productivity.')).toBeNull();
   });
 
   it('does not import or call generation API', async () => {
@@ -776,10 +783,10 @@ describe('DashboardPage', () => {
       expect(mockCreateNewProject).not.toHaveBeenCalled();
     });
 
-    it('trend template Use this prompt still works unchanged', async () => {
+    it('clicking a trend template card creates a project without triggering prompt enhancement', async () => {
       renderDashboard();
-      const usePromptBtns = screen.getAllByRole('button', { name: /use this prompt/i });
-      fireEvent.click(usePromptBtns[0]);
+      const cards = screen.getAllByRole('button', { name: /trend template/i });
+      fireEvent.click(cards[0]);
       await waitFor(() => expect(mockCreateNewProject).toHaveBeenCalledTimes(1));
       // enhancePrompt should NOT have been called
       expect(mockEnhancePrompt).not.toHaveBeenCalled();

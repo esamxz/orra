@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/trendTemplates.css';
-import { CardBg } from '../data/cards';
 import { Icon } from '../data/icons';
 import { useCreditStatus } from '../hooks/useCreditStatus';
 import { useTrendTemplates } from '../hooks/useTrendTemplates';
@@ -9,6 +8,7 @@ import UsageStatus from '../components/workspace/UsageStatus';
 import { createNewProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
 import type { TrendTemplateDto } from '../api/types';
+import { TrendTemplateCard } from '../components/trends/TrendTemplateCard';
 
 const DEFAULT_RATIO = { name: '4:5' as const, w: 1080, h: 1350 };
 
@@ -46,9 +46,10 @@ export default function TrendTemplatesPage() {
     setCreating(template.id);
     setCreateError(null);
     try {
+      // All trend templates are single-post templates.
       const result = await createNewProject({
         name: template.title,
-        type: template.projectType,
+        type: 'post',
         ratio: DEFAULT_RATIO,
         prompt: template.prompt,
         sourceTemplateId: template.id,
@@ -56,7 +57,7 @@ export default function TrendTemplatesPage() {
       navigate(`/workspace/${result.project.id}`, {
         state: {
           firstPrompt: template.prompt,
-          mode: template.projectType === 'carousel' ? 'carousel' : 'single',
+          mode: 'single',
           ratio: template.ratioHint ?? '4:5',
         },
       });
@@ -166,74 +167,19 @@ export default function TrendTemplatesPage() {
         {!error && filtered.length > 0 && (
           <div className="tmpl-grid">
             {filtered.map((t) => (
-              <TemplateCard
+              <TrendTemplateCard
                 key={t.id}
-                template={t}
-                isCreating={creating === t.id}
+                title={t.title}
+                label={t.category}
+                previewUrl={t.previewUrl}
+                size="md"
                 disabled={!!creating}
-                onUse={handleUseTemplate}
+                onClick={() => handleUseTemplate(t)}
               />
             ))}
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-interface TemplateCardProps {
-  template: TrendTemplateDto;
-  isCreating: boolean;
-  disabled: boolean;
-  onUse: (template: TrendTemplateDto) => void;
-}
-
-function TemplateCard({ template: t, isCreating, disabled, onUse }: TemplateCardProps) {
-  const titleColor = t.previewVariant === 'pale' ? '#1d2a30' : '#f1f4f4';
-
-  return (
-    <article className="tmpl-card">
-      {/* Preview */}
-      <div className="tmpl-preview">
-        <CardBg variant={t.previewVariant} />
-        <span className="tmpl-cat-badge">{t.category}</span>
-        <div className="tmpl-preview-title" style={{ color: titleColor }}>
-          {t.title}
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="tmpl-card-body">
-        <h3>{t.title}</h3>
-        <p className="tmpl-card-desc">{t.description}</p>
-
-        {t.assetHints.length > 0 && (
-          <ul className="tmpl-hints" aria-label="Asset hints">
-            {t.assetHints.map((hint) => (
-              <li key={hint} className="tmpl-hint">
-                {hint}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="tmpl-foot">
-          <span className="tmpl-platform-badge">
-            {t.platformHint ? `${t.platformHint} · ` : ''}{t.ratioHint ?? t.projectType}
-          </span>
-          <button
-            className="btn btn-primary btn-sm"
-            disabled={disabled}
-            onClick={() => onUse(t)}
-          >
-            {isCreating ? (
-              'Starting…'
-            ) : (
-              <><Icon.spark s={14} /> Use this prompt</>
-            )}
-          </button>
-        </div>
-      </div>
-    </article>
   );
 }
