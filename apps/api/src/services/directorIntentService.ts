@@ -22,6 +22,8 @@ export type DirectorMode = 'conversation' | 'generation' | 'edit';
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
+export type GenerationMode = 'generate_from_scratch' | 'edit_uploaded_image' | 'edit_existing_layer';
+
 export interface GenerationHint {
   /** Detected artifact type if generation mode. */
   artifactType?: 'post' | 'carousel';
@@ -29,6 +31,8 @@ export interface GenerationHint {
   requestedCardCount?: number;
   /** Raw topic extracted from the prompt. */
   rawTopic?: string;
+  /** Generation mode inferred from prompt and attached assets. */
+  generationMode?: GenerationMode;
 }
 
 export interface DirectorIntentResult {
@@ -142,11 +146,27 @@ function detectArtifactType(text: string): 'post' | 'carousel' | undefined {
   return undefined;
 }
 
+function classifyGenerationMode(text: string, hasPrimarySourceAsset: boolean): GenerationMode {
+  if (hasPrimarySourceAsset) return 'edit_uploaded_image';
+  const normalized = normalizeText(text);
+  const IMAGE_EDIT_PHRASES = [
+    'make this image',
+    'turn this image into',
+    'turn this into',
+    'stylize this image',
+    'transform this image',
+    'make this photo',
+    'make this picture',
+  ];
+  if (containsAny(normalized, IMAGE_EDIT_PHRASES)) return 'edit_uploaded_image';
+  return 'generate_from_scratch';
+}
+
 // ---------------------------------------------------------------------------
 // Main classifier
 // ---------------------------------------------------------------------------
 
-export function classifyDirectorIntent(text: string): DirectorIntentResult {
+export function classifyDirectorIntent(text: string, hasPrimarySourceAsset?: boolean): DirectorIntentResult {
   const normalized = normalizeText(text);
 
   // Empty or whitespace-only content should have been rejected by schema,
@@ -189,6 +209,7 @@ export function classifyDirectorIntent(text: string): DirectorIntentResult {
     const artifactType = detectArtifactType(normalized);
     const requestedCardCount = artifactType === 'carousel' ? extractCardCount(normalized) : undefined;
     const rawTopic = extractTopic(text);
+    const generationMode = classifyGenerationMode(text, hasPrimarySourceAsset ?? false);
 
     return {
       mode: 'generation',
@@ -200,6 +221,7 @@ export function classifyDirectorIntent(text: string): DirectorIntentResult {
         artifactType,
         requestedCardCount,
         rawTopic,
+        generationMode,
       },
     };
   }

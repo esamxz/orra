@@ -7,7 +7,8 @@ export type AIProviderErrorCode =
   | 'PROVIDER_INVALID_REQUEST'
   | 'PROVIDER_INVALID_RESPONSE'
   | 'PROVIDER_TIMEOUT'
-  | 'PROVIDER_UNAVAILABLE';
+  | 'PROVIDER_UNAVAILABLE'
+  | 'PROVIDER_CAPABILITY_UNSUPPORTED';
 
 interface AIProviderErrorOptions {
   code: AIProviderErrorCode;

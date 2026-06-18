@@ -88,10 +88,12 @@ chatRoutes.post(
     const repos = getRepositories(ctx);
     const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
     const aiProvider = buildAIProvider(c);
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, repos.artifact, aiProvider);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, repos.artifact, aiProvider, repos.asset);
     const result = await service.appendUserMessage(ctx, id, {
       content: body.content,
       selectedCardIndex: body.selectedCardIndex,
+      primarySourceAssetId: body.primarySourceAssetId,
+      sourceAssetIds: body.sourceAssetIds,
     });
     return c.json({ ok: true, data: result }, 201);
   }
@@ -140,7 +142,7 @@ chatRoutes.post(
     const repos = getRepositories(ctx);
     const memoryService = repos.projectMemory ? new ProjectMemoryService(repos.projectMemory) : undefined;
     const aiProvider = buildAIProvider(c);
-    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, undefined, aiProvider);
+    const service = new ChatService(repos.chat, repos.project, repos.brandSystem, memoryService, undefined, aiProvider, repos.asset);
     const result = await service.prepareMessage(ctx, id, messageId);
     return c.json({ ok: true, data: result }, 201);
   }

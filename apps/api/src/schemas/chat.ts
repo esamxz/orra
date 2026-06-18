@@ -12,6 +12,8 @@ export const ListMessagesQuerySchema = z.object({
 export const AppendMessageBodySchema = z.object({
   content: z.string().trim().min(1).max(8000),
   selectedCardIndex: z.number().int().min(0).optional(),
+  primarySourceAssetId: z.string().uuid().optional(),
+  sourceAssetIds: z.array(z.string().uuid()).optional(),
 });
 
 export const ApprovalActionBodySchema = z.object({

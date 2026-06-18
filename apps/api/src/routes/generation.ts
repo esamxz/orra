@@ -47,7 +47,8 @@ generationRoutes.post(
       repos.project,
       creditService,
       c.env,
-      repos.brandSystem
+      repos.brandSystem,
+      repos.asset
     );
     const job = await service.createStubGenerationJob(ctx, {
       projectId: body.projectId,

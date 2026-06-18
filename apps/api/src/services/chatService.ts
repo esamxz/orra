@@ -7,6 +7,7 @@ import type { BrandSystemRepository } from '../repositories/brandSystemRepositor
 import type { ArtifactRepository } from '../repositories/artifactRepository.js';
 import type { ChatMessageRow } from '@orra/db';
 import type { ArtifactDocument, BrandContextDto } from '@orra/shared';
+import type { AssetRepository } from '../repositories/assetRepository.js';
 import {
   classifyDirectorIntent,
   type DirectorIntentResult,
@@ -41,6 +42,10 @@ export interface AppendUserMessageRequest {
   content: string;
   /** 0-based index of the currently selected card. Used for card/text edits. */
   selectedCardIndex?: number;
+  /** Primary uploaded asset to use as the source for an image-to-image edit. */
+  primarySourceAssetId?: string;
+  /** Additional source assets referenced by the prompt. */
+  sourceAssetIds?: string[];
 }
 
 export interface EditResult {
@@ -84,6 +89,44 @@ function mapMessageRow(
   };
 }
 
+async function validateSourceAssetForProject(
+  assetRepo: AssetRepository | undefined,
+  input: { primarySourceAssetId?: string; sourceAssetIds?: string[] },
+  projectId: string,
+  workspaceId: string
+): Promise<{ primarySourceAssetId?: string; sourceAssetIds?: string[] }> {
+  if (!input.primarySourceAssetId) return {};
+  if (!assetRepo) {
+    throw new ApiError('VALIDATION', 'Asset repository not available to validate source asset.');
+  }
+
+  const asset = await assetRepo.findProjectAssetForWorkspace({
+    id: input.primarySourceAssetId,
+    projectId,
+    workspaceId,
+  });
+  if (!asset) {
+    throw new ApiError('VALIDATION', 'Selected source asset does not belong to this project.');
+  }
+
+  const allSourceIds = input.sourceAssetIds?.length ? input.sourceAssetIds : [input.primarySourceAssetId];
+  for (const assetId of allSourceIds) {
+    const exists = await assetRepo.findProjectAssetForWorkspace({
+      id: assetId,
+      projectId,
+      workspaceId,
+    });
+    if (!exists) {
+      throw new ApiError('VALIDATION', `Source asset ${assetId} does not belong to this project.`);
+    }
+  }
+
+  return {
+    primarySourceAssetId: input.primarySourceAssetId,
+    sourceAssetIds: allSourceIds,
+  };
+}
+
 export class ChatService {
   constructor(
     private chatRepo: ChatRepository,
@@ -91,7 +134,8 @@ export class ChatService {
     private brandSystemRepo?: BrandSystemRepository,
     private projectMemoryService?: ProjectMemoryService,
     private artifactRepo?: ArtifactRepository,
-    private aiProvider?: AIProvider
+    private aiProvider?: AIProvider,
+    private assetRepo?: AssetRepository
   ) {}
 
   /**
@@ -155,6 +199,14 @@ export class ChatService {
       throw new ApiError('NOT_FOUND', 'Project not found.');
     }
 
+    // Validate any referenced source assets belong to this project/workspace.
+    const validatedSourceAssets = await validateSourceAssetForProject(
+      this.assetRepo,
+      input,
+      projectId,
+      workspaceId
+    );
+
     // Ensure the thread exists (lazy creation for v1).
     const thread = await this.chatRepo.ensureThreadForProject({
       workspaceId,
@@ -167,10 +219,16 @@ export class ChatService {
       role: 'user',
       kind: 'text',
       content: input.content,
+      metadata: {
+        ...(validatedSourceAssets.primarySourceAssetId && {
+          primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
+          sourceAssetIds: validatedSourceAssets.sourceAssetIds,
+        }),
+      } as unknown as import('@orra/db').Json,
     });
 
     const message = mapMessageRow(row, projectId);
-    const intent = classifyDirectorIntent(input.content);
+    const intent = classifyDirectorIntent(input.content, !!validatedSourceAssets.primarySourceAssetId);
 
     // Fire-and-forget: update project memory from this message.
     if (this.projectMemoryService) {
@@ -313,6 +371,8 @@ export class ChatService {
         brandContext,
         projectName: project.name,
         memorySummary,
+        primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
+        sourceAssetIds: validatedSourceAssets.sourceAssetIds,
       });
 
       const approvalRow = await this.chatRepo.appendMessage({
@@ -329,6 +389,10 @@ export class ChatService {
             status: 'pending',
             updatedAt: new Date().toISOString(),
           },
+          ...(validatedSourceAssets.primarySourceAssetId && {
+            primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
+            sourceAssetIds: validatedSourceAssets.sourceAssetIds,
+          }),
         } as unknown as import('@orra/db').Json,
       });
 
@@ -686,7 +750,26 @@ export class ChatService {
 
     const content = messageRow.content ?? '';
     const message = mapMessageRow(messageRow, projectId);
-    const intent = classifyDirectorIntent(content);
+
+    // Source assets may have been stored on the original user message metadata.
+    const userMetadata = (messageRow.metadata ?? {}) as Record<string, unknown>;
+    const existingPrimarySourceAssetId = userMetadata.primarySourceAssetId as string | undefined;
+    const existingSourceAssetIds = Array.isArray(userMetadata.sourceAssetIds)
+      ? (userMetadata.sourceAssetIds as string[])
+      : undefined;
+
+    // Validate source assets still belong to this project/workspace.
+    const validatedSourceAssets = await validateSourceAssetForProject(
+      this.assetRepo,
+      {
+        primarySourceAssetId: existingPrimarySourceAssetId,
+        sourceAssetIds: existingSourceAssetIds,
+      },
+      projectId,
+      workspaceId
+    );
+
+    const intent = classifyDirectorIntent(content, !!validatedSourceAssets.primarySourceAssetId);
 
     const thread = await this.chatRepo.ensureThreadForProject({ workspaceId, projectId });
 
@@ -725,6 +808,8 @@ export class ChatService {
         brandContext,
         projectName: project.name,
         memorySummary,
+        primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
+        sourceAssetIds: validatedSourceAssets.sourceAssetIds,
       });
 
       const approvalRow = await this.chatRepo.appendMessage({
@@ -738,6 +823,10 @@ export class ChatService {
           sourceUserMessageId: message.id,
           intent,
           approvalState: { status: 'pending', updatedAt: new Date().toISOString() },
+          ...(validatedSourceAssets.primarySourceAssetId && {
+            primarySourceAssetId: validatedSourceAssets.primarySourceAssetId,
+            sourceAssetIds: validatedSourceAssets.sourceAssetIds,
+          }),
         } as unknown as import('@orra/db').Json,
       });
 

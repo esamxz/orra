@@ -100,6 +100,10 @@ export interface AppendProjectMessageInput {
   content: string;
   /** 0-based index of the currently selected card. Sent for card/text edits. */
   selectedCardIndex?: number;
+  /** Primary uploaded asset to use as the source for image-to-image edits. */
+  primarySourceAssetId?: string;
+  /** Additional source assets referenced by the prompt. */
+  sourceAssetIds?: string[];
 }
 
 export interface ListProjectMessagesParams {
@@ -115,10 +119,13 @@ export type DirectorMode = 'conversation' | 'generation' | 'edit';
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
+export type GenerationMode = 'generate_from_scratch' | 'edit_uploaded_image';
+
 export interface GenerationHint {
   artifactType?: 'post' | 'carousel';
   requestedCardCount?: number;
   rawTopic?: string;
+  generationMode?: GenerationMode;
 }
 
 export interface DirectorIntentResult {

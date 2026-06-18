@@ -260,6 +260,72 @@ describe('WorkspacePage chat persistence', () => {
     });
   });
 
+  it('sends primarySourceAssetId when an uploaded asset is selected', async () => {
+    vi.mocked(useProjectAssetsModule.useProjectAssets).mockReturnValue({
+      assets: [
+        {
+          id: 'asset-1',
+          fileName: 'photo.png',
+          kind: 'upload',
+          contentType: 'image/png',
+          sizeBytes: 1000,
+          projectId: 'proj-1',
+          brandSystemId: null,
+          workspaceId: 'ws-1',
+          status: 'uploaded',
+          createdAt: '2026-01-01',
+        },
+      ],
+      state: 'idle',
+      error: null,
+      previewUrls: { 'asset-1': 'blob://preview' },
+      reload: vi.fn(),
+      getPreviewUrl: vi.fn(),
+    } as never);
+
+    vi.mocked(useProjectMessagesModule.useProjectMessages).mockReturnValue({
+      messages: [],
+      state: 'idle',
+      error: null,
+      reload: vi.fn(),
+    });
+
+    vi.mocked(chatApi.appendProjectMessage).mockResolvedValueOnce({
+      message: {
+        id: 'msg-real',
+        projectId: 'proj-1',
+        threadId: 'thread-1',
+        role: 'user',
+        kind: 'text',
+        content: 'Make this image Minecraft style',
+        metadata: {},
+        seq: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      intent: { mode: 'generation', confidence: 'high', reason: 'Test' },
+    });
+
+    renderPage('proj-1');
+
+    // Select the asset by clicking its thumbnail
+    const thumb = screen.getByTitle(/Select for next prompt/i);
+    fireEvent.click(thumb);
+
+    const textarea = getComposerTextarea();
+    fireEvent.input(textarea, { target: { value: 'Make this image Minecraft style' } });
+    await waitFor(() => expect(textarea.value).toBe('Make this image Minecraft style'));
+    fireEvent.click(screen.getAllByRole('button', { name: /Send/i })[0]);
+
+    await waitFor(() => {
+      expect(chatApi.appendProjectMessage).toHaveBeenCalledWith('proj-1', {
+        content: 'Make this image Minecraft style',
+        selectedCardIndex: 0,
+        primarySourceAssetId: 'asset-1',
+        sourceAssetIds: ['asset-1'],
+      });
+    });
+  });
+
   it('does not send empty messages', async () => {
     vi.mocked(useProjectMessagesModule.useProjectMessages).mockReturnValue({
       messages: [],

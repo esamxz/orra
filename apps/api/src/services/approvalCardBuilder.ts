@@ -33,6 +33,10 @@ export interface BuildApprovalCardInput {
   projectName?: string;
   /** Compact project memory summary (Phase 14D). Max 120 chars shown to user. */
   memorySummary?: string | null;
+  /** Primary uploaded asset selected as the image-to-image source. */
+  primarySourceAssetId?: string;
+  /** All source assets referenced by the prompt. */
+  sourceAssetIds?: string[];
 }
 
 const DEFAULT_STYLE = 'calm, premium, focused';
@@ -52,6 +56,11 @@ function buildSummaryLine(input: BuildApprovalCardInput): string {
   const topic = hint?.rawTopic ?? extractTopicFallback(input.content, input.projectName);
   const typeLabel = hint?.artifactType === 'carousel' ? 'carousel' : 'post';
   const cardCount = hint?.requestedCardCount;
+  const isEdit = hint?.generationMode === 'edit_uploaded_image';
+
+  if (isEdit) {
+    return `Ready to edit your uploaded image: ${topic}.`;
+  }
 
   if (hint?.artifactType === 'carousel' && cardCount && cardCount > 1) {
     return `Ready to create a ${cardCount}-card ${typeLabel} about ${topic}.`;
@@ -159,6 +168,9 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
     cardCount
   );
 
+  const generationMode = input.intent.generationHint?.generationMode ?? undefined;
+  const sourceAssetCount = input.sourceAssetIds?.length ?? undefined;
+
   return {
     summaryLine,
     style,
@@ -172,5 +184,7 @@ export function buildApprovalCard(input: BuildApprovalCardInput): ApprovalCardDt
     ...(styleNotes !== undefined && { styleNotes }),
     ...(memorySummary !== undefined && { memorySummary }),
     estimatedCredits,
+    ...(generationMode !== undefined && { generationMode }),
+    ...(sourceAssetCount !== undefined && { sourceAssetCount }),
   };
 }

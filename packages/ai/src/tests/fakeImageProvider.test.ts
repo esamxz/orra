@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { FakeImageProvider } from '../providers/fakeImageProvider.js';
 import { AIProviderError } from '../errors.js';
 import type { AIProviderObserver, AIProviderObservation } from '../observability.js';
-import type { ImageGenerationRequest } from '../imageTypes.js';
+import type { ImageGenerationRequest, ImageEditRequest } from '../imageTypes.js';
 
 function makeRequest(overrides: Partial<ImageGenerationRequest> = {}): ImageGenerationRequest {
   return {
@@ -249,6 +249,69 @@ describe('FakeImageProvider', () => {
   describe('FakeImageProvider id', () => {
     it('id is "fake"', () => {
       expect(new FakeImageProvider().id).toBe('fake');
+    });
+  });
+
+  describe('editImage', () => {
+    function makeEditRequest(overrides: Partial<ImageEditRequest> = {}): ImageEditRequest {
+      return {
+        prompt: 'make this image Minecraft style',
+        image: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        mimeType: 'image/png',
+        width: 1080,
+        height: 1350,
+        ...overrides,
+      };
+    }
+
+    it('returns deterministic fake bytes with edit metadata', async () => {
+      const result = await new FakeImageProvider().editImage(makeEditRequest());
+      expect(result.provider).toBe('fake');
+      expect(result.model).toBe('fake-image-v1');
+      expect(result.mimeType).toBe('image/png');
+      expect(result.data.length).toBeGreaterThan(0);
+      expect((result.metadata as Record<string, unknown>)?.edit).toBe(true);
+      expect((result.metadata as Record<string, unknown>)?.sourceByteLength).toBe(4);
+    });
+
+    it('preserves requested width, height, and format', async () => {
+      const result = await new FakeImageProvider().editImage(makeEditRequest({ width: 800, height: 600, format: 'jpeg' }));
+      expect(result.width).toBe(800);
+      expect(result.height).toBe(600);
+      expect(result.mimeType).toBe('image/jpeg');
+    });
+
+    it('rejects an empty prompt', async () => {
+      await expect(new FakeImageProvider().editImage(makeEditRequest({ prompt: '' }))).rejects.toThrow(AIProviderError);
+      try {
+        await new FakeImageProvider().editImage(makeEditRequest({ prompt: '' }));
+      } catch (err) {
+        expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_REQUEST');
+      }
+    });
+
+    it('rejects an empty source image', async () => {
+      await expect(new FakeImageProvider().editImage(makeEditRequest({ image: new Uint8Array() }))).rejects.toThrow(AIProviderError);
+      try {
+        await new FakeImageProvider().editImage(makeEditRequest({ image: new Uint8Array() }));
+      } catch (err) {
+        expect((err as AIProviderError).code).toBe('PROVIDER_INVALID_REQUEST');
+      }
+    });
+
+    it('rejects non-positive dimensions', async () => {
+      await expect(new FakeImageProvider().editImage(makeEditRequest({ width: 0 }))).rejects.toThrow(AIProviderError);
+      await expect(new FakeImageProvider().editImage(makeEditRequest({ height: -1 }))).rejects.toThrow(AIProviderError);
+    });
+
+    it('emits editImage observations', async () => {
+      const { observer, events } = makeObserver();
+      await new FakeImageProvider(observer).editImage(makeEditRequest());
+      expect(events).toHaveLength(2);
+      expect(events[0].operation).toBe('editImage');
+      expect(events[0].status).toBe('started');
+      expect(events[1].operation).toBe('editImage');
+      expect(events[1].status).toBe('succeeded');
     });
   });
 });

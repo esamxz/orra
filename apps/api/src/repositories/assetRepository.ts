@@ -1,5 +1,5 @@
 import type { DbClient } from '../db/client.js';
-import type { ProjectAssetRow, BrandAssetRow, ProjectAssetKind, BrandAssetKind } from '@orra/db';
+import type { ProjectAssetRow, BrandAssetRow, ProjectAssetKind, BrandAssetKind, Json } from '@orra/db';
 import { mapDbError } from '../db/errors.js';
 
 // ---------------------------------------------------------------------------
@@ -15,6 +15,10 @@ export interface CreateProjectAssetInput {
   r2Key: string;
   contentType: string | null;
   sizeBytes: number | null;
+  /** Optional generation/analysis metadata stored in the asset row. */
+  analysis?: Json | null;
+  /** Optional source prompt that produced this asset. */
+  sourcePrompt?: string | null;
 }
 
 export interface CreateBrandAssetInput {
@@ -134,6 +138,8 @@ export class SupabaseAssetRepository implements AssetRepository {
         content_type: input.contentType,
         size_bytes: input.sizeBytes,
         status: 'pending_upload',
+        ...(input.analysis !== undefined && { analysis: input.analysis }),
+        ...(input.sourcePrompt !== undefined && { source_prompt: input.sourcePrompt }),
       })
       .select()
       .single();

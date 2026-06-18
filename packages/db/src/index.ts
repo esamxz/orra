@@ -38,6 +38,7 @@ export type ProjectAssetKind =
   | 'upload'
   | 'generated_background'
   | 'generated_object'
+  | 'generated_edit'
   | 'pinned_brand'
   | 'reference'
   | 'export';

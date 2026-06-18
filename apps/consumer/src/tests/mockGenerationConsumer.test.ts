@@ -6,10 +6,10 @@ import type { ArtifactRepository, ArtifactWithVersion } from '@orra/api/src/repo
 import type { ProjectMemoryRepository } from '@orra/api/src/repositories/projectMemoryRepository.js';
 import type { ChatRepository, RecentMessageRow } from '@orra/api/src/repositories/chatRepository.js';
 import type { AssetRepository } from '@orra/api/src/repositories/assetRepository.js';
-import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRow, CreditLedgerRow } from '@orra/db';
+import type { GenerationJobRow, ArtifactRow, ArtifactVersionRow, CreditBalanceRow, CreditLedgerRow, ProjectAssetRow, ChatMessageRow } from '@orra/db';
 import type { ArtifactDocument, ProjectContextMemory } from '@orra/shared';
 import { ArtifactDocumentSchema } from '@orra/shared';
-import type { AIProviderRouter, AIProvider, TextPlanResult, RecentChatMessage, CurrentArtifactSummary, ImageProviderRouter, ImageProvider, ImageGenerationResult } from '@orra/ai';
+import type { AIProviderRouter, AIProvider, TextPlanResult, RecentChatMessage, CurrentArtifactSummary, ImageProviderRouter, ImageProvider, ImageGenerationResult, ImageEditRequest } from '@orra/ai';
 import { AIProviderError, createAIProviderRouter, OpenAIImageProvider } from '@orra/ai';
 
 // ---------------------------------------------------------------------------
@@ -2800,6 +2800,7 @@ function makeRealImageRouter(generateImage: () => Promise<ImageGenerationResult>
   const provider: ImageProvider = {
     id: 'openai',
     generateImage,
+    editImage: vi.fn().mockRejectedValue(new Error('editImage not mocked for this test')),
   };
   return { getProvider: () => provider };
 }
@@ -2809,6 +2810,7 @@ function makeFakeImageRouter(): ImageProviderRouter {
     getProvider: () => ({
       id: 'fake',
       generateImage: vi.fn(),
+      editImage: vi.fn(),
     }),
   };
 }
@@ -3424,5 +3426,394 @@ describe('Visual artifact generation handoff', () => {
     // Structural proof: the only persisted version rows are artifact_versions.
     // Cards and layers live entirely inside document.cards[].
     expect(artifactRepo.getLastCommittedDocument()).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Uploaded image reference / image edit track
+// ---------------------------------------------------------------------------
+
+const SOURCE_PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const EDITED_PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0b]);
+
+function makeUploadedAssetRecord(id: string, r2Key: string): ProjectAssetRow {
+  return {
+    id,
+    workspace_id: 'ws-1',
+    project_id: 'proj-1',
+    kind: 'uploaded_asset',
+    r2_key: r2Key,
+    content_type: 'image/png',
+    size_bytes: SOURCE_PNG_BYTES.byteLength,
+    status: 'uploaded',
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+    original_filename: 'source.png',
+    analysis: null,
+    source_prompt: null,
+    content_hash: null,
+    width: null,
+    height: null,
+  } as unknown as ProjectAssetRow;
+}
+
+function makeGeneratedEditRecord(id: string, kind: ProjectAssetRow['kind']): ProjectAssetRow {
+  return {
+    id,
+    workspace_id: 'ws-1',
+    project_id: 'proj-1',
+    kind,
+    r2_key: 'ws/ws-1/projects/proj-1/assets/generated/generated-edit-0.png',
+    content_type: 'image/png',
+    size_bytes: EDITED_PNG_BYTES.byteLength,
+    status: 'pending_upload',
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+    original_filename: null,
+    analysis: null,
+    source_prompt: null,
+    content_hash: null,
+    width: null,
+    height: null,
+  } as unknown as ProjectAssetRow;
+}
+
+function makeEditR2Bucket(initial: Record<string, Uint8Array> = {}): R2Bucket & { putCalls: string[]; getCalls: string[] } {
+  const store = new Map<string, Uint8Array>(Object.entries(initial));
+  const putCalls: string[] = [];
+  const getCalls: string[] = [];
+  return {
+    putCalls,
+    getCalls,
+    get: vi.fn().mockImplementation(async (key: string) => {
+      getCalls.push(key);
+      const bytes = store.get(key);
+      if (!bytes) return null;
+      return {
+        arrayBuffer: async () => bytes.buffer,
+      };
+    }),
+    put: vi.fn().mockImplementation(async (key: string, value: unknown) => {
+      putCalls.push(key);
+      store.set(key, value as Uint8Array);
+      return undefined;
+    }),
+  } as unknown as R2Bucket & { putCalls: string[]; getCalls: string[] };
+}
+
+function makeEditImageRouter(editImage: (req: ImageEditRequest) => Promise<ImageGenerationResult>): ImageProviderRouter {
+  const provider: ImageProvider = {
+    id: 'openai',
+    generateImage: vi.fn().mockRejectedValue(new Error('generateImage not mocked for edit test')),
+    editImage,
+  };
+  return { getProvider: () => provider };
+}
+
+function makeEditAssetRepo(sourceAsset: ProjectAssetRow, generatedAssetId: string): AssetRepository & { createdAssets: Array<{ kind: ProjectAssetRow['kind']; analysis?: import('@orra/db').Json | null; sourcePrompt?: string | null }> } {
+  const generatedRecord = makeGeneratedEditRecord(generatedAssetId, 'generated_edit');
+  const createdAssets: Array<{ kind: ProjectAssetRow['kind']; analysis?: import('@orra/db').Json | null; sourcePrompt?: string | null }> = [];
+  return {
+    createdAssets,
+    createProjectAsset: vi.fn().mockImplementation(async (input) => {
+      createdAssets.push({ kind: input.kind, analysis: input.analysis ?? null, sourcePrompt: input.sourcePrompt ?? null });
+      return {
+        ...generatedRecord,
+        id: generatedAssetId,
+        r2_key: input.r2Key,
+        content_type: input.contentType,
+        size_bytes: input.sizeBytes,
+        analysis: input.analysis ?? null,
+        source_prompt: input.sourcePrompt ?? null,
+      } as ProjectAssetRow;
+    }),
+    findProjectAssetForWorkspace: vi.fn().mockResolvedValue(sourceAsset),
+    markProjectAssetUploaded: vi.fn().mockImplementation(async (input) => ({ ...generatedRecord, id: input.id, status: 'uploaded' } as ProjectAssetRow)),
+  } as unknown as AssetRepository & { createdAssets: Array<{ kind: ProjectAssetRow['kind']; analysis?: import('@orra/db').Json | null; sourcePrompt?: string | null }> };
+}
+
+function makeEditJob(sourceAssetId: string, overrides?: Partial<GenerationJobRow>): GenerationJobRow {
+  return makeJob('queued', {
+    reserved_credits: 5,
+    plan: {
+      approvalMessageId: 'approval-1',
+      summaryLine: 'Ready to edit your uploaded image.',
+      generationMode: 'edit_uploaded_image',
+      primarySourceAssetId: sourceAssetId,
+      sourceAssetIds: [sourceAssetId],
+    } as unknown as import('@orra/db').Json,
+    ...overrides,
+  });
+}
+
+function createEditChatRepo(userContent: string): ChatRepository {
+  const approvalRow = {
+    id: 'approval-1',
+    thread_id: 'thread-1',
+    role: 'assistant',
+    kind: 'approval_summary',
+    content: 'Ready to edit your uploaded image.',
+    metadata: { sourceUserMessageId: 'user-1' } as import('@orra/db').Json,
+    seq: 2,
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+  };
+  const userRow = {
+    id: 'user-1',
+    thread_id: 'thread-1',
+    role: 'user',
+    kind: 'chat',
+    content: userContent,
+    metadata: {} as import('@orra/db').Json,
+    seq: 1,
+    created_at: '2026-01-01',
+    updated_at: '2026-01-01',
+  };
+  return {
+    async ensureThreadForProject() { throw new Error('not used'); },
+    async findThreadByProjectId() { throw new Error('not used'); },
+    async listMessagesByThread() { throw new Error('not used'); },
+    async listRecentMessagesForProject() { return []; },
+    async appendMessage() { throw new Error('not used'); },
+    async findMessageByIdForProject(input) {
+      if (input.messageId === 'approval-1') return approvalRow as unknown as ChatMessageRow;
+      if (input.messageId === 'user-1') return userRow as unknown as ChatMessageRow;
+      return null;
+    },
+    async updateMessageMetadata() { throw new Error('not used'); },
+  } as ChatRepository;
+}
+
+describe('Uploaded image reference / image edit track', () => {
+  it('edit_uploaded_image loads source bytes from R2 and calls provider.editImage', async () => {
+    const sourceAssetId = 'uploaded-asset-1';
+    const r2Key = 'ws/ws-1/projects/proj-1/assets/uploaded/source.png';
+    const sourceAsset = makeUploadedAssetRecord(sourceAssetId, r2Key);
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+    const job = makeEditJob(sourceAssetId);
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+    const r2Bucket = makeEditR2Bucket({ [r2Key]: SOURCE_PNG_BYTES });
+    const assetRepo = makeEditAssetRepo(sourceAsset, 'aaaabbbb-cccc-dddd-eeee-000000000007');
+    const editImage = vi.fn().mockResolvedValue({
+      provider: 'openai',
+      model: 'gpt-image-2',
+      mimeType: 'image/png',
+      data: EDITED_PNG_BYTES,
+    } as ImageGenerationResult);
+    const imageRouter = makeEditImageRouter(editImage);
+    const chatRepo = createEditChatRepo('make this image Minecraft style');
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, chatRepo,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+
+    // Source bytes loaded from R2
+    expect(r2Bucket.getCalls).toContain(r2Key);
+
+    // editImage called with source bytes and raw instruction
+    expect(editImage).toHaveBeenCalledTimes(1);
+    const editRequest = editImage.mock.calls[0][0] as ImageEditRequest;
+    expect(editRequest.prompt).toBe('make this image Minecraft style');
+    expect(editRequest.image).toEqual(SOURCE_PNG_BYTES);
+    expect(editRequest.mimeType).toBe('image/png');
+  });
+
+  it('edit_uploaded_image creates generated_edit asset and attaches editable image layer', async () => {
+    const sourceAssetId = 'uploaded-asset-2';
+    const r2Key = 'ws/ws-1/projects/proj-1/assets/uploaded/source.png';
+    const sourceAsset = makeUploadedAssetRecord(sourceAssetId, r2Key);
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+    const job = makeEditJob(sourceAssetId);
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+    const r2Bucket = makeEditR2Bucket({ [r2Key]: SOURCE_PNG_BYTES });
+    const assetRepo = makeEditAssetRepo(sourceAsset, 'aaaabbbb-cccc-dddd-eeee-000000000008');
+    const editImage = vi.fn().mockResolvedValue({
+      provider: 'openai',
+      model: 'gpt-image-2',
+      mimeType: 'image/png',
+      data: EDITED_PNG_BYTES,
+    } as ImageGenerationResult);
+    const imageRouter = makeEditImageRouter(editImage);
+    const chatRepo = createEditChatRepo('make this image Minecraft style');
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, chatRepo,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('succeeded');
+
+    // Asset created with correct kind and source relationship in analysis
+    expect(assetRepo.createdAssets).toHaveLength(1);
+    expect(assetRepo.createdAssets[0].kind).toBe('generated_edit');
+    expect(assetRepo.createdAssets[0].analysis).toMatchObject({ generationMode: 'edit_uploaded_image', sourceAssetId });
+    expect(assetRepo.createdAssets[0].sourcePrompt).toBe('make this image Minecraft style');
+
+    // R2 upload under generated-edit prefix
+    expect(r2Bucket.putCalls.some(k => k.includes('generated-edit-0.png'))).toBe(true);
+
+    // Artifact committed with editable image layer referencing the new asset
+    const committed = artifactRepo.getLastCommittedDocument() as unknown as ArtifactDocument;
+    const imageLayers = committed.cards.flatMap(c => c.layers).filter(l => l.type === 'image');
+    expect(imageLayers.length).toBe(1);
+    expect((imageLayers[0] as { assetId?: string }).assetId).toBe('aaaabbbb-cccc-dddd-eeee-000000000008');
+    expect((imageLayers[0] as { fit?: string }).fit).toBe('contain');
+  });
+
+  it('edit_uploaded_image fails safely when source asset is missing', async () => {
+    const sourceAssetId = 'uploaded-asset-missing';
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+    const job = makeEditJob(sourceAssetId);
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+    const r2Bucket = makeEditR2Bucket();
+    const assetRepo = makeEditAssetRepo(makeUploadedAssetRecord(sourceAssetId, 'n/a'), 'aaaabbbb-cccc-dddd-eeee-000000000009');
+    assetRepo.findProjectAssetForWorkspace = vi.fn().mockResolvedValue(null);
+
+    const imageRouter = makeEditImageRouter(vi.fn().mockRejectedValue(new Error('should not be called')));
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await consumer.processMessage({ jobId: 'job-1' });
+    errorSpy.mockRestore();
+
+    const jobAfter = await jobRepo.findById('job-1');
+    expect(jobAfter!.status).toBe('failed');
+
+    // No R2 upload, no artifact commit
+    expect(r2Bucket.putCalls).toHaveLength(0);
+    expect(artifactRepo.getLastCommittedDocument()).toBeNull();
+
+    // Credits refunded
+    const refundEntries = creditRepo.ledger.filter(l => l.entry_type === 'refund');
+    expect(refundEntries.length).toBeGreaterThan(0);
+  });
+
+  it('edit_uploaded_image falls back to summary line when chat repo cannot resolve user instruction', async () => {
+    const sourceAssetId = 'uploaded-asset-3';
+    const r2Key = 'ws/ws-1/projects/proj-1/assets/uploaded/source.png';
+    const sourceAsset = makeUploadedAssetRecord(sourceAssetId, r2Key);
+    const artifact: ArtifactRow = {
+      id: '11111111-1111-1111-1111-111111111111',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      current_version_id: 'ver-1',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const version: ArtifactVersionRow = {
+      id: 'ver-1',
+      workspace_id: 'ws-1',
+      artifact_id: '11111111-1111-1111-1111-111111111111',
+      version: 1,
+      document: makeEmptyDocument('post') as unknown as ArtifactVersionRow['document'],
+      reason: 'manual_checkpoint',
+      created_by: 'user',
+      brand_context_snapshot: null,
+      created_at: '2026-01-01',
+    };
+    const job = makeEditJob(sourceAssetId);
+    const jobRepo = createFakeJobRepository([job]);
+    const artifactRepo = createFakeArtifactRepository(artifact, version);
+    const creditRepo = makeBalanceRepo();
+    const r2Bucket = makeEditR2Bucket({ [r2Key]: SOURCE_PNG_BYTES });
+    const assetRepo = makeEditAssetRepo(sourceAsset, 'aaaabbbb-cccc-dddd-eeee-000000000010');
+    const editImage = vi.fn().mockResolvedValue({
+      provider: 'openai',
+      model: 'gpt-image-2',
+      mimeType: 'image/png',
+      data: EDITED_PNG_BYTES,
+    } as ImageGenerationResult);
+    const imageRouter = makeEditImageRouter(editImage);
+
+    const consumer = new MockGenerationConsumer(
+      jobRepo, artifactRepo, creditRepo,
+      createAIProviderRouter(),
+      undefined, undefined,
+      imageRouter, assetRepo as unknown as AssetRepository, r2Bucket as unknown as R2Bucket,
+    );
+
+    await consumer.processMessage({ jobId: 'job-1' });
+
+    const editRequest = editImage.mock.calls[0][0] as ImageEditRequest;
+    expect(editRequest.prompt).toBe('Ready to edit your uploaded image.');
   });
 });

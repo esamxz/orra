@@ -5,6 +5,7 @@ import type { GenerationJobRepository } from '../repositories/generationJobRepos
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
+import type { AssetRepository } from '../repositories/assetRepository.js';
 import type { CreditService } from './creditService.js';
 import type { GenerationJobRow } from '@orra/db';
 import type { Env } from '../env.js';
@@ -180,7 +181,8 @@ export class GenerationService {
     private projectRepo: ProjectRepository,
     private creditService: CreditService,
     private env?: Env,
-    private brandSystemRepo?: BrandSystemRepository
+    private brandSystemRepo?: BrandSystemRepository,
+    private assetRepo?: AssetRepository
   ) {}
 
   /**
@@ -247,6 +249,7 @@ export class GenerationService {
     const hint = intent?.generationHint as Record<string, unknown> | undefined;
     const artifactType = hint?.artifactType as string | undefined;
     const metaCardCount = hint?.requestedCardCount as number | undefined;
+    const generationMode = hint?.generationMode as string | undefined;
     const effectiveProjectType =
       project.type === 'carousel' || artifactType === 'carousel'
         ? 'carousel'
@@ -256,6 +259,36 @@ export class GenerationService {
       input.generationScope ?? 'full_artifact',
       metaCardCount
     );
+
+    // Validate source assets referenced by the approval message.
+    const primarySourceAssetId = metadata.primarySourceAssetId as string | undefined;
+    const sourceAssetIds = Array.isArray(metadata.sourceAssetIds)
+      ? (metadata.sourceAssetIds as string[])
+      : undefined;
+    if (primarySourceAssetId) {
+      if (!this.assetRepo) {
+        throw new ApiError('VALIDATION', 'Asset repository not available to validate source asset.');
+      }
+      const asset = await this.assetRepo.findProjectAssetForWorkspace({
+        id: primarySourceAssetId,
+        projectId: input.projectId,
+        workspaceId,
+      });
+      if (!asset) {
+        throw new ApiError('VALIDATION', 'Source asset does not belong to this project.');
+      }
+      const allSourceIds = sourceAssetIds?.length ? sourceAssetIds : [primarySourceAssetId];
+      for (const assetId of allSourceIds) {
+        const exists = await this.assetRepo.findProjectAssetForWorkspace({
+          id: assetId,
+          projectId: input.projectId,
+          workspaceId,
+        });
+        if (!exists) {
+          throw new ApiError('VALIDATION', `Source asset ${assetId} does not belong to this project.`);
+        }
+      }
+    }
 
     // 6. Load brand context if the project has a brand system.
     const brandContext = await loadBrandContextForJob(
@@ -280,6 +313,11 @@ export class GenerationService {
         brandContext,
         generationScope: input.generationScope ?? 'full_artifact',
         ...(input.targetCardId !== undefined && { targetCardId: input.targetCardId }),
+        ...(generationMode !== undefined && { generationMode }),
+        ...(primarySourceAssetId !== undefined && {
+          primarySourceAssetId,
+          sourceAssetIds: sourceAssetIds ?? [primarySourceAssetId],
+        }),
       } as unknown as import('@orra/db').Json,
     });
 

@@ -17,3 +17,17 @@ export function base64ToUint8Array(data: string, provider: string): Uint8Array {
     });
   }
 }
+
+/**
+ * Encode a Uint8Array to a base64 string.
+ *
+ * Works in Cloudflare Workers, Vitest/Node, and browser environments.
+ */
+export function uint8ArrayToBase64(data: Uint8Array): string {
+  let binary = '';
+  const len = data.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(data[i]);
+  }
+  return btoa(binary);
+}

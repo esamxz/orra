@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { OpenAIImageProvider } from '../providers/openAIImageProvider.js';
 import { AIProviderError } from '../errors.js';
+import type { ImageEditRequest } from '../imageTypes.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,6 +26,18 @@ function makeImageRequest(overrides?: Partial<{ prompt: string; width: number; h
     prompt: 'A serene mountain landscape at dawn',
     width: 1080,
     height: 1350,
+    ...overrides,
+  };
+}
+
+function makeEditRequest(overrides?: Partial<ImageEditRequest>): ImageEditRequest {
+  return {
+    prompt: 'make this image Minecraft style',
+    image: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    mimeType: 'image/png',
+    width: 1080,
+    height: 1350,
+    format: 'png',
     ...overrides,
   };
 }
@@ -387,6 +400,162 @@ describe('OpenAIImageProvider — generateImage', () => {
     ).rejects.toSatisfy((err: unknown) => {
       return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_REQUEST';
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// editImage tests
+// ---------------------------------------------------------------------------
+
+describe('OpenAIImageProvider — editImage', () => {
+  it('posts multipart to /v1/images/edits', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn });
+    mockFetch(fetchFn, makeImageApiResponse());
+
+    await provider.editImage(makeEditRequest());
+
+    const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/images/edits');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeInstanceOf(FormData);
+  });
+
+  it('sends source image as a Blob with original mimeType', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn });
+    mockFetch(fetchFn, makeImageApiResponse());
+
+    await provider.editImage(makeEditRequest({ mimeType: 'image/png' }));
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const form = init.body as FormData;
+    const imageEntry = Array.from(form.entries()).find(([key]) => key === 'image');
+    expect(imageEntry).toBeDefined();
+    const blob = imageEntry![1] as Blob;
+    expect(blob.type).toBe('image/png');
+    const buffer = await blob.arrayBuffer();
+    expect(new Uint8Array(buffer)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+  });
+
+  it('sends model, prompt, and size in FormData', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn, size: '1024x1536' });
+    mockFetch(fetchFn, makeImageApiResponse());
+
+    await provider.editImage(makeEditRequest());
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const form = init.body as FormData;
+    const entries = Array.from(form.entries()).map(([key, value]) => ({
+      key,
+      value: typeof value === 'string' ? value : (value as Blob).type,
+    }));
+    expect(entries).toContainEqual({ key: 'model', value: FAKE_MODEL });
+    expect(entries).toContainEqual({ key: 'prompt', value: 'make this image Minecraft style' });
+    expect(entries).toContainEqual({ key: 'size', value: '1024x1536' });
+  });
+
+  it('does not set Content-Type header so fetch can add multipart boundary', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn });
+    mockFetch(fetchFn, makeImageApiResponse());
+
+    await provider.editImage(makeEditRequest());
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBeUndefined();
+    expect(headers['Authorization']).toBe(`Bearer ${FAKE_KEY}`);
+  });
+
+  it('returns ImageGenerationResult from b64_json response', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn });
+    mockFetch(fetchFn, makeImageApiResponse());
+
+    const result = await provider.editImage(makeEditRequest());
+    expect(result.provider).toBe('openai');
+    expect(result.model).toBe(FAKE_MODEL);
+    expect(result.mimeType).toBe('image/png');
+    expect(result.data).toBeInstanceOf(Uint8Array);
+    expect(result.data.length).toBeGreaterThan(0);
+  });
+
+  it('throws PROVIDER_INVALID_REQUEST for empty prompt', async () => {
+    const provider = makeProvider();
+    await expect(provider.editImage({ ...makeEditRequest(), prompt: '' })).rejects.toSatisfy((err: unknown) => {
+      return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_REQUEST';
+    });
+  });
+
+  it('throws PROVIDER_INVALID_REQUEST for empty source image', async () => {
+    const provider = makeProvider();
+    await expect(provider.editImage({ ...makeEditRequest(), image: new Uint8Array() })).rejects.toSatisfy((err: unknown) => {
+      return err instanceof AIProviderError && err.code === 'PROVIDER_INVALID_REQUEST';
+    });
+  });
+
+  it('maps HTTP 400 to safe rejected message without leaking prompt/key/response', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn });
+    mockFetch(fetchFn, { error: { message: 'Invalid image edit request' } }, 400);
+
+    let caught: AIProviderError | undefined;
+    try {
+      await provider.editImage(makeEditRequest());
+    } catch (err) {
+      if (err instanceof AIProviderError) caught = err;
+    }
+
+    expect(caught).toBeDefined();
+    expect(caught!.code).toBe('PROVIDER_HTTP_ERROR');
+    expect(caught!.retryable).toBe(false);
+    expect(caught!.message).toContain('edit');
+    expect(caught!.message).not.toContain(FAKE_KEY);
+    expect(caught!.message).not.toContain('Minecraft');
+    expect(caught!.message).not.toContain('Invalid image edit request');
+  });
+
+  it('maps HTTP 429 to PROVIDER_RATE_LIMITED with retryable: true', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn });
+    mockFetch(fetchFn, { error: 'rate limited' }, 429);
+
+    await expect(provider.editImage(makeEditRequest())).rejects.toSatisfy((err: unknown) => {
+      return err instanceof AIProviderError && err.code === 'PROVIDER_RATE_LIMITED' && err.retryable === true;
+    });
+  });
+
+  it('maps AbortError to PROVIDER_TIMEOUT with configured timeout message', async () => {
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn, timeoutMs: 5000 });
+    mockFetchError(fetchFn, 'AbortError', 'The operation was aborted');
+
+    await expect(provider.editImage(makeEditRequest())).rejects.toSatisfy((err: unknown) => {
+      return (
+        err instanceof AIProviderError &&
+        err.code === 'PROVIDER_TIMEOUT' &&
+        err.retryable === true &&
+        err.message.includes('5000ms')
+      );
+    });
+  });
+
+  it('emits editImage observations without prompt or raw bytes', async () => {
+    const events: import('../observability.js').AIProviderObservation[] = [];
+    const observer: import('../observability.js').AIProviderObserver = { observe: (e) => events.push(e) };
+    const fetchFn = vi.fn();
+    const provider = makeProvider({ fetch: fetchFn, observer });
+    mockFetch(fetchFn, makeImageApiResponse());
+
+    await provider.editImage(makeEditRequest());
+    expect(events).toHaveLength(2);
+    expect(events[0].operation).toBe('editImage');
+    expect(events[1].operation).toBe('editImage');
+    const allEvents = JSON.stringify(events);
+    expect(allEvents).not.toContain('Minecraft');
+    expect(allEvents).not.toContain(FAKE_KEY);
   });
 });
 

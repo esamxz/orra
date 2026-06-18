@@ -12,6 +12,12 @@ export const RatioSchema = z.object({
   h: z.number().int().positive(),
 });
 
+export const GenerationModeSchema = z.enum([
+  'generate_from_scratch',
+  'edit_uploaded_image',
+  'edit_existing_layer',
+]);
+
 export const BoxSchema = z.object({
   x: z.number(),
   y: z.number(),
@@ -200,6 +206,9 @@ export const ApprovalCardSchema = z.object({
   memorySummary: z.string().max(120).optional(),
   // W8: estimated credit cost for the full generation action (not per card).
   estimatedCredits: z.number().int().nonnegative().optional(),
+  // Image-edit track: surfaced when the prompt references an uploaded image.
+  generationMode: GenerationModeSchema.optional(),
+  sourceAssetCount: z.number().int().min(0).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -306,6 +315,7 @@ export type ApprovalStateStatus = z.infer<typeof ApprovalStateStatusSchema>;
 export type ApprovalState = z.infer<typeof ApprovalStateSchema>;
 export type RatioName = z.infer<typeof RatioNameSchema>;
 export type Ratio = z.infer<typeof RatioSchema>;
+export type GenerationMode = z.infer<typeof GenerationModeSchema>;
 export type Box = z.infer<typeof BoxSchema>;
 export type Crop = z.infer<typeof CropSchema>;
 export type Anchor = z.infer<typeof AnchorSchema>;

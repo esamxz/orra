@@ -19,6 +19,7 @@ export type {
   ImageOutputFormat,
   ImageGenerationRequest,
   ImageGenerationResult,
+  ImageEditRequest,
   ImageProvider,
 } from './imageTypes.js';
 

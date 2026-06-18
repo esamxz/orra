@@ -1,4 +1,4 @@
-import type { ImageProvider, ImageGenerationRequest, ImageGenerationResult } from '../imageTypes.js';
+import type { ImageProvider, ImageGenerationRequest, ImageGenerationResult, ImageEditRequest } from '../imageTypes.js';
 import { AIProviderError } from '../errors.js';
 import type { AIProviderObserver } from '../observability.js';
 import { NoopAIProviderObserver } from '../observability.js';
@@ -168,6 +168,30 @@ export class FluxImageProvider implements ImageProvider {
       });
       throw err;
     }
+  }
+
+  async editImage(_request: ImageEditRequest): Promise<ImageGenerationResult> {
+    const t0 = Date.now();
+    this.observer.observe({
+      provider: 'flux',
+      operation: 'editImage',
+      status: 'started',
+      model: this.model,
+    });
+    this.observer.observe({
+      provider: 'flux',
+      operation: 'editImage',
+      status: 'failed',
+      durationMs: Date.now() - t0,
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+      retryable: false,
+    });
+    throw new AIProviderError({
+      code: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+      provider: 'flux',
+      message: 'FLUX does not support image-to-image edits',
+      retryable: false,
+    });
   }
 
   // -------------------------------------------------------------------------

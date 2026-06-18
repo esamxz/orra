@@ -37,7 +37,20 @@ export interface ImageGenerationResult {
   metadata?: Record<string, unknown>;
 }
 
+export interface ImageEditRequest {
+  prompt: string;
+  image: Uint8Array;
+  mimeType: string;
+  mask?: Uint8Array;
+  maskMimeType?: string;
+  width: number;
+  height: number;
+  format?: ImageOutputFormat;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ImageProvider {
   readonly id: string;
   generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult>;
+  editImage(request: ImageEditRequest): Promise<ImageGenerationResult>;
 }

@@ -113,6 +113,7 @@ export default function WorkspacePage() {
   const [actingMessageId, setActingMessageId] = useState<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | undefined>(undefined);
   const [approvedMessageId, setApprovedMessageId] = useState<string | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const lastIntentRef = useRef<DirectorIntentResult | null>(null);
 
   const projectAssetUpload = useAssetUpload();
@@ -532,6 +533,10 @@ export default function WorkspacePage() {
         const saved = await appendProjectMessage(projectId, {
           content: text,
           selectedCardIndex: activeCardIndex,
+          ...(selectedAssetId && {
+            primarySourceAssetId: selectedAssetId,
+            sourceAssetIds: [selectedAssetId],
+          }),
         });
         // If the response includes an edit result, apply it to the in-memory document.
         if (saved.editResult) {
@@ -548,6 +553,7 @@ export default function WorkspacePage() {
         });
         lastIntentRef.current = saved.intent;
         setSendState('idle');
+        setSelectedAssetId(null);
         reloadMemory();
       } catch (err) {
         setRealMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -1167,51 +1173,60 @@ export default function WorkspacePage() {
                 Project assets
               </div>
               <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
-                {projectAssets.assets.map((asset) => (
-                  <div key={asset.id} style={{ flex: 'none', width: 72, textAlign: 'center' }}>
-                    {projectAssets.previewUrls[asset.id] ? (
-                      <img
-                        src={projectAssets.previewUrls[asset.id]}
-                        alt={asset.fileName}
-                        style={{ width: 72, height: 56, borderRadius: 6, objectFit: 'cover', display: 'block' }}
-                      />
-                    ) : (
+                {projectAssets.assets.map((asset) => {
+                  const isSelected = selectedAssetId === asset.id;
+                  return (
+                    <div key={asset.id} style={{ flex: 'none', width: 72, textAlign: 'center' }}>
                       <button
                         className="btn-icon"
                         style={{
                           width: 72,
                           height: 56,
                           borderRadius: 6,
-                          background: 'var(--inset)',
+                          background: projectAssets.previewUrls[asset.id] ? 'transparent' : 'var(--inset)',
                           color: 'var(--muted)',
                           fontSize: 10,
                           cursor: asset.status === 'uploaded' ? 'pointer' : 'default',
+                          border: isSelected ? '2px solid var(--accent, #5e7680)' : '2px solid transparent',
+                          padding: 0,
+                          overflow: 'hidden',
                         }}
                         onClick={() => {
-                          if (asset.status === 'uploaded') {
+                          if (asset.status !== 'uploaded') return;
+                          setSelectedAssetId(asset.id);
+                          if (!projectAssets.previewUrls[asset.id]) {
                             projectAssets.getPreviewUrl(asset.id);
                           }
                         }}
-                        title={asset.status === 'uploaded' ? 'Load preview' : 'Upload pending'}
+                        title={isSelected ? 'Selected for next prompt' : asset.status === 'uploaded' ? 'Select for next prompt' : 'Upload pending'}
                       >
-                        {asset.status === 'uploaded' ? 'IMG' : '…'}
+                        {projectAssets.previewUrls[asset.id] ? (
+                          <img
+                            src={projectAssets.previewUrls[asset.id]}
+                            alt={asset.fileName}
+                            style={{ width: 72, height: 56, borderRadius: 4, objectFit: 'cover', display: 'block' }}
+                          />
+                        ) : (
+                          asset.status === 'uploaded' ? 'IMG' : '…'
+                        )}
                       </button>
-                    )}
-                    <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 72 }}>
-                      {asset.fileName}
+                      <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 72 }}>
+                        {asset.fileName}
+                        {isSelected && <span style={{ display: 'block', color: 'var(--accent, #a4b7bd)' }}>Selected</span>}
+                      </div>
+                      {asset.status === 'uploaded' && (
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          style={{ marginTop: 4, fontSize: 10, height: 22, padding: '0 6px' }}
+                          onClick={() => handleInsertAsset(asset.id)}
+                          title="Insert into canvas"
+                        >
+                          Insert
+                        </button>
+                      )}
                     </div>
-                    {asset.status === 'uploaded' && (
-                      <button
-                        className="btn btn-ghost btn-xs"
-                        style={{ marginTop: 4, fontSize: 10, height: 22, padding: '0 6px' }}
-                        onClick={() => handleInsertAsset(asset.id)}
-                        title="Insert into canvas"
-                      >
-                        Insert
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1230,6 +1245,32 @@ export default function WorkspacePage() {
               </div>
             )}
             <div className="composer-box">
+              {selectedAssetId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 0' }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 11.5,
+                      color: 'var(--text)',
+                      background: 'rgba(94,118,128,0.18)',
+                      borderRadius: 12,
+                      padding: '3px 8px',
+                    }}
+                  >
+                    {<Icon.image s={12} />}
+                    {projectAssets.assets.find((a) => a.id === selectedAssetId)?.fileName ?? 'Image'}
+                    <button
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
+                      onClick={() => setSelectedAssetId(null)}
+                      title="Remove attached image"
+                    >
+                      {<Icon.x s={12} />}
+                    </button>
+                  </span>
+                </div>
+              )}
               <textarea ref={taRef} rows={1} placeholder="Direct Orra — describe or refine…"
                 value={input}
                 disabled={sendState === 'sending'}

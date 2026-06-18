@@ -54,6 +54,11 @@ function makeProvider(
 
 const VALID_REQUEST = { prompt: 'a calm blue ocean background', width: 1080, height: 1080 };
 
+function captureObserver(): { events: AIProviderObservation[]; observer: AIProviderObserver } {
+  const events: AIProviderObservation[] = [];
+  return { events, observer: { observe: (e) => events.push(e) } };
+}
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -375,11 +380,6 @@ describe('GeminiImageProvider — response parsing', () => {
 // ---------------------------------------------------------------------------
 
 describe('GeminiImageProvider — observer privacy', () => {
-  function captureObserver(): { events: AIProviderObservation[]; observer: AIProviderObserver } {
-    const events: AIProviderObservation[] = [];
-    return { events, observer: { observe: (e) => events.push(e) } };
-  }
-
   it('emits started event with no API key', async () => {
     const { events, observer } = captureObserver();
     const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse());
@@ -418,6 +418,100 @@ describe('GeminiImageProvider — observer privacy', () => {
     await p.generateImage({ prompt: sensitivePrompt, width: 100, height: 100 });
     const allEvents = JSON.stringify(events);
     expect(allEvents).not.toContain(sensitivePrompt);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Image edit (image-to-image)
+// ---------------------------------------------------------------------------
+
+const VALID_EDIT_REQUEST = {
+  prompt: 'make this image Minecraft style',
+  image: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+  mimeType: 'image/png',
+  width: 1080,
+  height: 1080,
+};
+
+describe('GeminiImageProvider — editImage', () => {
+  it('sends inline source image plus text prompt in multipart contents', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse());
+    const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
+    await p.editImage(VALID_EDIT_REQUEST);
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      contents: [{ parts: Array<{ inlineData?: { mimeType: string; data: string }; text?: string }> }];
+      generationConfig: { responseModalities: string[] };
+    };
+    const parts = body.contents[0].parts;
+    const imagePart = parts.find((part) => part.inlineData);
+    const textPart = parts.find((part) => part.text);
+    expect(imagePart?.inlineData?.mimeType).toBe('image/png');
+    expect(imagePart?.inlineData?.data).toBe(btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47)));
+    expect(textPart?.text).toBe('make this image Minecraft style');
+    expect(body.generationConfig.responseModalities).toContain('IMAGE');
+  });
+
+  it('returns ImageGenerationResult from inline image response', async () => {
+    const bytes = [0x89, 0x50, 0x4e, 0x47];
+    const base64 = btoa(String.fromCharCode(...bytes));
+    const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse('image/png', base64));
+    const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
+    const result = await p.editImage(VALID_EDIT_REQUEST);
+    expect(result.provider).toBe('gemini');
+    expect(result.mimeType).toBe('image/png');
+    expect(Array.from(result.data)).toEqual(bytes);
+  });
+
+  it('throws PROVIDER_INVALID_REQUEST for empty prompt', async () => {
+    const p = makeProvider();
+    await expect(p.editImage({ ...VALID_EDIT_REQUEST, prompt: '' })).rejects.toMatchObject({
+      code: 'PROVIDER_INVALID_REQUEST',
+      provider: 'gemini',
+    });
+  });
+
+  it('throws PROVIDER_INVALID_REQUEST for empty source image', async () => {
+    const p = makeProvider();
+    await expect(p.editImage({ ...VALID_EDIT_REQUEST, image: new Uint8Array() })).rejects.toMatchObject({
+      code: 'PROVIDER_INVALID_REQUEST',
+      provider: 'gemini',
+    });
+  });
+
+  it('emits editImage observations without source bytes or prompt text', async () => {
+    const { events, observer } = captureObserver();
+    const mockFetch = vi.fn().mockResolvedValue(makeSuccessResponse());
+    const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch, observer });
+    await p.editImage(VALID_EDIT_REQUEST);
+    expect(events[0].operation).toBe('editImage');
+    expect(events[0].status).toBe('started');
+    expect(events[1].operation).toBe('editImage');
+    expect(events[1].status).toBe('succeeded');
+    const allEvents = JSON.stringify(events);
+    expect(allEvents).not.toContain('Minecraft');
+    expect(allEvents).not.toContain('89,50,4e,47');
+    expect(allEvents).not.toContain(FAKE_KEY);
+  });
+
+  it('throws PROVIDER_UNAVAILABLE on network error', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch });
+    await expect(p.editImage(VALID_EDIT_REQUEST)).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+      provider: 'gemini',
+      retryable: true,
+    });
+  });
+
+  it('throws PROVIDER_TIMEOUT on AbortError', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    const p = new GeminiImageProvider({ apiKey: FAKE_KEY, baseUrl: 'https://gemini.test', fetch: mockFetch, timeoutMs: 100 });
+    await expect(p.editImage(VALID_EDIT_REQUEST)).rejects.toMatchObject({
+      code: 'PROVIDER_TIMEOUT',
+      provider: 'gemini',
+      retryable: true,
+    });
   });
 });
 

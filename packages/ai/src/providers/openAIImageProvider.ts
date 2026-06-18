@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ImageProvider, ImageGenerationRequest, ImageGenerationResult } from '../imageTypes.js';
+import type { ImageProvider, ImageGenerationRequest, ImageGenerationResult, ImageEditRequest } from '../imageTypes.js';
 import { AIProviderError } from '../errors.js';
 import type { AIProviderObserver } from '../observability.js';
 import { NoopAIProviderObserver } from '../observability.js';
@@ -111,6 +111,48 @@ function mapImageHttpError(status: number, model: string): AIProviderError {
     code: 'PROVIDER_HTTP_ERROR',
     provider: 'openai',
     message: `OpenAI image returned HTTP ${status}`,
+    retryable: status >= 500,
+  });
+}
+
+// Maps OpenAI image edit HTTP status codes to typed AIProviderError codes.
+function mapEditHttpError(status: number, model: string): AIProviderError {
+  if (status === 400) {
+    return new AIProviderError({
+      code: 'PROVIDER_HTTP_ERROR',
+      provider: 'openai',
+      message: 'OpenAI image edit request was rejected. Check image/model configuration.',
+      retryable: false,
+    });
+  }
+  if (status === 401 || status === 403) {
+    return new AIProviderError({
+      code: 'PROVIDER_AUTH_FAILED',
+      provider: 'openai',
+      message: `OpenAI image edit returned HTTP ${status} — check OPENAI_API_KEY`,
+      retryable: false,
+    });
+  }
+  if (status === 404) {
+    return new AIProviderError({
+      code: 'PROVIDER_NOT_FOUND',
+      provider: 'openai',
+      message: `OpenAI image edit returned HTTP 404 — model not found. Check OPENAI_IMAGE_MODEL (used: ${model}).`,
+      retryable: false,
+    });
+  }
+  if (status === 429) {
+    return new AIProviderError({
+      code: 'PROVIDER_RATE_LIMITED',
+      provider: 'openai',
+      message: `OpenAI image edit returned HTTP 429 — rate limited`,
+      retryable: true,
+    });
+  }
+  return new AIProviderError({
+    code: 'PROVIDER_HTTP_ERROR',
+    provider: 'openai',
+    message: `OpenAI image edit returned HTTP ${status}`,
     retryable: status >= 500,
   });
 }
@@ -315,6 +357,214 @@ export class OpenAIImageProvider implements ImageProvider {
       this.observer.observe({
         provider: 'openai',
         operation: 'generateImage',
+        status: 'failed',
+        durationMs,
+        errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNKNOWN',
+        retryable: err instanceof AIProviderError ? err.retryable : false,
+      });
+      throw err;
+    }
+  }
+
+  async editImage(request: ImageEditRequest): Promise<ImageGenerationResult> {
+    if (!request.prompt?.trim()) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_REQUEST',
+        provider: 'openai',
+        message: 'Prompt must not be empty',
+      });
+    }
+    if (!request.image || request.image.length === 0) {
+      throw new AIProviderError({
+        code: 'PROVIDER_INVALID_REQUEST',
+        provider: 'openai',
+        message: 'Source image bytes must not be empty',
+      });
+    }
+
+    // OpenAI image edits require a multipart upload. Some runtimes (older Node,
+    // certain test environments) do not expose FormData/Blob globally. Fail
+    // cleanly with a capability error instead of crashing mid-flight.
+    if (typeof FormData === 'undefined' || typeof Blob === 'undefined') {
+      throw new AIProviderError({
+        code: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+        provider: 'openai',
+        message: 'OpenAI image edits require runtime FormData/Blob support',
+        retryable: false,
+      });
+    }
+
+    const t0 = Date.now();
+    const requestSize = resolveImageRequestSize({
+      provider: 'openai',
+      ratio: { w: request.width, h: request.height },
+      requestedSize: this.size,
+    });
+    const requestQuality = this.quality;
+    const requestOutputFormat = this.outputFormat;
+    const sourceMimeType = request.mimeType ?? 'image/png';
+
+    console.info('[openai_image_edit]', {
+      provider: 'openai',
+      endpointFamily: ENDPOINT_FAMILY,
+      model: this.model,
+      size: requestSize,
+      sourceMimeType,
+      sourceByteLength: request.image.length,
+      ...(requestQuality && { quality: requestQuality }),
+      ...(requestOutputFormat && { outputFormat: requestOutputFormat }),
+      timeoutMs: this.timeoutMs,
+    });
+
+    this.observer.observe({
+      provider: 'openai',
+      operation: 'editImage',
+      status: 'started',
+      model: this.model,
+      requestWidth: request.width,
+      requestHeight: request.height,
+      requestSize,
+    });
+
+    const url = `${this.baseUrl}/images/edits`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    const formData = new FormData();
+    // TypeScript's lib.dom types are strict about BlobPart, but every runtime
+    // we target accepts an ArrayBuffer here. Use the underlying buffer.
+    const sourceBlob = new Blob([request.image.buffer as ArrayBuffer], { type: sourceMimeType });
+    const fileExtension = sourceMimeType === 'image/jpeg' ? 'jpg' : 'png';
+    formData.append('image', sourceBlob, `source.${fileExtension}`);
+    formData.append('model', this.model);
+    formData.append('prompt', request.prompt);
+    if (requestSize) {
+      formData.append('size', requestSize);
+    }
+    if (requestQuality) {
+      formData.append('quality', requestQuality);
+    }
+    if (requestOutputFormat) {
+      formData.append('output_format', requestOutputFormat);
+    }
+
+    try {
+      let response: Response;
+      try {
+        response = await this.fetchFn(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: formData,
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new AIProviderError({
+            code: 'PROVIDER_TIMEOUT',
+            provider: 'openai',
+            message: `OpenAI image edit request timed out after ${this.timeoutMs}ms`,
+            retryable: true,
+          });
+        }
+        throw new AIProviderError({
+          code: 'PROVIDER_UNAVAILABLE',
+          provider: 'openai',
+          message: `OpenAI image edit network error: ${err instanceof Error ? err.message : 'unknown'}`,
+          retryable: true,
+        });
+      }
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        let errorBody: unknown = null;
+        try {
+          errorBody = await response.clone().json();
+        } catch {
+          // Ignore; we only use it for safe diagnostics.
+        }
+        const safeMessage = safeProviderErrorMessage(errorBody);
+        const requestId = response.headers.get('x-request-id') ?? undefined;
+        const durationMs = Date.now() - t0;
+
+        console.error('[openai_image_edit]', {
+          provider: 'openai',
+          endpointFamily: ENDPOINT_FAMILY,
+          model: this.model,
+          status: response.status,
+          size: requestSize,
+          ...(requestQuality && { quality: requestQuality }),
+          ...(requestOutputFormat && { outputFormat: requestOutputFormat }),
+          durationMs,
+          ...(requestId && { requestId }),
+          ...(safeMessage && { providerMessage: safeMessage }),
+          errorCode: response.status === 400 ? 'IMAGE_EDIT_REQUEST_REJECTED' : 'PROVIDER_HTTP_ERROR',
+        });
+        throw mapEditHttpError(response.status, this.model);
+      }
+
+      let raw: unknown;
+      try {
+        raw = await response.json();
+      } catch {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'openai',
+          message: 'OpenAI image edit response body was not valid JSON',
+        });
+      }
+
+      const envelope = OpenAIImageResponseEnvelopeSchema.safeParse(raw);
+      if (!envelope.success) {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'openai',
+          message: 'OpenAI image edit response did not match expected envelope shape',
+        });
+      }
+
+      const imageEntry = envelope.data.data.find((item) => item.b64_json);
+
+      if (!imageEntry?.b64_json) {
+        throw new AIProviderError({
+          code: 'PROVIDER_INVALID_RESPONSE',
+          provider: 'openai',
+          message: 'OpenAI image edit response contained no b64_json image data',
+        });
+      }
+
+      const { width, height } = splitSize(requestSize);
+      const imageBytes = base64ToUint8Array(imageEntry.b64_json, 'openai');
+      const mimeType = requestOutputFormat === 'jpeg' ? 'image/jpeg' : sourceMimeType;
+
+      const result: ImageGenerationResult = {
+        provider: 'openai',
+        model: this.model,
+        mimeType,
+        width,
+        height,
+        data: imageBytes,
+      };
+
+      this.observer.observe({
+        provider: 'openai',
+        operation: 'editImage',
+        status: 'succeeded',
+        durationMs: Date.now() - t0,
+        model: this.model,
+        requestWidth: request.width,
+        requestHeight: request.height,
+        requestSize,
+      });
+
+      return result;
+    } catch (err) {
+      const durationMs = Date.now() - t0;
+      this.observer.observe({
+        provider: 'openai',
+        operation: 'editImage',
         status: 'failed',
         durationMs,
         errorCode: err instanceof AIProviderError ? err.code : 'PROVIDER_UNKNOWN',

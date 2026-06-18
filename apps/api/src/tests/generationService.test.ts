@@ -6,7 +6,17 @@ import type { GenerationJobRepository } from '../repositories/generationJobRepos
 import type { ChatRepository } from '../repositories/chatRepository.js';
 import type { ProjectRepository } from '../repositories/projectRepository.js';
 import type { CreditRepository } from '../repositories/creditRepository.js';
-import type { GenerationJobRow, ChatMessageRow, ChatThreadRow, ProjectRow, CreditBalanceRow, CreditLedgerRow, Json } from '@orra/db';
+import type { AssetRepository } from '../repositories/assetRepository.js';
+import type {
+  GenerationJobRow,
+  ChatMessageRow,
+  ChatThreadRow,
+  ProjectRow,
+  ProjectAssetRow,
+  CreditBalanceRow,
+  CreditLedgerRow,
+  Json,
+} from '@orra/db';
 
 import type { BrandSystemRepository } from '../repositories/brandSystemRepository.js';
 import type { BrandContextDto } from '@orra/shared';
@@ -369,6 +379,41 @@ function fakeAuthContext(workspaceId: string) {
       workspaceId,
       role: 'owner' as const,
       authSource: 'clerk' as const,
+    },
+  };
+}
+
+function createFakeAssetRepository(initial: ProjectAssetRow[] = []): AssetRepository {
+  const assets = [...initial];
+  return {
+    async createProjectAsset() {
+      throw new Error('not used');
+    },
+    async createBrandAsset() {
+      throw new Error('not used');
+    },
+    async listProjectAssets() {
+      return [];
+    },
+    async listBrandAssets() {
+      return [];
+    },
+    async findProjectAssetForWorkspace(input) {
+      return (
+        assets.find(
+          (a) =>
+            a.id === input.id && a.project_id === input.projectId && a.workspace_id === input.workspaceId
+        ) ?? null
+      );
+    },
+    async findBrandAssetForWorkspace() {
+      return null;
+    },
+    async markProjectAssetUploaded() {
+      return null;
+    },
+    async markBrandAssetUploaded() {
+      return null;
     },
   };
 }
@@ -787,6 +832,286 @@ describe('GenerationService', () => {
     expect(creditRepo.balances[0].reserved).toBe(10);
     expect(creditRepo.balances[0].subscription_available).toBe(10);
     expect(creditRepo.ledger.some((l) => l.entry_type === 'reserve')).toBe(true);
+  });
+
+
+  it('stores primarySourceAssetId and generationMode in job plan when approval references a source asset', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+        intent: {
+          mode: 'generation',
+          generationHint: { artifactType: 'post', generationMode: 'edit_uploaded_image' },
+        },
+        primarySourceAssetId: 'asset-1',
+        sourceAssetIds: ['asset-1'],
+      } as unknown as Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const assetRepo = createFakeAssetRepository([
+      {
+        id: 'asset-1',
+        workspace_id: 'ws-1',
+        project_id: 'proj-1',
+        kind: 'upload',
+        r2_key: 'ws/ws-1/projects/proj-1/assets/asset-1/photo.png',
+        content_hash: null,
+        content_type: 'image/png',
+        width: null,
+        height: null,
+        size_bytes: 1000,
+        source_prompt: null,
+        analysis: null,
+        status: 'uploaded',
+        created_at: '2026-01-01T00:00:00Z',
+      } as unknown as ProjectAssetRow,
+    ]);
+
+    const fakeQueue = {
+      async send(_msg: { jobId: string }) {
+        /* noop */
+      },
+    };
+
+    const creditRepo = createFakeCreditRepository([
+      {
+        workspace_id: 'ws-1',
+        subscription_available: 20,
+        topup_available: 0,
+        reserved: 0,
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      new CreditService(creditRepo),
+      {
+        ENVIRONMENT: 'production',
+        GENERATION_QUEUE: fakeQueue as unknown as import('../env.js').Env['GENERATION_QUEUE'],
+      } as unknown as import('../env.js').Env,
+      undefined,
+      assetRepo
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    const result = await service.createStubGenerationJob(ctx, {
+      projectId: 'proj-1',
+      approvalMessageId: 'msg-1',
+    });
+
+    const row = await jobRepo.findByIdForWorkspace({ id: result.id, workspaceId: 'ws-1' });
+    expect(row).not.toBeNull();
+    const plan = row!.plan as Record<string, unknown>;
+    expect(plan.primarySourceAssetId).toBe('asset-1');
+    expect(plan.sourceAssetIds).toEqual(['asset-1']);
+    expect(plan.generationMode).toBe('edit_uploaded_image');
+  });
+
+  it('rejects generation job when primary source asset is missing', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+        intent: {
+          mode: 'generation',
+          generationHint: { artifactType: 'post', generationMode: 'edit_uploaded_image' },
+        },
+        primarySourceAssetId: 'asset-missing',
+      } as unknown as Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const assetRepo = createFakeAssetRepository([]);
+    const creditRepo = createFakeCreditRepository([
+      {
+        workspace_id: 'ws-1',
+        subscription_available: 20,
+        topup_available: 0,
+        reserved: 0,
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      new CreditService(creditRepo),
+      undefined,
+      undefined,
+      assetRepo
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createStubGenerationJob(ctx, {
+        projectId: 'proj-1',
+        approvalMessageId: 'msg-1',
+      })
+    ).rejects.toThrow(ApiError);
+  });
+
+  it('rejects generation job when source asset belongs to another project', async () => {
+    const projectRepo = createFakeProjectRepository([
+      {
+        id: 'proj-1',
+        workspace_id: 'ws-1',
+        name: 'Project One',
+        type: 'post',
+        ratio: { name: '4:5', w: 1080, h: 1350 },
+        brand_system_id: null,
+        source_template_id: null,
+        autosave_state: null,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ]);
+
+    const thread: ChatThreadRow = {
+      id: 'thread-1',
+      workspace_id: 'ws-1',
+      project_id: 'proj-1',
+      title: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    const message: ChatMessageRow = {
+      id: 'msg-1',
+      workspace_id: 'ws-1',
+      thread_id: 'thread-1',
+      role: 'assistant',
+      kind: 'approval_summary',
+      content: 'Ready.',
+      metadata: {
+        approvalCard: { summaryLine: 'Ready.' },
+        approvalState: { status: 'approved', updatedAt: '2026-01-01T00:00:00Z' },
+        intent: {
+          mode: 'generation',
+          generationHint: { artifactType: 'post', generationMode: 'edit_uploaded_image' },
+        },
+        primarySourceAssetId: 'asset-2',
+      } as unknown as Json,
+      seq: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    const assetRepo = createFakeAssetRepository([
+      {
+        id: 'asset-2',
+        workspace_id: 'ws-1',
+        project_id: 'proj-2',
+        kind: 'upload',
+        r2_key: 'ws/ws-1/projects/proj-2/assets/asset-2/photo.png',
+        content_hash: null,
+        content_type: 'image/png',
+        width: null,
+        height: null,
+        size_bytes: 1000,
+        source_prompt: null,
+        analysis: null,
+        status: 'uploaded',
+        created_at: '2026-01-01T00:00:00Z',
+      } as unknown as ProjectAssetRow,
+    ]);
+
+    const creditRepo = createFakeCreditRepository([
+      {
+        workspace_id: 'ws-1',
+        subscription_available: 20,
+        topup_available: 0,
+        reserved: 0,
+        updated_at: '2026-01-01',
+      },
+    ]);
+    const jobRepo = createFakeGenerationJobRepository();
+    const chatRepo = createFakeChatRepository([thread], [message]);
+    const service = new GenerationService(
+      jobRepo,
+      chatRepo,
+      projectRepo,
+      new CreditService(creditRepo),
+      undefined,
+      undefined,
+      assetRepo
+    );
+    const ctx = fakeAuthContext('ws-1');
+
+    await expect(
+      service.createStubGenerationJob(ctx, {
+        projectId: 'proj-1',
+        approvalMessageId: 'msg-1',
+      })
+    ).rejects.toThrow(ApiError);
   });
 
   it('getJob returns scoped job', async () => {
