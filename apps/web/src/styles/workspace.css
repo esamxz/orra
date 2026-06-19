@@ -52,7 +52,6 @@
 .msg { display: flex; gap: 10px; max-width: 100%; }
 .msg .av { width: 26px; height: 26px; border-radius: 8px; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
 .msg.user .av { background: var(--ink); color: #eef1f1; }
-.msg.ai .av { background: var(--primary-10); color: var(--primary); }
 .msg .bubble { font-size: 14px; line-height: 1.55; padding-top: 3px; }
 .msg.user { flex-direction: row-reverse; }
 .msg.user .bubble { background: var(--inset); padding: 10px 14px; border-radius: 14px 14px 4px 14px; max-width: 80%; }

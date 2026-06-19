@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/trendTemplates.css';
+import '../styles/creditStatusActions.css';
 import { Icon } from '../data/icons';
 import { useCreditStatus } from '../hooks/useCreditStatus';
 import { useTrendTemplates } from '../hooks/useTrendTemplates';
-import UsageStatus from '../components/workspace/UsageStatus';
+import CreditStatusActions from '../components/billing/CreditStatusActions';
 import { createNewProject } from '../api/projects';
 import { ApiClientError } from '../api/errors';
 import type { TrendTemplateDto } from '../api/types';
@@ -68,26 +69,36 @@ export default function TrendTemplatesPage() {
     }
   };
 
+  const handleBuyCredits = () => navigate('/billing/credits');
+  const handleUpgrade = () => navigate('/billing/plan');
+
   return (
     <div className="tmpl-page">
       {/* Top bar */}
       <header className="tmpl-topbar">
-        <button
-          className="tmpl-back-btn"
-          onClick={() => navigate('/')}
-          aria-label="Back to dashboard"
-        >
-          <Icon.arrowLeft s={15} />
-          Dashboard
-        </button>
-        <span className="tmpl-topbar-spacer" />
-        <span className="tmpl-topbar-title">Trend Templates</span>
-        <span className="tmpl-topbar-spacer" />
-        <UsageStatus
-          status={creditData}
-          loading={creditLoading}
-          error={null}
-        />
+        <div className="tmpl-topbar-left">
+          <button
+            className="tmpl-back-btn"
+            onClick={() => navigate('/')}
+            aria-label="Back to dashboard"
+          >
+            <Icon.arrowLeft s={15} />
+            Dashboard
+          </button>
+        </div>
+        <div className="tmpl-topbar-center">
+          <span className="tmpl-topbar-title">Trend Templates</span>
+        </div>
+        <div className="tmpl-topbar-right">
+          <CreditStatusActions
+            compact
+            remaining={creditData?.balance.totalRemaining ?? null}
+            monthlyCredits={creditData?.balance.monthlyRemaining ?? null}
+            loading={creditLoading}
+            onBuyCredits={handleBuyCredits}
+            onUpgrade={handleUpgrade}
+          />
+        </div>
       </header>
 
       {/* Page header */}

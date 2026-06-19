@@ -55,6 +55,30 @@
   letter-spacing: -0.01em;
 }
 
+.tmpl-topbar-left {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.tmpl-topbar-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 auto;
+  padding: 0 12px;
+}
+
+.tmpl-topbar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 8px;
+}
+
 .tmpl-topbar-spacer {
   flex: 1;
 }

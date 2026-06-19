@@ -1125,13 +1125,11 @@ export default function WorkspacePage() {
             {displayMessages.map(m => {
               if (m.type==='thinking') return (
                 <div key={m.id} className="msg ai">
-                  <div className="av">{<Icon.sparkFill s={12} />}</div>
                   <div className="bubble"><span className="thinking"><span className="dots"><i/><i/><i/></span>{m.text}</span></div>
                 </div>
               );
               if (m.type==='generating') return (
                 <div key={m.id} className="msg ai">
-                  <div className="av">{<Icon.sparkFill s={12} />}</div>
                   <div className="bubble"><span className="thinking"><span className="dots"><i/><i/><i/></span>{m.text}</span></div>
                 </div>
               );
@@ -1139,13 +1137,13 @@ export default function WorkspacePage() {
                 const status = m.approvalState?.status;
                 if (status === 'approved') {
                   return (
-                    <div key={m.id} className="msg ai"><div className="av">{<Icon.sparkFill s={12} />}</div>
+                    <div key={m.id} className="msg ai">
                       <div className="bubble" style={{color:'var(--muted)',fontSize:13.5}}>Plan approved ✓</div></div>
                   );
                 }
                 if (status === 'cancelled') {
                   return (
-                    <div key={m.id} className="msg ai"><div className="av">{<Icon.sparkFill s={12} />}</div>
+                    <div key={m.id} className="msg ai">
                       <div className="bubble" style={{color:'var(--muted)',fontSize:13.5}}>Plan cancelled</div></div>
                   );
                 }
@@ -1182,7 +1180,7 @@ export default function WorkspacePage() {
                 );
               }
               if (m.type==='approvalDone') return (
-                <div key={m.id} className="msg ai"><div className="av">{<Icon.sparkFill s={12} />}</div>
+                <div key={m.id} className="msg ai">
                   <div className="bubble" style={{color:'var(--muted)',fontSize:13.5}}>Plan approved ✓</div></div>
               );
               if (m.type==='done') return (
@@ -1192,7 +1190,7 @@ export default function WorkspacePage() {
               );
               return (
                 <div key={m.id} className={'msg '+m.role}>
-                  <div className="av">{m.role==='ai'? <Icon.sparkFill s={12} /> : 'Y'}</div>
+                  {m.role === 'user' && <div className="av">{'Y'}</div>}
                   <div className="bubble">{m.text}</div>
                 </div>
               );

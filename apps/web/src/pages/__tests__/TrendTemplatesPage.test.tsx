@@ -26,8 +26,9 @@ vi.mock('../../api/projects', () => ({
 // ---------------------------------------------------------------------------
 // Hook mocks
 // ---------------------------------------------------------------------------
+const mockCreditStatus = vi.fn();
 vi.mock('../../hooks/useCreditStatus', () => ({
-  useCreditStatus: () => ({ data: null, loading: false, error: null, reload: vi.fn() }),
+  useCreditStatus: () => mockCreditStatus(),
 }));
 
 vi.mock('../../hooks/useTheme', () => ({
@@ -41,6 +42,30 @@ vi.mock('../../hooks/useTrendTemplates', () => ({
 
 vi.mock('../../components/workspace/UsageStatus', () => ({
   default: () => null,
+}));
+
+vi.mock('../../components/billing/CreditStatusActions', () => ({
+  default: (props: {
+    remaining: number | null;
+    monthlyCredits: number | null;
+    loading?: boolean;
+    onBuyCredits?: () => void;
+    onUpgrade?: () => void;
+    compact?: boolean;
+  }) => {
+    const CreditDisplay = (
+      <div data-testid="credit-status-actions" data-compact={props.compact ? 'true' : 'false'}>
+        <span data-testid="credit-remaining">{props.loading && props.remaining === null ? '—' : props.remaining ?? '—'}</span>
+        {props.onBuyCredits && (
+          <button data-testid="buy-credits-link" onClick={props.onBuyCredits}>Buy credits</button>
+        )}
+        {props.onUpgrade && (
+          <button data-testid="upgrade-link" onClick={props.onUpgrade}>Upgrade</button>
+        )}
+      </div>
+    );
+    return CreditDisplay;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -124,6 +149,22 @@ describe('TrendTemplatesPage', () => {
     mockCreateNewProject.mockClear();
     mockCreateNewProject.mockResolvedValue(makeProject());
     mockUseTrendTemplates.mockReturnValue(defaultHookState());
+    mockCreditStatus.mockReturnValue({
+      data: {
+        balance: {
+          workspaceId: 'ws-1',
+          monthlyRemaining: 500,
+          topupRemaining: 0,
+          totalRemaining: 847,
+          reserved: 0,
+          resetAt: null,
+        },
+        recentLedger: [],
+      },
+      loading: false,
+      error: null,
+      reload: vi.fn(),
+    });
   });
 
   it('renders page title', () => {
@@ -313,5 +354,36 @@ describe('TrendTemplatesPage', () => {
     }));
     renderPage();
     expect(screen.getAllByText('API-Only Template (never in old hardcoded array)').length).toBeGreaterThan(0);
+  });
+
+  it('renders credit status from useCreditStatus via shared component', () => {
+    renderPage();
+    expect(screen.getByTestId('credit-status-actions')).not.toBeNull();
+    expect(screen.getByTestId('credit-remaining').textContent).toBe('847');
+  });
+
+  it('wires Buy credits action to navigate', () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId('buy-credits-link'));
+    expect(mockNavigate).toHaveBeenCalledWith('/billing/credits');
+  });
+
+  it('wires Upgrade action to navigate', () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId('upgrade-link'));
+    expect(mockNavigate).toHaveBeenCalledWith('/billing/plan');
+  });
+
+  it('does not hardcode 1000 remaining credit value', () => {
+    renderPage();
+    expect(screen.queryByText('1000 remaining')).toBeNull();
+    expect(screen.queryByText('Monthly credits: 1000')).toBeNull();
+  });
+
+  it('does not break layout while credit status is loading', () => {
+    mockCreditStatus.mockReturnValue({ data: null, loading: true, error: null, reload: vi.fn() });
+    renderPage();
+    expect(screen.getByTestId('credit-status-actions')).not.toBeNull();
+    expect(screen.getByTestId('credit-remaining').textContent).toBe('—');
   });
 });
