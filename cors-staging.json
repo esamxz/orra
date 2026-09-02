@@ -4,8 +4,8 @@
       "allowed": {
         "origins": [
           "https://staging.orra-web.pages.dev",
-          "https://95b1f7b4.orra-web.pages.dev",
-          "https://71b2e03c.orra-web.pages.dev",
+          "https://<preview-hash-1>.orra-web.pages.dev",
+          "https://<preview-hash-2>.orra-web.pages.dev",
           "http://localhost:5173",
           "http://localhost:3000"
         ],
